@@ -20,10 +20,28 @@ def analyze_voice(audio_path: str):
     silence_ratio = silence_frames / total_frames if total_frames > 0 else 0.0
 
     # 3) Pitch analysis: variability
-    pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-    # Extract pitch values (non-zero) per frame
-    pitch_values = pitches[magnitudes > np.median(magnitudes)]
-    # fallback if none found
+    pitch_values = np.array([])
+
+    # Prefer librosa.pyin for robust fundamental frequency estimation, fall back to piptrack
+    try:
+        # reasonable voice range for humans
+        fmin = 50.0
+        fmax = 500.0
+        f0 = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=sr)
+        # librosa.pyin may return a tuple in some versions; handle that
+        if isinstance(f0, tuple) or isinstance(f0, list):
+            f0 = f0[0]
+
+        if f0 is not None:
+            pitch_values = f0[~np.isnan(f0)]
+    except Exception as e:
+        # fallback
+        try:
+            pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
+            pitch_values = pitches[magnitudes > np.median(magnitudes)]
+        except Exception:
+            pitch_values = np.array([])
+
     if pitch_values.size == 0:
         avg_pitch = 0.0
         pitch_std = 0.0

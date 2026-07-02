@@ -57,11 +57,51 @@ def process_speech(speech_id: int):
         silence_ratio = voice_metrics["silence_ratio"]
         pitch_std = voice_metrics["pitch_std"]
 
-        # Convert to score (simple heuristic)
-        voice_stability_score = max(
-            0.0,
-            100 - (pitch_std * 0.5 + silence_ratio * 100)
-        )
+        # Calculate voice stability score with better normalization
+        # Voice stability indicates how consistent and natural the voice sounds.
+        # We compute two components (0-100): pitch stability and silence management,
+        # then combine them with a weighted average.
+
+        # 1) Pitch stability component (0-100)
+        # Typical speech pitch_std (Hz) often falls in a moderate range; map ranges to scores
+        if pitch_std < 10:
+            # Very little variation (monotone)
+            pitch_score = 50.0
+        elif pitch_std < 50:
+            # Good/typical range
+            pitch_score = 100.0 - (pitch_std - 30.0) * 1.5
+        elif pitch_std < 100:
+            # Increasing variation, gradually penalize
+            pitch_score = 100.0 - (pitch_std - 50.0) * 0.8
+        else:
+            # Very high variation
+            pitch_score = max(20.0, 100.0 - (pitch_std - 100.0) * 0.5)
+
+        # Clamp pitch_score
+        pitch_score = max(0.0, min(100.0, float(pitch_score)))
+
+        # 2) Silence management component (0-100)
+        # Natural pause ratio is usually between ~0.15 and 0.35 (15%-35%).
+        if silence_ratio < 0.05:
+            silence_score = 60.0
+        elif silence_ratio < 0.15:
+            silence_score = 75.0
+        elif silence_ratio < 0.35:
+            silence_score = 95.0
+        elif silence_ratio < 0.50:
+            silence_score = 85.0
+        else:
+            silence_score = max(30.0, 85.0 - (silence_ratio * 100.0 - 50.0))
+
+        silence_score = max(0.0, min(100.0, float(silence_score)))
+
+        # 3) Combine: weight pitch more than silence
+        voice_stability_score = (pitch_score * 0.6 + silence_score * 0.4)
+        voice_stability_score = max(0.0, min(100.0, float(voice_stability_score)))
+
+        # Debugging detail to help tune on real recordings
+        print(f"[DEBUG] Pitch std: {pitch_std:.2f} Hz => pitch_score: {pitch_score:.1f}")
+        print(f"[DEBUG] Silence ratio: {silence_ratio:.2%} => silence_score: {silence_score:.1f}")
 
         # Optional: speaking speed
         word_count = len(transcript.split())

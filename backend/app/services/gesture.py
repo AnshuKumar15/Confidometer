@@ -91,6 +91,7 @@ def _gesture_from_mediapipe(video_path: str) -> float:
     prev_right = None
     movement = 0.0
     total_frames = 0
+    valid_frames = 0
 
     with mp_pose.Pose(static_image_mode=False) as pose:
         while cap.isOpened():
@@ -105,22 +106,36 @@ def _gesture_from_mediapipe(video_path: str) -> float:
             if results.pose_landmarks:
                 landmarks = results.pose_landmarks.landmark
 
-                left_hand = np.array([
-                    landmarks[mp_pose.PoseLandmark.LEFT_WRIST].x,
-                    landmarks[mp_pose.PoseLandmark.LEFT_WRIST].y,
-                ])
-                right_hand = np.array([
-                    landmarks[mp_pose.PoseLandmark.RIGHT_WRIST].x,
-                    landmarks[mp_pose.PoseLandmark.RIGHT_WRIST].y,
-                ])
+                # Check visibility/confidence before using wrist landmarks
+                left_lm = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+                right_lm = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
 
-                if prev_left is not None:
-                    movement += float(np.linalg.norm(left_hand - prev_left))
-                if prev_right is not None:
-                    movement += float(np.linalg.norm(right_hand - prev_right))
+                left_vis = getattr(left_lm, "visibility", 0.0)
+                right_vis = getattr(right_lm, "visibility", 0.0)
 
-                prev_left = left_hand
-                prev_right = right_hand
+                left_hand = np.array([left_lm.x, left_lm.y])
+                right_hand = np.array([right_lm.x, right_lm.y])
+
+                frame_had_visible = False
+
+                if left_vis > 0.5:
+                    frame_had_visible = True
+                    if prev_left is not None:
+                        movement += float(np.linalg.norm(left_hand - prev_left))
+                    prev_left = left_hand
+                else:
+                    prev_left = None
+
+                if right_vis > 0.5:
+                    frame_had_visible = True
+                    if prev_right is not None:
+                        movement += float(np.linalg.norm(right_hand - prev_right))
+                    prev_right = right_hand
+                else:
+                    prev_right = None
+
+                if frame_had_visible:
+                    valid_frames += 1
 
     cap.release()
 

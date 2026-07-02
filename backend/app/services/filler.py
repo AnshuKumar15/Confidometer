@@ -1,3 +1,5 @@
+import re
+
 FILLER_WORDS = [
     "um",
     "uh",
@@ -39,8 +41,17 @@ def count_fillers(transcript: str):
     transcript_lower = transcript.lower()
 
     count = 0
+    found = []
 
+    # Use word-boundary regex to avoid substring matches (e.g., "like" in "likely")
     for word in FILLER_WORDS:
-        count += transcript_lower.count(word)
+        pattern = r"\b" + re.escape(word) + r"\b"
+        matches = re.findall(pattern, transcript_lower)
+        if matches:
+            found.append((word, len(matches)))
+            count += len(matches)
+
+    if found:
+        print(f"[DEBUG] Fillers found: {found}")
 
     return count

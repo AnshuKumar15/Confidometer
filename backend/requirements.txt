@@ -10,3 +10,8 @@ openai-whisper
 moviepy
 mediapipe
 opencv-python
+pypdf
+google-generativeai
+python-dotenv
+edge-tts
+
