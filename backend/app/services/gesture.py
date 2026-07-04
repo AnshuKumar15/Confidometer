@@ -1,11 +1,21 @@
 from typing import Any, Optional, cast
+import os
+import math
 
 import cv2
 import mediapipe as mp
 import numpy as np
 
-mp_solutions = cast(Any, getattr(mp, "solutions", None))
-mp_pose = cast(Any, getattr(mp_solutions, "pose", None))
+# Load MediaPipe Tasks options
+BaseOptions = mp.tasks.BaseOptions
+PoseLandmarker = mp.tasks.vision.PoseLandmarker
+PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+VisionRunningMode = mp.tasks.vision.RunningMode
+
+# Resolve model path relative to file location
+SERVICES_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.dirname(SERVICES_DIR)
+MODEL_PATH = os.path.join(APP_DIR, "resources", "pose_landmarker.task")
 
 
 def _largest_face(gray_frame: Any, face_cascade: Any) -> Optional[tuple[int, int, int, int]]:
@@ -15,29 +25,43 @@ def _largest_face(gray_frame: Any, face_cascade: Any) -> Optional[tuple[int, int
     return cast(tuple[int, int, int, int], max(faces, key=lambda f: f[2] * f[3]))
 
 
+def _bell_curve_score(value: float, ideal: float, width: float) -> float:
+    """
+    Gaussian bell-curve scoring.
+    Returns 100 at `ideal`, decaying towards 0 as `value` moves away.
+    `width` controls how quickly it decays.
+    """
+    return 100.0 * math.exp(-((value - ideal) / width) ** 2)
+
+
 def _gesture_from_motion(video_path: str) -> float:
+    """OpenCV-based fallback: frame-differencing in estimated upper body ROI."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return 0.0
 
-    cv2_base_dir = cv2.__file__.rsplit("\\", 1)[0]
-    face_cascade = cv2.CascadeClassifier(
-        cv2_base_dir + "\\data\\haarcascade_frontalface_default.xml"
-    )
+    # Use os.path for cross-platform compatibility
+    cv2_data_dir = os.path.join(os.path.dirname(cv2.__file__), "data")
+    cascade_path = os.path.join(cv2_data_dir, "haarcascade_frontalface_default.xml")
+    face_cascade = cv2.CascadeClassifier(cascade_path)
 
     previous_roi = None
     analyzed_frames = 0
     active_frames = 0
+    frame_idx = 0
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
+        frame_idx += 1
+        if frame_idx % 2 != 0:  # Skip every other frame for performance
+            continue
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face = _largest_face(gray, face_cascade)
         if face is None:
-            # Fallback ROI for cases where face detector misses frames.
             h_total, w_total = gray.shape
             roi_x1 = int(w_total * 0.2)
             roi_x2 = int(w_total * 0.8)
@@ -45,8 +69,6 @@ def _gesture_from_motion(video_path: str) -> float:
             roi_y2 = int(h_total * 0.8)
         else:
             x, y, w, h = face
-
-            # Estimate upper-body ROI from face position to track hand/arm movement.
             roi_x1 = max(0, x - int(0.6 * w))
             roi_x2 = min(gray.shape[1], x + w + int(0.6 * w))
             roi_y1 = min(gray.shape[0] - 1, y + h)
@@ -78,79 +100,102 @@ def _gesture_from_motion(video_path: str) -> float:
     if analyzed_frames == 0:
         return 0.0
 
-    # Percentage of frames with meaningful gesture activity.
-    return round((active_frames / analyzed_frames) * 100.0, 2)
+    activity_ratio = active_frames / analyzed_frames
+    return round(_bell_curve_score(activity_ratio, ideal=0.50, width=0.35), 2)
 
 
 def _gesture_from_mediapipe(video_path: str) -> float:
+    """MediaPipe Pose-based gesture analysis tracking wrists + elbows."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return 0.0
 
-    prev_left = None
-    prev_right = None
-    movement = 0.0
-    total_frames = 0
-    valid_frames = 0
+    # Track 4 upper-body landmark indices
+    landmark_ids = {
+        "left_wrist": 15,
+        "right_wrist": 16,
+        "left_elbow": 13,
+        "right_elbow": 14,
+    }
 
-    with mp_pose.Pose(static_image_mode=False) as pose:
+    prev_positions: dict[str, np.ndarray | None] = {k: None for k in landmark_ids}
+    per_frame_movements: list[float] = []
+    total_frames = 0
+    frame_idx = 0
+
+    if not os.path.exists(MODEL_PATH):
+        print(f"[ERROR] Pose landmarker model not found at {MODEL_PATH}")
+        return 0.0
+
+    options = PoseLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=VisionRunningMode.IMAGE
+    )
+
+    with PoseLandmarker.create_from_options(options) as pose:
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
+            frame_idx += 1
+            if frame_idx % 2 != 0:  # Skip every other frame
+                continue
+
             total_frames += 1
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = pose.process(rgb)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            result = pose.detect(mp_image)
 
-            if results.pose_landmarks:
-                landmarks = results.pose_landmarks.landmark
+            if not result.pose_landmarks:
+                per_frame_movements.append(0.0)
+                continue
 
-                # Check visibility/confidence before using wrist landmarks
-                left_lm = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
-                right_lm = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+            landmarks = result.pose_landmarks[0]
+            frame_movement = 0.0
+            visible_count = 0
 
-                left_vis = getattr(left_lm, "visibility", 0.0)
-                right_vis = getattr(right_lm, "visibility", 0.0)
+            for name, lm_id in landmark_ids.items():
+                try:
+                    lm = landmarks[lm_id]
+                    vis = getattr(lm, "visibility", 0.0)
 
-                left_hand = np.array([left_lm.x, left_lm.y])
-                right_hand = np.array([right_lm.x, right_lm.y])
+                    if vis > 0.5:
+                        current_pos = np.array([lm.x, lm.y])
+                        if prev_positions[name] is not None:
+                            delta = float(np.linalg.norm(current_pos - prev_positions[name]))
+                            frame_movement += delta
+                            visible_count += 1
+                        prev_positions[name] = current_pos
+                    else:
+                        prev_positions[name] = None
+                except IndexError:
+                    continue
 
-                frame_had_visible = False
-
-                if left_vis > 0.5:
-                    frame_had_visible = True
-                    if prev_left is not None:
-                        movement += float(np.linalg.norm(left_hand - prev_left))
-                    prev_left = left_hand
-                else:
-                    prev_left = None
-
-                if right_vis > 0.5:
-                    frame_had_visible = True
-                    if prev_right is not None:
-                        movement += float(np.linalg.norm(right_hand - prev_right))
-                    prev_right = right_hand
-                else:
-                    prev_right = None
-
-                if frame_had_visible:
-                    valid_frames += 1
+            # Average movement per visible landmark in this frame
+            if visible_count > 0:
+                per_frame_movements.append(frame_movement / visible_count)
+            else:
+                per_frame_movements.append(0.0)
 
     cap.release()
 
-    if total_frames == 0:
+    if total_frames == 0 or len(per_frame_movements) == 0:
         return 0.0
 
-    return round((movement / total_frames) * 100.0, 2)
+    avg_movement = float(np.mean(per_frame_movements))
+
+    # Normalize score
+    score = _bell_curve_score(avg_movement, ideal=0.015, width=0.018)
+    print(f"[DEBUG] Gesture avg movement/frame: {avg_movement:.5f} => score: {score:.1f}")
+    return round(max(0.0, min(100.0, score)), 2)
 
 
 def analyze_gesture(video_path: str) -> float:
-    if mp_pose is not None:
-        try:
-            return _gesture_from_mediapipe(video_path)
-        except Exception as err:
-            print(f"[WARN] MediaPipe gesture analysis failed, using OpenCV fallback: {err}")
+    try:
+        return _gesture_from_mediapipe(video_path)
+    except Exception as err:
+        print(f"[WARN] MediaPipe pose tasks analysis failed, using OpenCV fallback: {err}")
 
     print("[INFO] Using OpenCV-based gesture analysis")
     return _gesture_from_motion(video_path)

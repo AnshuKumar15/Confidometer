@@ -2,10 +2,61 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import UploadBox from "@/components/UploadBox";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
-import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio } from "@/utils/api";
-import { Camera, Mic, Play, Square, Volume2, Upload, FileText, CheckCircle, Building2, Briefcase, ChevronDown } from "lucide-react";
+import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode } from "@/utils/api";
+import {
+  Camera, Mic, Play, Square, Volume2, Upload, FileText, CheckCircle,
+  Building2, Briefcase, ChevronDown, Clock, Code2, Brain, MessageSquare,
+  Users, Terminal, Send, Timer, AlertTriangle
+} from "lucide-react";
+
+// Dynamically import Monaco Editor (SSR-incompatible)
+const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
+
+// ── Interview Type Definitions ──
+const INTERVIEW_TYPES = [
+  {
+    id: "technical",
+    label: "Technical",
+    icon: <Brain size={22} />,
+    description: "Resume-based technical questions with optional coding tasks",
+    color: "#6c5ce7",
+  },
+  {
+    id: "hr",
+    label: "HR Round",
+    icon: <Users size={22} />,
+    description: "Motivation, teamwork, culture fit, and soft skills",
+    color: "#00b894",
+  },
+  {
+    id: "dsa",
+    label: "DSA Coding",
+    icon: <Terminal size={22} />,
+    description: "2 LeetCode problems (1 Easy + 1 Medium) · 30 min timer",
+    color: "#e17055",
+  },
+  {
+    id: "behavioural",
+    label: "Behavioural",
+    icon: <MessageSquare size={22} />,
+    description: "STAR-method situational and leadership questions",
+    color: "#0984e3",
+  },
+];
+
+// ── Language Options for Editor ──
+const LANGUAGES = [
+  { id: "python", label: "Python", monacoId: "python" },
+  { id: "javascript", label: "JavaScript", monacoId: "javascript" },
+  { id: "cpp", label: "C++", monacoId: "cpp" },
+  { id: "java", label: "Java", monacoId: "java" },
+];
+
+// ── DSA Timer: 30 minutes in seconds ──
+const DSA_TIMER_TOTAL = 30 * 60;
 
 export default function UploadPage() {
   const router = useRouter();
@@ -17,6 +68,7 @@ export default function UploadPage() {
   const [experienceLevel, setExperienceLevel] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [showJD, setShowJD] = useState(false);
+  const [interviewType, setInterviewType] = useState("technical");
   const [mediaStream, setMediaStream] = useState(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [error, setError] = useState("");
@@ -40,6 +92,106 @@ export default function UploadPage() {
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const recordedChunks = useRef([]);
 
+  // Live Interview Timer State
+  const [interviewDuration, setInterviewDuration] = useState(0);
+
+  // ── DSA / Editor State ──
+  const [showEditor, setShowEditor] = useState(false);
+  const [editorLanguage, setEditorLanguage] = useState("python");
+  const [dsaQuestions, setDsaQuestions] = useState(null); // array of Easy, Medium Leetcode problems
+  const [dsaQuestion, setDsaQuestion] = useState(null); // sandbox code question details
+  const [activeQIndex, setActiveQIndex] = useState(0); // 0 or 1
+  const [codeDrafts, setCodeDrafts] = useState({ 0: "", 1: "" });
+  const [dsaTimeLeft, setDsaTimeLeft] = useState(DSA_TIMER_TOTAL);
+  const [dsaComplete, setDsaComplete] = useState(false);
+  const dsaTimerRef = useRef(null);
+
+  const [isRunningCode, setIsRunningCode] = useState(false);
+  const [runResults, setRunResults] = useState(null);
+  const [showConsole, setShowConsole] = useState(false);
+  const [activeConsoleTab, setActiveConsoleTab] = useState(0);
+  const [splitWidth, setSplitWidth] = useState(45); // default 45% description
+  const workspaceRef = useRef(null);
+
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!workspaceRef.current) return;
+    const rect = workspaceRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    let percentage = (offsetX / rect.width) * 100;
+    
+    // Bounds check (e.g. 15% to 85%)
+    if (percentage < 15) percentage = 15;
+    if (percentage > 85) percentage = 85;
+    
+    setSplitWidth(percentage);
+  };
+
+  const handleMouseUp = () => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
+
+
+  // ── Hide navbar completely after starting the interview ──
+  useEffect(() => {
+    if (isInterviewing) {
+      document.body.classList.add("interview-active");
+    } else {
+      document.body.classList.remove("interview-active");
+    }
+    return () => {
+      document.body.classList.remove("interview-active");
+    };
+  }, [isInterviewing]);
+
+  // ── DSA 30-minute countdown timer ──
+  useEffect(() => {
+    if (isInterviewing && interviewType === "dsa" && !dsaComplete) {
+      setDsaTimeLeft(DSA_TIMER_TOTAL);
+      dsaTimerRef.current = setInterval(() => {
+        setDsaTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(dsaTimerRef.current);
+            // Time's up — auto-finish
+            handleFinishInterview();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (dsaTimerRef.current) clearInterval(dsaTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInterviewing, interviewType, dsaComplete]);
+
+  // ── Regular interview timer ──
+  useEffect(() => {
+    let timerId;
+    if (isInterviewing) {
+      setInterviewDuration(0);
+      timerId = setInterval(() => {
+        setInterviewDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [isInterviewing]);
+
+  function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
+
   // DOM Refs
   const videoRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -53,12 +205,14 @@ export default function UploadPage() {
       const savedExp = sessionStorage.getItem("confidometer_setup_experience");
       const savedJD = sessionStorage.getItem("confidometer_setup_jd");
       const savedShowJD = sessionStorage.getItem("confidometer_setup_show_jd");
+      const savedType = sessionStorage.getItem("confidometer_setup_interview_type");
       
       if (savedRole) setRole(savedRole);
       if (savedCompany) setCompanyName(savedCompany);
       if (savedExp) setExperienceLevel(savedExp);
       if (savedJD) setJobDescription(savedJD);
       if (savedShowJD === "true") setShowJD(true);
+      if (savedType) setInterviewType(savedType);
 
       const resumeBase64 = sessionStorage.getItem("confidometer_setup_resume_base64");
       const resumeName = sessionStorage.getItem("confidometer_setup_resume_name");
@@ -84,8 +238,9 @@ export default function UploadPage() {
       sessionStorage.setItem("confidometer_setup_experience", experienceLevel);
       sessionStorage.setItem("confidometer_setup_jd", jobDescription);
       sessionStorage.setItem("confidometer_setup_show_jd", showJD ? "true" : "false");
+      sessionStorage.setItem("confidometer_setup_interview_type", interviewType);
     }
-  }, [role, companyName, experienceLevel, jobDescription, showJD]);
+  }, [role, companyName, experienceLevel, jobDescription, showJD, interviewType]);
 
   // Save resume file to sessionStorage on change
   useEffect(() => {
@@ -319,7 +474,7 @@ export default function UploadPage() {
 
     try {
       // Initialize interview session on backend
-      const data = await initiateInterview(resumeFile, role, companyName, experienceLevel, jobDescription);
+      const data = await initiateInterview(resumeFile, role, companyName, experienceLevel, jobDescription, interviewType);
       
       // Clear saved setup state upon successful start
       sessionStorage.removeItem("confidometer_setup_role");
@@ -327,6 +482,7 @@ export default function UploadPage() {
       sessionStorage.removeItem("confidometer_setup_experience");
       sessionStorage.removeItem("confidometer_setup_jd");
       sessionStorage.removeItem("confidometer_setup_show_jd");
+      sessionStorage.removeItem("confidometer_setup_interview_type");
       sessionStorage.removeItem("confidometer_setup_resume_base64");
       sessionStorage.removeItem("confidometer_setup_resume_name");
       sessionStorage.removeItem("confidometer_setup_resume_type");
@@ -335,6 +491,20 @@ export default function UploadPage() {
       setCurrentQuestion(data.first_question);
       setMessages([{ role: "model", text: data.first_question }]);
       setIsInterviewing(true);
+
+      // DSA: load both questions and pre-populate draft codes
+      if (interviewType === "dsa" && data.dsa_questions) {
+        setDsaQuestions(data.dsa_questions);
+        setActiveQIndex(0);
+        setShowEditor(true);
+        
+        const q1 = data.dsa_questions[0];
+        const q2 = data.dsa_questions[1];
+        setCodeDrafts({
+          0: q1?.boilerplate?.[editorLanguage] || q1?.boilerplate?.["python"] || "",
+          1: q2?.boilerplate?.[editorLanguage] || q2?.boilerplate?.["python"] || "",
+        });
+      }
 
       // Start full video recording for later analysis
       recordedChunks.current = [];
@@ -368,19 +538,30 @@ export default function UploadPage() {
   }
 
   // 5. Submit candidate answer and get next question
-  async function submitResponse(transcriptText) {
-    if (!transcriptText.trim()) return;
+  async function submitResponse(transcriptText, code = null, qIdx = 0) {
+    if (!transcriptText.trim() && !code) return;
+
+    const userMsg = { role: "user", text: transcriptText };
+    if (code) userMsg.code = code;
 
     // Add user answer to chat log
-    setMessages((prev) => [...prev, { role: "user", text: transcriptText }]);
+    setMessages((prev) => [...prev, userMsg]);
     stopListening();
 
     try {
-      const data = await respondToAgent(sessionIdRef.current, transcriptText);
+      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx);
       const nextQ = data.next_question;
       
       setCurrentQuestion(nextQ);
       setMessages((prev) => [...prev, { role: "model", text: nextQ }]);
+
+      if (data.dsa_complete) {
+        setDsaComplete(true);
+      }
+
+      if (data.requires_editor) {
+        setShowEditor(true);
+      }
       
       // Speak next question
       speak(nextQ);
@@ -389,8 +570,58 @@ export default function UploadPage() {
     }
   }
 
+  // ── Submit Code to Liza ──
+  async function handleSubmitCode() {
+    const code = codeDrafts[activeQIndex]?.trim();
+    if (!code) return;
+
+    const activeQ = dsaQuestions ? dsaQuestions[activeQIndex] : null;
+    const qTitle = activeQ ? activeQ.title : "the problem";
+    const message = `I've written my solution for LeetCode ${activeQ?.number}: ${qTitle}. Here's my code.`;
+    await submitResponse(message, code, activeQIndex);
+  }
+
+  // ── Run Code dynamic evaluation ──
+  async function handleRunCode() {
+    const activeQ = dsaQuestions ? dsaQuestions[activeQIndex] : dsaQuestion;
+    if (!activeQ) return;
+    const code = codeDrafts[activeQIndex]?.trim();
+    if (!code) return;
+
+    setIsRunningCode(true);
+    setRunResults(null);
+    setShowConsole(true);
+    setActiveConsoleTab(0);
+
+    try {
+      const result = await runCode(
+        code,
+        editorLanguage,
+        activeQ.number,
+        activeQ.title,
+        activeQ.description
+      );
+      setRunResults(result);
+    } catch (err) {
+      setRunResults({
+        status: "compile_error",
+        compile_message: err.message || "Failed to execute code.",
+        results: [],
+        stdout: ""
+      });
+    } finally {
+      setIsRunningCode(false);
+    }
+  }
+
   // 6. Complete Interview & Upload video for analysis
   async function handleFinishInterview() {
+    // Stop DSA timer
+    if (dsaTimerRef.current) {
+      clearInterval(dsaTimerRef.current);
+      dsaTimerRef.current = null;
+    }
+
     // Stop Edge TTS audio playback (primary TTS)
     if (audioRef.current) {
       audioRef.current.onended = null;  // prevent triggering startListening
@@ -427,7 +658,7 @@ export default function UploadPage() {
         });
 
         // Upload compiled interview video
-        const data = await uploadVideo(interviewFile);
+        const data = await uploadVideo(interviewFile, sessionIdRef.current);
         router.push(`/processing?speechId=${data.speech_id}`);
       } catch (err) {
         setError("Failed to upload interview recording for analysis: " + err.message);
@@ -449,6 +680,29 @@ export default function UploadPage() {
     }
   }
 
+  // ── Language change handler ──
+  function handleLanguageChange(langId) {
+    setEditorLanguage(langId);
+    const activeQ = dsaQuestions ? dsaQuestions[activeQIndex] : dsaQuestion;
+    if (activeQ?.boilerplate) {
+      const bp = activeQ.boilerplate[langId];
+      if (bp) {
+        setCodeDrafts((prev) => ({
+          ...prev,
+          [activeQIndex]: bp
+        }));
+      }
+    }
+  }
+
+  // ── Determine if we're in a split-screen (editor) mode ──
+  const isDsaRound = interviewType === "dsa";
+  const showSplitScreen = isInterviewing && showEditor;
+  const activeQuestion = isDsaRound && dsaQuestions ? dsaQuestions[activeQIndex] : dsaQuestion;
+
+  // ── DSA Timer urgency class ──
+  const timerUrgency = dsaTimeLeft <= 120 ? "timer-critical" : dsaTimeLeft <= 300 ? "timer-warning" : "";
+
   return (
     <div className="upload-page">
       <section className="section-head">
@@ -463,11 +717,44 @@ export default function UploadPage() {
       {error && <p className="error-text centered">{error}</p>}
 
       {!isInterviewing ? (
-        /* SETUP MODE */
+        /* ═══════════════ SETUP MODE ═══════════════ */
         <div className="live-setup-container">
           <div className="setup-main glass">
             <h2>1. Configure Session</h2>
             
+            {/* ── Interview Type Selector ── */}
+            <div className="interview-type-selector">
+              <span className="label-text">Interview Type</span>
+              <div className="type-cards-grid">
+                {INTERVIEW_TYPES.map((type) => (
+                  <button
+                    key={type.id}
+                    type="button"
+                    className={`type-card ${interviewType === type.id ? "active" : ""}`}
+                    onClick={() => setInterviewType(type.id)}
+                    style={{ "--type-color": type.color }}
+                    disabled={loading}
+                  >
+                    <div className="type-card-icon">{type.icon}</div>
+                    <div className="type-card-info">
+                      <strong>{type.label}</strong>
+                      <span>{type.description}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {interviewType === "dsa" && (
+                <div className="dsa-info-banner glass">
+                  <AlertTriangle size={16} />
+                  <span>
+                    <strong>DSA Coding Round:</strong> You will solve <strong>1 Easy</strong> and <strong>1 Medium</strong> LeetCode problem in <strong>30 minutes</strong>.
+                    The workspace supports side-by-side problem reading and code runner checks. Difficulty scales based on your chosen company.
+                  </span>
+                </div>
+              )}
+            </div>
+
             <div className="setup-grid">
               <div className="form-fields">
                 <AutocompleteInput
@@ -510,30 +797,32 @@ export default function UploadPage() {
                   </select>
                 </label>
 
-                <div className="jd-section">
-                  <button
-                    type="button"
-                    className="jd-toggle"
-                    onClick={() => setShowJD(!showJD)}
-                  >
-                    <span className={`jd-chevron ${showJD ? "open" : ""}`}>
-                      <ChevronDown size={14} />
-                    </span>
-                    Add Job Description
-                    <span className="jd-optional-tag">Optional</span>
-                  </button>
-                  {showJD && (
-                    <div className="jd-content">
-                      <textarea
-                        value={jobDescription}
-                        onChange={(e) => setJobDescription(e.target.value)}
-                        placeholder="Paste the job description here to tailor interview questions..."
-                        disabled={loading}
-                        rows={4}
-                      />
-                    </div>
-                  )}
-                </div>
+                {interviewType !== "dsa" && (
+                  <div className="jd-section">
+                    <button
+                      type="button"
+                      className="jd-toggle"
+                      onClick={() => setShowJD(!showJD)}
+                    >
+                      <span className={`jd-chevron ${showJD ? "open" : ""}`}>
+                        <ChevronDown size={14} />
+                      </span>
+                      Add Job Description
+                      <span className="jd-optional-tag">Optional</span>
+                    </button>
+                    {showJD && (
+                      <div className="jd-content">
+                        <textarea
+                          value={jobDescription}
+                          onChange={(e) => setJobDescription(e.target.value)}
+                          placeholder="Paste the job description here to tailor interview questions..."
+                          disabled={loading}
+                          rows={4}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="resume-selector-zone">
                   <span className="label-text">Upload Resume (PDF/TXT)</span>
@@ -590,7 +879,7 @@ export default function UploadPage() {
               disabled={loading || !permissionGranted || !resumeFile || !role.trim()}
             >
               <Play size={16} />
-              {loading ? "Initializing..." : "Start Live Interview"}
+              {loading ? "Initializing..." : `Start ${INTERVIEW_TYPES.find(t => t.id === interviewType)?.label || ""} Interview`}
             </button>
           </div>
 
@@ -601,10 +890,340 @@ export default function UploadPage() {
             <UploadBox onSubmit={handleDirectUpload} isLoading={loading} compact={true} />
           </div>
         </div>
+      ) : showSplitScreen ? (
+        /* ═══════════════ SPLIT-SCREEN MODE (DSA / Coding Side-by-Side) ═══════════════ */
+        <div className="interview-split-container">
+          {/* ── Left Panel: Camera + Liza Dialogue (width: 35%) ── */}
+          <div className="split-left-panel">
+            <div className="split-cam-box glass">
+              {/* Timer badge */}
+              {isDsaRound ? (
+                <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
+                  <Timer size={14} />
+                  <span>{formatDuration(dsaTimeLeft)}</span>
+                </div>
+              ) : (
+                <div className="live-timer-badge">
+                  <Clock size={14} />
+                  <span>{formatDuration(interviewDuration)}</span>
+                </div>
+              )}
+
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="split-webcam"
+              />
+              
+              <div className="speaking-indicator-ring">
+                {isSpeaking ? (
+                  <div className="badge model-badge">
+                    <Volume2 size={14} className="pulse" />
+                    AI Speaking
+                  </div>
+                ) : isRecordingResponse ? (
+                  <div className="badge user-badge">
+                    <span className="recording-dot pulse"></span>
+                    Listening...
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="split-chat-box glass">
+              <h3>
+                <MessageSquare size={16} />
+                Liza Chat
+              </h3>
+              <div className="messages-log">
+                {messages.map((msg, idx) => (
+                  <div key={idx} className={`chat-bubble ${msg.role}`}>
+                    <span className="role-tag">{msg.role === "model" ? "Liza" : "You"}</span>
+                    <p>{msg.text}</p>
+                    {msg.code && (
+                      <pre className="chat-code-block"><code>{msg.code}</code></pre>
+                    )}
+                  </div>
+                ))}
+                {interimTranscript && !isRecordingResponse && (
+                  <div className="chat-bubble user interim">
+                    <span className="role-tag">Hearing...</span>
+                    <p>{interimTranscript}</p>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {isRecordingResponse && (
+                <div className="live-input-area" style={{ display: "flex", gap: "8px", margin: "8px 0" }}>
+                  <input
+                    type="text"
+                    className="response-text-input"
+                    value={interimTranscript}
+                    onChange={(e) => {
+                      setInterimTranscript(e.target.value);
+                      accumulatedTranscriptRef.current = e.target.value;
+                      if (silenceTimerRef.current) {
+                        clearTimeout(silenceTimerRef.current);
+                        silenceTimerRef.current = null;
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && interimTranscript.trim()) {
+                        const text = interimTranscript.trim();
+                        accumulatedTranscriptRef.current = "";
+                        setInterimTranscript("");
+                        submitResponse(text);
+                      }
+                    }}
+                    placeholder="Speak or type..."
+                    style={{
+                      flex: 1,
+                      background: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid var(--line)",
+                      borderRadius: "8px",
+                      padding: "8px 12px",
+                      color: "var(--text)",
+                      fontSize: "0.85rem"
+                    }}
+                  />
+                </div>
+              )}
+
+              <div className="controls-row" style={{ display: "flex", gap: "8px", width: "100%" }}>
+                <button
+                  className="button subtle finish-btn"
+                  onClick={handleFinishInterview}
+                  disabled={loading}
+                  style={{ flex: 1 }}
+                >
+                  <Square size={14} />
+                  {loading ? "Saving..." : "Finish & Analyze"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Right Panel: Workspace Side-by-Side (width: 65%) ── */}
+          <div className="split-right-panel glass">
+            {/* Header: Question switcher tabs & Language Selector */}
+            <div className="dsa-workspace-header">
+              {isDsaRound && dsaQuestions && (
+                <div className="dsa-questions-tabs">
+                  {dsaQuestions.map((q, idx) => (
+                    <button
+                      key={idx}
+                      className={`dsa-q-tab-btn ${activeQIndex === idx ? "active" : ""}`}
+                      onClick={() => setActiveQIndex(idx)}
+                    >
+                      <Terminal size={14} />
+                      Question {idx + 1}: {q.difficulty}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!isDsaRound && (
+                <div className="dsa-questions-tabs">
+                  <span className="dsa-active-title">Coding Sandbox</span>
+                </div>
+              )}
+
+              <div className="workspace-header-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div className="editor-lang-selector">
+                  <select
+                    value={editorLanguage}
+                    onChange={(e) => handleLanguageChange(e.target.value)}
+                  >
+                    {LANGUAGES.map((lang) => (
+                      <option key={lang.id} value={lang.id}>{lang.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Draggable Split Workspace */}
+            <div className="dsa-side-by-side-workspace" ref={workspaceRef}>
+              {/* Left Column: Problem statement description */}
+              <div className="dsa-problem-description-side" style={{ width: `${splitWidth}%` }}>
+                {activeQuestion ? (
+                  <>
+                    <div className="dsa-q-meta-info">
+                      <span className="dsa-q-number">LeetCode {activeQuestion.number}.</span>
+                      <span className="dsa-q-title">{activeQuestion.title}</span>
+                      <span className={`dsa-difficulty-tag ${(activeQuestion.difficulty || "").toLowerCase()}`}>
+                        {activeQuestion.difficulty}
+                      </span>
+                    </div>
+                    <div className="dsa-description-panel-content">
+                      <div
+                        className="dsa-description-content"
+                        dangerouslySetInnerHTML={{
+                          __html: (activeQuestion.description || "")
+                            .replace(/\n/g, "<br/>")
+                            .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
+                            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                            .replace(/`([^`]+)`/g, "<code>$1</code>")
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="muted centered" style={{ marginTop: "40px" }}>
+                    No problem loaded. Use the editor to code.
+                  </p>
+                )}
+              </div>
+
+              {/* Draggable Divider Split Bar */}
+              <div
+                className="dsa-workspace-resizer"
+                onMouseDown={handleMouseDown}
+              >
+                <div className="resizer-handle-dots" />
+              </div>
+
+              {/* Right Column: Code editor */}
+              <div className="dsa-code-editor-side" style={{ width: `${100 - splitWidth}%` }}>
+                <div className="monaco-editor-container">
+                  <MonacoEditor
+                    height="100%"
+                    language={LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python"}
+                    theme="vs-dark"
+                    value={codeDrafts[activeQIndex] || ""}
+                    onChange={(value) => {
+                      setCodeDrafts((prev) => ({
+                        ...prev,
+                        [activeQIndex]: value || ""
+                      }));
+                    }}
+                    options={{
+                      fontSize: 15,
+                      minimap: { enabled: false },
+                      scrollBeyondLastLine: false,
+                      wordWrap: "on",
+                      padding: { top: 12 },
+                      automaticLayout: true,
+                    }}
+                  />
+                </div>
+
+                {/* LeetCode-style Console Drawer */}
+                {showConsole && (
+                  <div className="console-drawer glass">
+                    <div className="console-drawer-header">
+                      <span>Console</span>
+                      <button className="close-console-btn" onClick={() => setShowConsole(false)}>×</button>
+                    </div>
+
+                    <div className="console-drawer-body">
+                      {isRunningCode ? (
+                        <div className="console-loading">
+                          <div className="console-spinner"></div>
+                          <span>Executing code against test cases...</span>
+                        </div>
+                      ) : runResults ? (
+                        <div className="console-results">
+                          {/* Execution Status Badge */}
+                          <div className="console-status-row">
+                            <span className={`console-status-badge ${runResults.status}`}>
+                              {runResults.status === "success" ? "Accepted" : runResults.status === "failed" ? "Wrong Answer" : "Compile Error"}
+                            </span>
+                          </div>
+
+                          {/* Compile Error Message */}
+                          {runResults.status === "compile_error" && (
+                            <pre className="console-compile-message">
+                              {runResults.compile_message}
+                            </pre>
+                          )}
+
+                          {/* Testcase Result Tabs */}
+                          {runResults.results && runResults.results.length > 0 && (
+                            <div className="console-testcases-tabs">
+                              <div className="testcase-tab-buttons">
+                                {runResults.results.map((r, i) => (
+                                  <button
+                                    key={i}
+                                    className={`testcase-tab-btn ${activeConsoleTab === i ? "active" : ""} ${r.passed ? "passed" : "failed"}`}
+                                    onClick={() => setActiveConsoleTab(i)}
+                                  >
+                                    Case {i + 1}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Active Tab details */}
+                              {runResults.results[activeConsoleTab] && (
+                                <div className="testcase-tab-detail">
+                                  <div className="io-row">
+                                    <span className="io-label">Input</span>
+                                    <pre className="io-code"><code>{runResults.results[activeConsoleTab].input}</code></pre>
+                                  </div>
+                                  <div className="io-row">
+                                    <span className="io-label">Expected</span>
+                                    <pre className="io-code"><code>{runResults.results[activeConsoleTab].expected}</code></pre>
+                                  </div>
+                                  <div className="io-row">
+                                    <span className="io-label">Actual</span>
+                                    <pre className={`io-code ${runResults.results[activeConsoleTab].passed ? "passed" : "failed"}`}>
+                                      <code>{runResults.results[activeConsoleTab].actual}</code>
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Standard Output (Stdout) */}
+                          {runResults.stdout && (
+                            <div className="console-stdout-section">
+                              <span className="io-label">Stdout</span>
+                              <pre className="console-stdout">{runResults.stdout}</pre>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {/* Editor Action Bar (Run + Submit) */}
+                <div className="editor-action-bar">
+                  <button
+                    className="button subtle run-code-btn"
+                    onClick={handleRunCode}
+                    disabled={loading || isRunningCode || !(codeDrafts[activeQIndex]?.trim())}
+                  >
+                    <Play size={14} />
+                    Run Code
+                  </button>
+                  <button
+                    className="button primary submit-code-btn"
+                    onClick={handleSubmitCode}
+                    disabled={loading || !(codeDrafts[activeQIndex]?.trim())}
+                  >
+                    <Send size={14} />
+                    Submit Code to Liza
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : (
-        /* INTERVIEWING MODE */
+        /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
         <div className="interview-live-container">
           <div className="live-stream-box glass">
+            {/* Live timer badge */}
+            <div className="live-timer-badge">
+              <Clock size={14} />
+              <span>{formatDuration(interviewDuration)}</span>
+            </div>
+
             <video
               ref={videoRef}
               autoPlay
@@ -637,7 +1256,7 @@ export default function UploadPage() {
                   <p>{msg.text}</p>
                 </div>
               ))}
-              {interimTranscript && (
+              {interimTranscript && !isRecordingResponse && (
                 <div className="chat-bubble user interim">
                   <span className="role-tag">Hearing...</span>
                   <p>{interimTranscript}</p>
@@ -652,15 +1271,72 @@ export default function UploadPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="controls-row">
+            {isRecordingResponse && (
+              <div className="live-input-area" style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
+                <input
+                  type="text"
+                  className="response-text-input"
+                  value={interimTranscript}
+                  onChange={(e) => {
+                    setInterimTranscript(e.target.value);
+                    accumulatedTranscriptRef.current = e.target.value;
+                    if (silenceTimerRef.current) {
+                      clearTimeout(silenceTimerRef.current);
+                      silenceTimerRef.current = null;
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && interimTranscript.trim()) {
+                      const text = interimTranscript.trim();
+                      accumulatedTranscriptRef.current = "";
+                      setInterimTranscript("");
+                      submitResponse(text);
+                    }
+                  }}
+                  placeholder="Speaking... you can also type or edit here."
+                  style={{
+                    flex: 1,
+                    background: "rgba(255, 255, 255, 0.05)",
+                    border: "1px solid var(--line)",
+                    borderRadius: "8px",
+                    padding: "10px 14px",
+                    color: "var(--text)",
+                    fontSize: "0.95rem"
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="controls-row" style={{ display: "flex", gap: "12px", width: "100%" }}>
               <button
                 className="button subtle finish-btn"
                 onClick={handleFinishInterview}
                 disabled={loading}
+                style={{ flex: 1 }}
               >
                 <Square size={16} />
                 {loading ? "Saving Session..." : "Finish & Analyze"}
               </button>
+
+
+              {isRecordingResponse && (
+                <button
+                  className="button primary submit-btn"
+                  onClick={() => {
+                    const text = interimTranscript.trim();
+                    if (text) {
+                      accumulatedTranscriptRef.current = "";
+                      setInterimTranscript("");
+                      submitResponse(text);
+                    }
+                  }}
+                  disabled={loading}
+                  style={{ flex: 1 }}
+                >
+                  <CheckCircle size={16} />
+                  Submit Answer
+                </button>
+              )}
             </div>
           </div>
         </div>

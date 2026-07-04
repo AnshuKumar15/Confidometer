@@ -20,7 +20,7 @@ export default function LoginPage() {
 
     try {
       const data = await login({ email, password });
-      saveSession({ accessToken: data.access_token, user: { email } });
+      saveSession({ accessToken: data.access_token, user: data.user || { email } });
       router.push("/upload");
     } catch (err) {
       setError(err.message || "Login failed");

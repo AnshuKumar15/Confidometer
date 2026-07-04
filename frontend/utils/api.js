@@ -109,9 +109,10 @@ export function register(payload) {
   });
 }
 
-export function uploadVideo(file) {
+export function uploadVideo(file, sessionId = null) {
   const formData = new FormData();
   formData.append("file", file);
+  if (sessionId) formData.append("session_id", sessionId);
 
   return request("/upload/", {
     method: "POST",
@@ -124,13 +125,14 @@ export function getAnalysis(speechId) {
   return request(`/analysis/${speechId}`, { auth: true });
 }
 
-export function initiateInterview(resumeFile, role, companyName = "", experienceLevel = "", jobDescription = "") {
+export function initiateInterview(resumeFile, role, companyName = "", experienceLevel = "", jobDescription = "", interviewType = "technical") {
   const formData = new FormData();
   formData.append("resume", resumeFile);
   formData.append("role", role);
   if (companyName) formData.append("company_name", companyName);
   if (experienceLevel) formData.append("experience_level", experienceLevel);
   if (jobDescription) formData.append("job_description", jobDescription);
+  formData.append("interview_type", interviewType);
 
   return request("/agent/initiate", {
     method: "POST",
@@ -139,12 +141,31 @@ export function initiateInterview(resumeFile, role, companyName = "", experience
   });
 }
 
-export function respondToAgent(sessionId, message) {
+export function respondToAgent(sessionId, message, code = null, questionIndex = 0) {
   const formData = new FormData();
   formData.append("session_id", sessionId);
   formData.append("message", message);
+  if (code) {
+    formData.append("code", code);
+    formData.append("question_index", questionIndex);
+  }
 
   return request("/agent/respond", {
+    method: "POST",
+    body: formData,
+    auth: true
+  });
+}
+
+export function runCode(code, language, questionNumber, questionTitle, description) {
+  const formData = new FormData();
+  formData.append("code", code);
+  formData.append("language", language);
+  formData.append("question_number", questionNumber);
+  formData.append("question_title", questionTitle);
+  formData.append("description", description);
+
+  return request("/agent/run", {
     method: "POST",
     body: formData,
     auth: true
@@ -166,4 +187,8 @@ export async function fetchTTSAudio(text) {
 
   const blob = await res.blob();
   return URL.createObjectURL(blob);
+}
+
+export function getUserHistory() {
+  return request("/analysis/history", { auth: true });
 }

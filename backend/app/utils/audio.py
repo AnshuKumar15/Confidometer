@@ -6,7 +6,7 @@ import subprocess
 import imageio_ffmpeg
 
 # Load model once (important)
-model = whisper.load_model("base", device="cpu") # loads wishper base model and keeps it in memory
+model = whisper.load_model("small", device="cpu") # loads whisper small model and keeps it in memory
 
 #extracts audio and sends it to output_path
 def extract_audio(video_path: str, output_path: str):
