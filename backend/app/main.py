@@ -64,18 +64,12 @@ def check_and_add_columns():
 
 check_and_add_columns()
 # ── End auto-migration ──
+from app.config import settings
+
 app = FastAPI()
 
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-    "http://localhost:3002",
-    "http://127.0.0.1:3002",
-    "http://localhost:3003",
-    "http://127.0.0.1:3003",
-]
+# Parse allowed origins from configuration settings
+allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,

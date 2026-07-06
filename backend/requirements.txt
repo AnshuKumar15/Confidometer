@@ -14,4 +14,4 @@ pypdf
 google-generativeai
 python-dotenv
 edge-tts
-
+psycopg2-binary
