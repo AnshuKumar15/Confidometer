@@ -1,11 +1,14 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question, generate_dsa_question
 from app.utils.security import get_current_user
+from app.utils.audio import transcribe_chunk
+from app.services.stt import SmartTranscriber, _extract_confidence
 from starlette.background import BackgroundTask
 import os
 import uuid
 import json
+import asyncio
 import edge_tts
 import tempfile
 
@@ -29,6 +32,8 @@ async def initiate_interview(
     experience_level: str = Form(""),
     job_description: str = Form(""),
     interview_type: str = Form("technical"),
+    duration: int = Form(10),
+    stress_mode: bool = Form(False),
     current_user = Depends(get_current_user)
 ):
     try:
@@ -48,8 +53,12 @@ async def initiate_interview(
 
         # Normalize interview type
         interview_type = interview_type.lower().strip()
-        if interview_type not in ("technical", "hr", "dsa", "behavioural"):
+        if interview_type not in ("technical", "hr", "dsa", "behavioural", "negotiation"):
             interview_type = "technical"
+
+        # Stress mode only applies to non-DSA rounds
+        if interview_type == "dsa":
+            stress_mode = False
 
         # Create session
         session_id = str(uuid.uuid4())
@@ -61,6 +70,8 @@ async def initiate_interview(
             "experience_level": experience_level,
             "job_description": job_description,
             "interview_type": interview_type,
+            "duration": duration,
+            "stress_mode": stress_mode,
             "history": [],
             "dsa_state": None,
         }
@@ -117,6 +128,7 @@ async def initiate_interview(
                 experience_level=experience_level,
                 job_description=job_description,
                 interview_type=interview_type,
+                stress_mode=stress_mode,
             )
             active_sessions[session_id]["history"].append({
                 "role": "model",
@@ -136,12 +148,15 @@ async def respond_to_agent(
     message: str = Form(...),
     code: str = Form(None),
     question_index: int = Form(0),
+    elapsed_seconds: int = Form(0),
 ):
     if session_id not in active_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
     session = active_sessions[session_id]
     interview_type = session.get("interview_type", "technical")
+    duration = session.get("duration", 10)
+    is_time_up = elapsed_seconds >= (duration * 60)
     
     # Append user response to history
     user_entry = {"role": "user", "text": message}
@@ -187,6 +202,7 @@ async def respond_to_agent(
 
         session["history"].append({"role": "model", "text": next_question})
         response_payload["next_question"] = next_question
+        response_payload["is_complete"] = False
 
     else:
         # ── Standard conversational flow (all round types) ──
@@ -199,10 +215,19 @@ async def respond_to_agent(
             experience_level=session.get("experience_level", ""),
             job_description=session.get("job_description", ""),
             interview_type=interview_type,
+            is_time_up=is_time_up,
+            stress_mode=session.get("stress_mode", False),
         )
 
         session["history"].append({"role": "model", "text": next_question})
         response_payload["next_question"] = next_question
+        
+        is_complete = is_time_up
+        # Detect if model wrapped up in its text output
+        if is_time_up or "interview is complete" in next_question.lower() or "concludes our" in next_question.lower() or "conclude our" in next_question.lower() or "complete." in next_question.lower():
+            is_complete = True
+            
+        response_payload["is_complete"] = is_complete
 
     return response_payload
 
@@ -260,4 +285,93 @@ async def run_code(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── In-memory store for active STT sessions (session_id → SmartTranscriber) ──
+_stt_sessions: dict[str, SmartTranscriber] = {}
+
+
+@router.websocket("/ws/stt")
+async def websocket_stt(websocket: WebSocket, session_id: str = Query("")):
+    """
+    WebSocket endpoint for real-time Speech-to-Text using Whisper.
+
+    Protocol:
+    - Client sends binary audio chunks (webm blobs) via WebSocket
+    - Server transcribes each chunk with Whisper
+    - Server applies smart self-correction (detects repeated/corrected phrases)
+    - Server sends back JSON: { text, corrections, full_transcript }
+    """
+    await websocket.accept()
+    print(f"[STT-WS] Client connected (session: {session_id or 'none'})")
+
+    # Get or create SmartTranscriber for this session
+    if session_id and session_id not in _stt_sessions:
+        _stt_sessions[session_id] = SmartTranscriber()
+    transcriber = _stt_sessions.get(session_id, SmartTranscriber())
+
+    try:
+        while True:
+            # Receive audio chunk as binary
+            data = await websocket.receive_bytes()
+
+            if not data or len(data) < 100:
+                # Too small to be useful audio — skip
+                continue
+
+            # Transcribe the chunk in a thread to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            whisper_result = await loop.run_in_executor(
+                None, transcribe_chunk, data
+            )
+
+            chunk_text = whisper_result.get("text", "").strip()
+
+            if not chunk_text:
+                # No speech detected in this chunk
+                await websocket.send_json({
+                    "type": "interim",
+                    "text": "",
+                    "corrections": [],
+                    "full_transcript": transcriber.get_full_transcript(),
+                })
+                continue
+
+            # Extract confidence from Whisper result
+            confidence = _extract_confidence(whisper_result)
+
+            # Add to smart transcriber (may trigger corrections)
+            result = transcriber.add_segment(chunk_text, confidence)
+
+            print(f"[STT-WS] Chunk: '{chunk_text}' (conf={confidence:.2f}), "
+                  f"corrections={len(result['corrections'])}")
+
+            # Send result back to client
+            await websocket.send_json({
+                "type": "result",
+                "text": result["text"],
+                "corrections": result["corrections"],
+                "full_transcript": result["full_transcript"],
+            })
+
+    except WebSocketDisconnect:
+        print(f"[STT-WS] Client disconnected (session: {session_id or 'none'})")
+    except Exception as e:
+        print(f"[STT-WS] Error: {e}")
+        try:
+            await websocket.close(code=1011, reason=str(e))
+        except Exception:
+            pass
+    finally:
+        # Clean up the transcriber if session ended
+        if session_id and session_id in _stt_sessions:
+            del _stt_sessions[session_id]
+
+
+@router.post("/stt/reset")
+async def reset_stt_session(session_id: str = Form(...)):
+    """Reset the STT transcriber for a session (e.g., when starting a new question)."""
+    if session_id in _stt_sessions:
+        _stt_sessions[session_id].reset()
+    return {"status": "ok"}
 

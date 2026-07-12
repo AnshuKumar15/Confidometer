@@ -3,13 +3,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import UploadBox from "@/components/UploadBox";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
-import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode } from "@/utils/api";
+import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, createSTTWebSocket } from "@/utils/api";
 import {
-  Camera, Mic, Play, Square, Volume2, Upload, FileText, CheckCircle,
-  Building2, Briefcase, ChevronDown, Clock, Code2, Brain, MessageSquare,
-  Users, Terminal, Send, Timer, AlertTriangle
+  Camera, Mic, Play, Square, FileText, CheckCircle,
+  Building2, Briefcase, Clock, Brain, MessageSquare,
+  Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -45,6 +44,13 @@ const INTERVIEW_TYPES = [
     description: "STAR-method situational and leadership questions",
     color: "#0984e3",
   },
+  {
+    id: "negotiation",
+    label: "Negotiation",
+    icon: <DollarSign size={22} />,
+    description: "Practice salary & offer negotiation with AI recruiter",
+    color: "#fdcb6e",
+  },
 ];
 
 // ── Language Options for Editor ──
@@ -69,10 +75,14 @@ export default function UploadPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [showJD, setShowJD] = useState(false);
   const [interviewType, setInterviewType] = useState("technical");
+  const [duration, setDuration] = useState(10);
+  const [isComplete, setIsComplete] = useState(false);
+  const isCompleteRef = useRef(false);
   const [mediaStream, setMediaStream] = useState(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [stressMode, setStressMode] = useState(false);
 
   // Interview States
   const [isInterviewing, setIsInterviewing] = useState(false);
@@ -91,6 +101,8 @@ export default function UploadPage() {
   // MediaRecorder for full interview analysis
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const recordedChunks = useRef([]);
+  const speechCancelledRef = useRef(false);
+  const isSubmittingResponseRef = useRef(false);
 
   // Live Interview Timer State
   const [interviewDuration, setInterviewDuration] = useState(0);
@@ -197,6 +209,11 @@ export default function UploadPage() {
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
 
+  // Server-side STT refs (WebSocket + audio capture)
+  const sttWsRef = useRef(null);        // WebSocket connection to backend Whisper STT
+  const sttRecorderRef = useRef(null);   // MediaRecorder capturing audio chunks for STT
+  const sttUsingServerRef = useRef(false); // true when using server-side STT (vs browser fallback)
+
   // Load saved state from sessionStorage on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -206,6 +223,8 @@ export default function UploadPage() {
       const savedJD = sessionStorage.getItem("confidometer_setup_jd");
       const savedShowJD = sessionStorage.getItem("confidometer_setup_show_jd");
       const savedType = sessionStorage.getItem("confidometer_setup_interview_type");
+      const savedDuration = sessionStorage.getItem("confidometer_setup_duration");
+      const savedStress = sessionStorage.getItem("confidometer_setup_stress_mode");
       
       if (savedRole) setRole(savedRole);
       if (savedCompany) setCompanyName(savedCompany);
@@ -213,6 +232,8 @@ export default function UploadPage() {
       if (savedJD) setJobDescription(savedJD);
       if (savedShowJD === "true") setShowJD(true);
       if (savedType) setInterviewType(savedType);
+      if (savedDuration) setDuration(Number(savedDuration));
+      if (savedStress === "true") setStressMode(true);
 
       const resumeBase64 = sessionStorage.getItem("confidometer_setup_resume_base64");
       const resumeName = sessionStorage.getItem("confidometer_setup_resume_name");
@@ -239,8 +260,10 @@ export default function UploadPage() {
       sessionStorage.setItem("confidometer_setup_jd", jobDescription);
       sessionStorage.setItem("confidometer_setup_show_jd", showJD ? "true" : "false");
       sessionStorage.setItem("confidometer_setup_interview_type", interviewType);
+      sessionStorage.setItem("confidometer_setup_duration", duration.toString());
+      sessionStorage.setItem("confidometer_setup_stress_mode", stressMode ? "true" : "false");
     }
-  }, [role, companyName, experienceLevel, jobDescription, showJD, interviewType]);
+  }, [role, companyName, experienceLevel, jobDescription, showJD, interviewType, duration, stressMode]);
 
   // Save resume file to sessionStorage on change
   useEffect(() => {
@@ -309,49 +332,238 @@ export default function UploadPage() {
 
   async function speak(text) {
     setIsSpeaking(true);
+    if (speechCancelledRef.current) {
+      setIsSpeaking(false);
+      return;
+    }
     try {
       const audioUrl = await fetchTTSAudio(text);
+      if (speechCancelledRef.current) {
+        URL.revokeObjectURL(audioUrl);
+        setIsSpeaking(false);
+        return;
+      }
+      // Stop any currently playing audio before starting new one
+      if (audioRef.current) {
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
         // Auto-trigger recording after AI finishes asking
-        startListening();
+        if (!speechCancelledRef.current) {
+          startListening();
+        }
       };
       audio.onerror = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
-        startListening();
+        if (!speechCancelledRef.current) {
+          startListening();
+        }
       };
       await audio.play();
     } catch (err) {
       console.warn("Edge TTS failed, falling back to browser speech:", err);
       // Fallback to browser SpeechSynthesis
       if (typeof window !== "undefined" && window.speechSynthesis) {
+        if (speechCancelledRef.current) {
+          setIsSpeaking(false);
+          return;
+        }
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.onend = () => {
           setIsSpeaking(false);
-          startListening();
+          if (!speechCancelledRef.current) {
+            startListening();
+          }
         };
         window.speechSynthesis.speak(utterance);
       } else {
         setIsSpeaking(false);
-        startListening();
+        if (!speechCancelledRef.current) {
+          startListening();
+        }
       }
     }
   }
 
-  // 3. Browser Speech Recognition setup
+  // 3. Speech Recognition setup — Server-side Whisper STT with browser fallback
   const accumulatedTranscriptRef = useRef("");
   const silenceTimerRef = useRef(null);
-  const SILENCE_TIMEOUT_MS = 3000; // 3 seconds of silence before auto-submit
+  const SILENCE_TIMEOUT_MS = 4000; // 4 seconds of silence before auto-submit (slightly longer to accommodate server latency)
+  const STT_CHUNK_INTERVAL_MS = 3000; // send audio chunks to server every 3 seconds
 
-  function startListening() {
+  // ── Server-side STT via WebSocket + Whisper ──
+  function startServerSTT() {
+    // Need a media stream to capture audio
+    if (!mediaStream) {
+      console.warn("[STT] No media stream available, falling back to browser STT");
+      startBrowserSTT();
+      return;
+    }
+
+    accumulatedTranscriptRef.current = "";
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
+    // Open WebSocket to backend Whisper STT
+    const ws = createSTTWebSocket(
+      sessionIdRef.current,
+      // onResult
+      (data) => {
+        const text = data.text || "";
+        const corrections = data.corrections || [];
+        const fullTranscript = data.full_transcript || "";
+
+        if (data.type === "result" && text) {
+          // If there were corrections, use the server's full_transcript
+          // (it already has corrections applied)
+          if (corrections.length > 0) {
+            console.log("[STT] Self-correction applied:", corrections);
+            accumulatedTranscriptRef.current = fullTranscript;
+          } else {
+            // No corrections — the server's full_transcript includes the new segment
+            accumulatedTranscriptRef.current = fullTranscript;
+          }
+          setInterimTranscript(accumulatedTranscriptRef.current.trim());
+        }
+
+        // Reset silence timer on any speech activity
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+        }
+
+        // Start silence timer — submit after silence
+        if (accumulatedTranscriptRef.current.trim()) {
+          silenceTimerRef.current = setTimeout(() => {
+            const fullText = accumulatedTranscriptRef.current.trim();
+            if (fullText) {
+              accumulatedTranscriptRef.current = "";
+              setInterimTranscript("");
+              submitResponse(fullText);
+            }
+          }, SILENCE_TIMEOUT_MS);
+        }
+      },
+      // onError
+      (errMsg) => {
+        console.warn("[STT] WebSocket error, falling back to browser STT:", errMsg);
+        cleanupServerSTT();
+        startBrowserSTT();
+      },
+      // onOpen
+      () => {
+        console.log("[STT] Server-side Whisper STT connected");
+        sttUsingServerRef.current = true;
+        setIsRecordingResponse(true);
+        setInterimTranscript("");
+        startAudioCapture();
+      },
+      // onClose
+      () => {
+        console.log("[STT] Server STT WebSocket closed");
+        // If we didn't intentionally close, submit what we have
+        if (sttUsingServerRef.current) {
+          const fullText = accumulatedTranscriptRef.current.trim();
+          if (fullText) {
+            accumulatedTranscriptRef.current = "";
+            setInterimTranscript("");
+            submitResponse(fullText);
+          }
+          sttUsingServerRef.current = false;
+          setIsRecordingResponse(false);
+        }
+      }
+    );
+
+    sttWsRef.current = ws;
+  }
+
+  function startAudioCapture() {
+    // Use the existing media stream's audio tracks to capture audio chunks
+    if (!mediaStream) return;
+
+    try {
+      // Create an audio-only stream from the existing media stream
+      const audioTracks = mediaStream.getAudioTracks();
+      if (!audioTracks.length) {
+        console.warn("[STT] No audio tracks in media stream");
+        return;
+      }
+
+      const audioStream = new MediaStream(audioTracks);
+
+      // Use a separate MediaRecorder for STT chunks
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+
+      if (!mimeType) {
+        console.warn("[STT] No supported audio MIME type for MediaRecorder");
+        return;
+      }
+
+      const recorder = new MediaRecorder(audioStream, {
+        mimeType,
+        audioBitsPerSecond: 64000, // lower bitrate is fine for speech
+      });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0 && sttWsRef.current) {
+          sttWsRef.current.send(event.data);
+        }
+      };
+
+      recorder.onerror = (e) => {
+        console.warn("[STT] MediaRecorder error:", e);
+      };
+
+      // Request data every STT_CHUNK_INTERVAL_MS
+      recorder.start(STT_CHUNK_INTERVAL_MS);
+      sttRecorderRef.current = recorder;
+
+      console.log(`[STT] Audio capture started (${mimeType}, chunks every ${STT_CHUNK_INTERVAL_MS}ms)`);
+    } catch (e) {
+      console.warn("[STT] Failed to start audio capture:", e);
+    }
+  }
+
+  function cleanupServerSTT() {
+    // Stop the audio capture recorder
+    if (sttRecorderRef.current) {
+      try {
+        if (sttRecorderRef.current.state !== "inactive") {
+          sttRecorderRef.current.stop();
+        }
+      } catch (e) { /* ignore */ }
+      sttRecorderRef.current = null;
+    }
+
+    // Close the WebSocket
+    if (sttWsRef.current) {
+      sttWsRef.current.close();
+      sttWsRef.current = null;
+    }
+
+    sttUsingServerRef.current = false;
+  }
+
+  // ── Browser Speech Recognition fallback ──
+  function startBrowserSTT() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError("Web Speech API is not supported in this browser. Please type your responses or use Chrome.");
+      setError("Speech recognition is not available. Please type your responses or use Chrome.");
       return;
     }
 
@@ -359,7 +571,6 @@ export default function UploadPage() {
       recognitionRef.current.abort();
     }
 
-    // Reset accumulated transcript
     accumulatedTranscriptRef.current = "";
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
@@ -389,7 +600,6 @@ export default function UploadPage() {
 
       if (newFinal) {
         accumulatedTranscriptRef.current += " " + newFinal;
-        // Show accumulated text as interim so user sees what they've said
         setInterimTranscript(accumulatedTranscriptRef.current.trim());
       } else if (interim) {
         setInterimTranscript(
@@ -397,12 +607,10 @@ export default function UploadPage() {
         );
       }
 
-      // Reset silence timer on any speech activity
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
 
-      // Start silence timer — submit after SILENCE_TIMEOUT_MS of no new speech
       silenceTimerRef.current = setTimeout(() => {
         const fullText = accumulatedTranscriptRef.current.trim();
         if (fullText) {
@@ -415,7 +623,6 @@ export default function UploadPage() {
 
     recognition.onerror = (event) => {
       console.warn("Speech recognition error:", event.error);
-      // On no-speech or network errors, submit whatever we have
       if (event.error === "no-speech" || event.error === "network") {
         const fullText = accumulatedTranscriptRef.current.trim();
         if (fullText) {
@@ -429,7 +636,6 @@ export default function UploadPage() {
     };
 
     recognition.onend = () => {
-      // If recognition ends (e.g. browser auto-stops), submit accumulated text
       const fullText = accumulatedTranscriptRef.current.trim();
       if (fullText) {
         accumulatedTranscriptRef.current = "";
@@ -443,12 +649,30 @@ export default function UploadPage() {
     recognition.start();
   }
 
+  // ── Main entry point: try server STT first, fall back to browser ──
+  function startListening() {
+    // Always try server-side Whisper STT first for better accuracy
+    try {
+      startServerSTT();
+    } catch (e) {
+      console.warn("[STT] Server STT failed to start, using browser fallback:", e);
+      startBrowserSTT();
+    }
+  }
+
   function stopListening() {
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
     accumulatedTranscriptRef.current = "";
+
+    // Stop server-side STT if active
+    if (sttUsingServerRef.current) {
+      cleanupServerSTT();
+    }
+
+    // Stop browser STT if active
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
@@ -469,12 +693,14 @@ export default function UploadPage() {
       return;
     }
 
+    speechCancelledRef.current = false;
+    isSubmittingResponseRef.current = false;
     setLoading(true);
     setError("");
 
     try {
       // Initialize interview session on backend
-      const data = await initiateInterview(resumeFile, role, companyName, experienceLevel, jobDescription, interviewType);
+      const data = await initiateInterview(resumeFile, role, companyName, experienceLevel, jobDescription, interviewType, duration, stressMode);
       
       // Clear saved setup state upon successful start
       sessionStorage.removeItem("confidometer_setup_role");
@@ -483,9 +709,13 @@ export default function UploadPage() {
       sessionStorage.removeItem("confidometer_setup_jd");
       sessionStorage.removeItem("confidometer_setup_show_jd");
       sessionStorage.removeItem("confidometer_setup_interview_type");
+      sessionStorage.removeItem("confidometer_setup_duration");
       sessionStorage.removeItem("confidometer_setup_resume_base64");
       sessionStorage.removeItem("confidometer_setup_resume_name");
       sessionStorage.removeItem("confidometer_setup_resume_type");
+
+      setIsComplete(false);
+      isCompleteRef.current = false;
 
       setSessionId(data.session_id);
       setCurrentQuestion(data.first_question);
@@ -540,7 +770,17 @@ export default function UploadPage() {
   // 5. Submit candidate answer and get next question
   async function submitResponse(transcriptText, code = null, qIdx = 0) {
     if (!transcriptText.trim() && !code) return;
+    if (isSubmittingResponseRef.current) {
+      console.log("[STT] Response submission already in progress, ignoring duplicate.");
+      return;
+    }
 
+    if (isCompleteRef.current) {
+      handleFinishInterview();
+      return;
+    }
+
+    isSubmittingResponseRef.current = true;
     const userMsg = { role: "user", text: transcriptText };
     if (code) userMsg.code = code;
 
@@ -549,11 +789,16 @@ export default function UploadPage() {
     stopListening();
 
     try {
-      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx);
+      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx, interviewDuration);
       const nextQ = data.next_question;
       
       setCurrentQuestion(nextQ);
       setMessages((prev) => [...prev, { role: "model", text: nextQ }]);
+
+      if (data.is_complete) {
+        setIsComplete(true);
+        isCompleteRef.current = true;
+      }
 
       if (data.dsa_complete) {
         setDsaComplete(true);
@@ -564,9 +809,11 @@ export default function UploadPage() {
       }
       
       // Speak next question
-      speak(nextQ);
+      await speak(nextQ);
     } catch (err) {
       setError("Failed to reach interview agent: " + err.message);
+    } finally {
+      isSubmittingResponseRef.current = false;
     }
   }
 
@@ -622,6 +869,8 @@ export default function UploadPage() {
       dsaTimerRef.current = null;
     }
 
+    speechCancelledRef.current = true;
+
     // Stop Edge TTS audio playback (primary TTS)
     if (audioRef.current) {
       audioRef.current.onended = null;  // prevent triggering startListening
@@ -667,18 +916,7 @@ export default function UploadPage() {
     }, 1500);
   }
 
-  // Handle traditional file upload bypass
-  async function handleDirectUpload(file) {
-    setError("");
-    setLoading(true);
-    try {
-      const data = await uploadVideo(file);
-      router.push(`/processing?speechId=${data.speech_id}`);
-    } catch (err) {
-      setError(err.message || "Upload failed");
-      setLoading(false);
-    }
-  }
+
 
   // ── Language change handler ──
   function handleLanguageChange(langId) {
@@ -753,6 +991,24 @@ export default function UploadPage() {
                   </span>
                 </div>
               )}
+
+              {interviewType !== "dsa" && (
+                <button
+                  type="button"
+                  className={`stress-mode-toggle ${stressMode ? "active" : ""}`}
+                  onClick={() => setStressMode(!stressMode)}
+                  disabled={loading}
+                >
+                  <Zap size={18} className={stressMode ? "stress-icon-active" : ""} />
+                  <div className="stress-toggle-info">
+                    <strong>Stress Mode {stressMode ? "ON" : "OFF"}</strong>
+                    <span>{stressMode ? "Liza will interrupt & challenge you under pressure" : "Enable to simulate high-pressure interview conditions"}</span>
+                  </div>
+                  <div className={`stress-toggle-switch ${stressMode ? "on" : ""}`}>
+                    <div className="stress-toggle-knob" />
+                  </div>
+                </button>
+              )}
             </div>
 
             <div className="setup-grid">
@@ -798,31 +1054,20 @@ export default function UploadPage() {
                 </label>
 
                 {interviewType !== "dsa" && (
-                  <div className="jd-section">
-                    <button
-                      type="button"
-                      className="jd-toggle"
-                      onClick={() => setShowJD(!showJD)}
+                  <label>
+                    Interview Duration
+                    <select
+                      value={duration}
+                      onChange={(e) => setDuration(Number(e.target.value))}
+                      disabled={loading}
                     >
-                      <span className={`jd-chevron ${showJD ? "open" : ""}`}>
-                        <ChevronDown size={14} />
-                      </span>
-                      Add Job Description
-                      <span className="jd-optional-tag">Optional</span>
-                    </button>
-                    {showJD && (
-                      <div className="jd-content">
-                        <textarea
-                          value={jobDescription}
-                          onChange={(e) => setJobDescription(e.target.value)}
-                          placeholder="Paste the job description here to tailor interview questions..."
-                          disabled={loading}
-                          rows={4}
-                        />
-                      </div>
-                    )}
-                  </div>
+                      <option value={10}>10 Minutes</option>
+                      <option value={20}>20 Minutes</option>
+                      <option value={30}>30 Minutes</option>
+                    </select>
+                  </label>
                 )}
+
 
                 <div className="resume-selector-zone">
                   <span className="label-text">Upload Resume (PDF/TXT)</span>
@@ -872,6 +1117,23 @@ export default function UploadPage() {
               </div>
             </div>
 
+            {interviewType !== "dsa" && (
+              <div className="jd-outer-section glass">
+                <div className="jd-header">
+                  <h3>Job Description</h3>
+                  <span className="jd-info-tag">Optional · Paste job details to customize interview questions</span>
+                </div>
+                <textarea
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="Paste the job description here (e.g. key responsibilities, tech stack, requirements)..."
+                  disabled={loading}
+                  rows={4}
+                  className="jd-textarea"
+                />
+              </div>
+            )}
+
             <button
               type="button"
               className="button primary start-btn"
@@ -883,12 +1145,7 @@ export default function UploadPage() {
             </button>
           </div>
 
-          <div className="setup-aside">
-            <h4 style={{ margin: "0 0 10px", color: "var(--muted)", textTransform: "uppercase", fontSize: "0.8rem", letterSpacing: "1px" }}>
-              Already recorded?
-            </h4>
-            <UploadBox onSubmit={handleDirectUpload} isLoading={loading} compact={true} />
-          </div>
+
         </div>
       ) : showSplitScreen ? (
         /* ═══════════════ SPLIT-SCREEN MODE (DSA / Coding Side-by-Side) ═══════════════ */
@@ -1293,7 +1550,7 @@ export default function UploadPage() {
                       submitResponse(text);
                     }
                   }}
-                  placeholder="Speaking... you can also type or edit here."
+                  placeholder={isComplete ? "Interview complete! Type 'thank you' and press Enter to finish." : "Speaking... you can also type or edit here."}
                   style={{
                     flex: 1,
                     background: "rgba(255, 255, 255, 0.05)",
@@ -1334,7 +1591,7 @@ export default function UploadPage() {
                   style={{ flex: 1 }}
                 >
                   <CheckCircle size={16} />
-                  Submit Answer
+                  {isComplete ? "Conclude & Analyze" : "Submit Answer"}
                 </button>
               )}
             </div>

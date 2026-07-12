@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import GaugeChart from "@/components/GaugeChart";
 import BarChart from "@/components/BarChart";
 import MetricCard from "@/components/MetricCard";
-import { getAnalysis, getUserHistory, fetchTTSAudio } from "@/utils/api";
+import { getAnalysis, getUserHistory, fetchTTSAudio, getTrends } from "@/utils/api";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
@@ -13,7 +13,7 @@ import {
 import {
   Eye, Mic, Brain, MessageCircle, Volume2, ChevronDown, ChevronUp,
   CheckCircle, AlertTriangle, TrendingUp, Award, Star, Sparkles,
-  Code2, Terminal
+  Code2, Terminal, Zap, DollarSign
 } from "lucide-react";
 
 export default function DashboardClient() {
@@ -32,12 +32,26 @@ export default function DashboardClient() {
 
   // Progress tracking
   const [historyData, setHistoryData] = useState([]);
+  const [trendsData, setTrendsData] = useState(null);
 
   // Report accordion
   const [expandedQIdx, setExpandedQIdx] = useState(null);
 
   // Active report tab
   const [activeReportTab, setActiveReportTab] = useState("technical");
+
+  // Load trends data
+  useEffect(() => {
+    async function loadTrends() {
+      try {
+        const trends = await getTrends();
+        setTrendsData(trends);
+      } catch (err) {
+        console.warn("Failed to load trends data:", err);
+      }
+    }
+    loadTrends();
+  }, []);
 
   useEffect(() => {
     if (!speechId) {
@@ -99,6 +113,23 @@ export default function DashboardClient() {
         : data.non_technical_feedback;
     } catch { return {}; }
   }, [data]);
+
+  // Combine standard non-technical feedback with custom stress telemetry
+  const enrichedNonTechnicalFeedback = useMemo(() => {
+    const nt = { ...nonTechnicalFeedback };
+    if (data?.stress_mode) {
+      nt["fidgeting"] = {
+        score: data.fidgeting_index || 0,
+        feedback: "Fidgeting activity level monitored under stress."
+      };
+      nt["speech_var"] = {
+        score: data.speech_rate_variance || 0,
+        feedback: "Speaking pace variation and rate spikes recorded under stress."
+      };
+    }
+    return nt;
+  }, [nonTechnicalFeedback, data]);
+
 
   // Speak short summary
   async function handleGetFeedback() {
@@ -175,6 +206,22 @@ export default function DashboardClient() {
     { label: "Explanation Quality", value: Number(data?.explanation_quality_score || 50), icon: <Star size={18} /> },
   ];
 
+  if (data?.interview_type === "negotiation") {
+    subScores.push({
+      label: "Negotiation Score",
+      value: Number(data?.negotiation_score || 60),
+      icon: <DollarSign size={18} />
+    });
+  }
+
+  if (data?.stress_mode) {
+    subScores.push({
+      label: "Stress Composure",
+      value: Number(data?.stress_tolerance_score || 70),
+      icon: <Zap size={18} />
+    });
+  }
+
   // Add coding scores if available (DSA / Technical rounds)
   const hasCodingScores = data?.code_quality_score != null;
   if (hasCodingScores) {
@@ -197,6 +244,15 @@ export default function DashboardClient() {
     { key: "filler_words", label: "Filler Words", icon: <Volume2 size={16} /> },
     { key: "voice_stability", label: "Voice Stability", icon: <Sparkles size={16} /> },
   ];
+
+  if (data?.stress_mode) {
+    ntMetrics.push(
+      { key: "fidgeting", label: "Fidgeting Level", icon: <TrendingUp size={16} /> },
+      { key: "speech_var", label: "Speech Pace Variance", icon: <Mic size={16} /> }
+    );
+  }
+
+
 
   // Progress tracking chart data
   const progressChartData = historyData
@@ -413,7 +469,7 @@ export default function DashboardClient() {
 
                 <div className="nt-metrics-grid">
                   {ntMetrics.map((m) => {
-                    const metric = nonTechnicalFeedback[m.key];
+                    const metric = enrichedNonTechnicalFeedback[m.key];
                     if (!metric) return null;
                     const val = Number(metric.score || 0);
                     const color =
@@ -534,6 +590,7 @@ export default function DashboardClient() {
           </div>
         )}
       </section>
+
 
       {/* ── Progress Tracking Section ── */}
       {progressChartData.length > 1 && (

@@ -41,7 +41,7 @@ An advanced, AI-powered mock interview preparation platform designed to help can
 ### Backend
 - **Framework**: FastAPI (Python 3.13)
 - **Database**: SQLAlchemy ORM (SQLite DB setup with automatic migration scripts)
-- **Speech-to-Text**: OpenAI Whisper (`small` model optimized for CPU execution)
+- **Speech-to-Text**: OpenAI Whisper (`small` model for fast post-interview reports, `medium` model for live conversational STT)
 - **Computer Vision**: Google MediaPipe (Face & Pose Landmarker task architectures) & OpenCV
 - **Audio Extraction**: MoviePy & FFmpeg CLI integrations
 - **AI Core**: Google Gemini LLM API (dynamic dialogue generation & code validation)

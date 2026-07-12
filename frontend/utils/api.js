@@ -2,6 +2,9 @@ import { getToken, clearSession } from "@/utils/auth";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
+// Derive WebSocket URL from API_BASE (http → ws, https → wss)
+export const WS_BASE = API_BASE.replace(/^http/, "ws");
+
 async function request(path, { method = "GET", body, auth = false, headers = {} } = {}) {
   const finalHeaders = {
     ...headers
@@ -40,8 +43,8 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
 
-    // If unauthorized, clear local session and redirect to login
-    if (res.status === 401) {
+    // If unauthorized, clear local session and redirect to login (unless it's the login request itself)
+    if (res.status === 401 && path !== "/auth/login") {
       try {
         // try to parse backend message
         const data = contentType.includes("application/json") ? await res.json() : null;
@@ -125,7 +128,7 @@ export function getAnalysis(speechId) {
   return request(`/analysis/${speechId}`, { auth: true });
 }
 
-export function initiateInterview(resumeFile, role, companyName = "", experienceLevel = "", jobDescription = "", interviewType = "technical") {
+export function initiateInterview(resumeFile, role, companyName = "", experienceLevel = "", jobDescription = "", interviewType = "technical", duration = 10, stressMode = false) {
   const formData = new FormData();
   formData.append("resume", resumeFile);
   formData.append("role", role);
@@ -133,6 +136,8 @@ export function initiateInterview(resumeFile, role, companyName = "", experience
   if (experienceLevel) formData.append("experience_level", experienceLevel);
   if (jobDescription) formData.append("job_description", jobDescription);
   formData.append("interview_type", interviewType);
+  formData.append("duration", duration);
+  formData.append("stress_mode", stressMode);
 
   return request("/agent/initiate", {
     method: "POST",
@@ -141,7 +146,7 @@ export function initiateInterview(resumeFile, role, companyName = "", experience
   });
 }
 
-export function respondToAgent(sessionId, message, code = null, questionIndex = 0) {
+export function respondToAgent(sessionId, message, code = null, questionIndex = 0, elapsedSeconds = 0) {
   const formData = new FormData();
   formData.append("session_id", sessionId);
   formData.append("message", message);
@@ -149,6 +154,7 @@ export function respondToAgent(sessionId, message, code = null, questionIndex = 
     formData.append("code", code);
     formData.append("question_index", questionIndex);
   }
+  formData.append("elapsed_seconds", elapsedSeconds);
 
   return request("/agent/respond", {
     method: "POST",
@@ -191,4 +197,88 @@ export async function fetchTTSAudio(text) {
 
 export function getUserHistory() {
   return request("/analysis/history", { auth: true });
+}
+
+export function getTrends() {
+  return request("/trends/", { auth: true });
+}
+
+/**
+ * Create a WebSocket connection for real-time Speech-to-Text via server-side Whisper.
+ *
+ * @param {string} sessionId - The interview session ID
+ * @param {function} onResult - Called with { type, text, corrections, full_transcript }
+ * @param {function} onError - Called with error message string
+ * @param {function} onOpen - Called when WebSocket connects successfully
+ * @param {function} onClose - Called when WebSocket closes
+ * @returns {{ send: function, close: function, isConnected: function }}
+ */
+export function createSTTWebSocket(sessionId, onResult, onError, onOpen, onClose) {
+  const url = `${WS_BASE}/agent/ws/stt?session_id=${encodeURIComponent(sessionId)}`;
+  let ws = null;
+  let closed = false;
+
+  try {
+    ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+  } catch (e) {
+    onError?.("Failed to create WebSocket: " + e.message);
+    return { send: () => {}, close: () => {}, isConnected: () => false };
+  }
+
+  ws.onopen = () => {
+    console.log("[STT-WS] Connected to server");
+    onOpen?.();
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      onResult?.(data);
+    } catch (e) {
+      console.warn("[STT-WS] Failed to parse message:", e);
+    }
+  };
+
+  ws.onerror = (event) => {
+    console.error("[STT-WS] WebSocket error:", event);
+    onError?.("WebSocket connection error");
+  };
+
+  ws.onclose = (event) => {
+    console.log("[STT-WS] Connection closed:", event.code, event.reason);
+    closed = true;
+    onClose?.();
+  };
+
+  return {
+    /**
+     * Send an audio blob/arraybuffer to the server for transcription.
+     * @param {Blob|ArrayBuffer} audioData
+     */
+    send: (audioData) => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        if (audioData instanceof Blob) {
+          audioData.arrayBuffer().then((buf) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(buf);
+            }
+          });
+        } else {
+          ws.send(audioData);
+        }
+      }
+    },
+
+    /** Close the WebSocket connection. */
+    close: () => {
+      closed = true;
+      if (ws && ws.readyState !== WebSocket.CLOSED) {
+        ws.close();
+      }
+    },
+
+    /** Check if the WebSocket is currently connected. */
+    isConnected: () => ws && ws.readyState === WebSocket.OPEN && !closed,
+  };
 }

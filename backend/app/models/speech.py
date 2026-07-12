@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -14,7 +14,7 @@ class Speech(Base):
     progress = Column(Integer, default=0)
 
     # Interview context (saved from agent session)
-    interview_type = Column(String, nullable=True)  # "technical", "hr", "dsa", "behavioural"
+    interview_type = Column(String, nullable=True)  # "technical", "hr", "dsa", "behavioural", "negotiation"
     role = Column(String, nullable=True)
     company_name = Column(String, nullable=True)
     conversation_history = Column(Text, nullable=True)  # JSON string
@@ -43,6 +43,15 @@ class Speech(Base):
     optimization_score = Column(Float, nullable=True)
     thinking_process_score = Column(Float, nullable=True)
     communication_score = Column(Float, nullable=True)
+
+    # Negotiation simulation fields
+    negotiation_score = Column(Float, nullable=True)
+
+    # Stress simulation fields
+    stress_mode = Column(Boolean, default=False)
+    fidgeting_index = Column(Float, nullable=True)
+    speech_rate_variance = Column(Float, nullable=True)
+    stress_tolerance_score = Column(Float, nullable=True)
 
     # Feedback reports (JSON text)
     technical_feedback = Column(Text, nullable=True)

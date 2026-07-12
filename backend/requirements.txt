@@ -4,6 +4,7 @@ sqlalchemy
 pydantic[email]
 pydantic-settings
 passlib[bcrypt]
+bcrypt==4.0.1
 python-jose[cryptography]
 python-multipart
 openai-whisper
@@ -15,3 +16,4 @@ google-generativeai
 python-dotenv
 edge-tts
 psycopg2-binary
+librosa

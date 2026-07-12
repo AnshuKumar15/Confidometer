@@ -63,12 +63,27 @@ def is_user_asking_question(text: str) -> bool:
 # INTERVIEW-TYPE SPECIFIC SYSTEM PROMPTS
 # ──────────────────────────────────────────────────────────────
 
-def _build_system_prompt_technical(user_name, role, company_name, experience_level, resume_text, job_description):
+# ── Stress Mode prompt appendix (shared across Technical, HR, Behavioural) ──
+STRESS_MODE_APPENDIX = (
+    "\n\nSTRESS SIMULATION MODE (ACTIVE):\n"
+    "You are conducting this interview in STRESS MODE. Follow these additional rules:\n"
+    "1. On approximately 20% of your turns (roughly 1 in every 5 responses), you must INTERRUPT the candidate mid-explanation. "
+    "Do NOT wait for them to finish — cut into their response with a sharp, challenging follow-up question that directly challenges "
+    "an assumption they just made or pushes them to defend their reasoning more rigorously.\n"
+    "2. Example interruption phrases: 'Hold on — can you justify that claim?', 'Wait, but what if [counter-scenario]?', "
+    "'That doesn't sound right — are you sure about that?', 'Let me push back on that — how would you handle [harder variant]?'\n"
+    "3. On the other 80% of turns, conduct the interview normally but maintain a slightly more demanding and probing tone.\n"
+    "4. Never be rude or hostile — remain professional but noticeably more challenging and direct than a normal interview.\n"
+    "5. The goal is to test the candidate's composure, adaptability, and ability to think clearly under pressure.\n"
+)
+
+
+def _build_system_prompt_technical(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
     jd_context = f"\nJob Description provided by the candidate:\n{job_description}\n" if job_description else ""
 
-    return (
+    prompt = (
         f"You are a professional, polite, and concise technical interviewer named 'Liza' interviewing a candidate named '{user_name}' for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
@@ -88,12 +103,17 @@ def _build_system_prompt_technical(user_name, role, company_name, experience_lev
         "11. After 4-5 technical questions, politely conclude the interview."
     )
 
+    if stress_mode:
+        prompt += STRESS_MODE_APPENDIX
 
-def _build_system_prompt_hr(user_name, role, company_name, experience_level, resume_text, job_description):
+    return prompt
+
+
+def _build_system_prompt_hr(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
 
-    return (
+    prompt = (
         f"You are a warm, professional HR interviewer named 'Liza' conducting an HR round for a candidate named '{user_name}' applying for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
@@ -108,12 +128,17 @@ def _build_system_prompt_hr(user_name, role, company_name, experience_level, res
         "7. After 4-5 HR questions, politely conclude the interview."
     )
 
+    if stress_mode:
+        prompt += STRESS_MODE_APPENDIX
 
-def _build_system_prompt_behavioural(user_name, role, company_name, experience_level, resume_text, job_description):
+    return prompt
+
+
+def _build_system_prompt_behavioural(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
 
-    return (
+    prompt = (
         f"You are a sharp behavioural interviewer named 'Liza' assessing a candidate named '{user_name}' for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
@@ -127,6 +152,39 @@ def _build_system_prompt_behavioural(user_name, role, company_name, experience_l
         "6. Ask exactly ONE question at a time. Keep responses concise.\n"
         "7. If the candidate asks questions, answer helpfully and redirect back.\n"
         "8. After 4-5 behavioural questions, politely conclude the interview."
+    )
+
+    if stress_mode:
+        prompt += STRESS_MODE_APPENDIX
+
+    return prompt
+
+
+def _build_system_prompt_negotiation(user_name, role, company_name, experience_level, resume_text):
+    """Build a system prompt for the Salary & Offer Negotiation Simulator."""
+    company_context = f"The target company is '{company_name}'.\n" if company_name else ""
+    experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
+
+    return (
+        f"You are a seasoned, professional recruiter and hiring manager named 'Liza' conducting a salary negotiation simulation with a candidate named '{user_name}' for the position of '{role}'.\n"
+        f"{company_context}"
+        f"{experience_context}"
+        f"Here is the candidate's resume:\n{resume_text}\n"
+        "\nINSTRUCTIONS & FLOW:\n"
+        "1. In your very first turn, introduce yourself warmly as Liza from the hiring team. Congratulate the candidate on passing the interview rounds.\n"
+        "2. Present an initial compensation offer that is slightly below market rate for the role and experience level. Include base salary, equity/stock options, and sign-on bonus (if applicable).\n"
+        "3. When the candidate counter-offers, push back using realistic recruiter tactics:\n"
+        "   - 'That's at the very top of our band for this level.'\n"
+        "   - 'Our equity package historically appreciates significantly — it more than makes up for the base difference.'\n"
+        "   - 'We don't typically offer sign-on bonuses at this level, but let me see what I can do.'\n"
+        "   - 'I understand your expectations. Let me share what flexibility I have...'\n"
+        "4. Be open to compromise — don't always say no. If the candidate makes strong arguments (citing market data, competing offers, or unique skills), acknowledge them and adjust the offer.\n"
+        "5. Keep responses concise and conversational (2-4 sentences). Ask exactly ONE question or make ONE counter per turn.\n"
+        "6. After 4-5 exchanges of negotiation, conclude by either:\n"
+        "   a) Accepting the candidate's proposed package with minor adjustments, OR\n"
+        "   b) Presenting a final 'best and final' offer and asking if they accept.\n"
+        "7. End the simulation by thanking the candidate and summarizing the final agreed package.\n"
+        "8. Never break character — you are a real recruiter throughout this simulation."
     )
 
 
@@ -171,7 +229,8 @@ def generate_interview_question(
     resume_text: str, role: str, conversation_history: list,
     user_name: str = "Anshu", company_name: str = "",
     experience_level: str = "", job_description: str = "",
-    interview_type: str = "technical", dsa_context: dict = None
+    interview_type: str = "technical", dsa_context: dict = None,
+    is_time_up: bool = False, stress_mode: bool = False
 ) -> str:
     """
     Generate the next interview question based on interview type and conversation history.
@@ -187,17 +246,25 @@ def generate_interview_question(
             "technical": "technical interview",
             "hr": "HR round",
             "behavioural": "behavioural interview",
+            "negotiation": "salary negotiation simulation",
         }.get(interview_type, "interview")
         return f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?"
 
-
-    def get_mock_response(history, key_role_lower, name, current_role):
+    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False):
         # 1. Count how many of the user turns were NOT questions/clarification requests
         answered_turns = 0
         for msg in history:
             if msg.get("role") == "user":
                 if not is_user_asking_question(msg.get("text", "")):
                     answered_turns += 1
+
+        # Check if time limit is reached or if questions are exhausted
+        mock_key = "software engineer" if "engineer" in key_role_lower or "developer" in key_role_lower else "default"
+        q_list = MOCK_QUESTIONS[mock_key]
+        mock_index = answered_turns - 3
+
+        if is_time_up or mock_index >= len(q_list):
+            return f"Thank you for taking the time to speak with me today, {name}. The interview is complete."
 
         # 2. Check if the very last message in the history is a user question/clarification
         last_msg = history[-1] if history else None
@@ -218,15 +285,61 @@ def generate_interview_question(
                         last_model_question = msg.get("text", "")
                         break
 
+            # Explanations dictionary mapping keywords in model questions to simple explanations
+            EXPLANATIONS = {
+                "challenging coding project": (
+                    "I want to know about a project where you faced difficult technical hurdles, "
+                    "how you resolved them, and what specific engineering choices you made."
+                ),
+                "database optimization and indexing": (
+                    "I am asking how you speed up database reads/writes, such as designing indexes, "
+                    "refactoring slow queries, caching data, or database normalization/denormalization."
+                ),
+                "difference between a sql and nosql database": (
+                    "I want you to compare relational databases (like PostgreSQL) with non-relational ones (like MongoDB) "
+                    "and explain the use cases, scaling differences, and schema flexibilities of both."
+                ),
+                "debugging a memory leak or cpu spike": (
+                    "I want to know your step-by-step process and the tools (like profiling, logs, metrics) "
+                    "you use to diagnose and fix a server that is running out of RAM or maxing out CPU."
+                ),
+                "project from your resume that you are most proud of": (
+                    "Please describe a project you built where you had a major impact, the technical challenge "
+                    "it solved, and what technologies you used."
+                ),
+                "motivated you to apply for this specific role": (
+                    "I want to know what interests you about this position and company, and how your skills "
+                    "align with the responsibilities."
+                ),
+                "conflict or differing opinions within a team": (
+                    "Please explain how you deal with disagreements at work, communicate with team members, "
+                    "and collaborate to find a compromise."
+                ),
+                "tight deadline under stress": (
+                    "I am asking how you handle pressure, manage your time, prioritize tasks, and ensure "
+                    "a project gets delivered on time."
+                ),
+            }
+
             user_text_lower = last_msg.get("text", "").lower()
-            if "role" in user_text_lower or "position" in user_text_lower or "job" in user_text_lower:
-                answer = f"You are interviewing for the '{current_role}' position."
-            elif "resume" in user_text_lower or "experience" in user_text_lower:
-                answer = "I am evaluating your experience based on the resume you uploaded."
-            elif "who" in user_text_lower or "name" in user_text_lower:
-                answer = f"According to your resume, your name is {name}."
-            else:
-                answer = "Understood. Let me clarify."
+            explanation_found = False
+            answer = "Understood. Let me clarify."
+
+            if last_model_question:
+                q_text_lower = last_model_question.lower()
+                for key, expl in EXPLANATIONS.items():
+                    if key in q_text_lower:
+                        answer = f"Sure, let me clarify: {expl}"
+                        explanation_found = True
+                        break
+
+            if not explanation_found:
+                if "role" in user_text_lower or "position" in user_text_lower or "job" in user_text_lower:
+                    answer = f"You are interviewing for the '{current_role}' position."
+                elif "resume" in user_text_lower or "experience" in user_text_lower:
+                    answer = "I am evaluating your experience based on the resume you uploaded."
+                elif "who" in user_text_lower or "name" in user_text_lower:
+                    answer = f"According to your resume, your name is {name}."
 
             if last_model_question:
                 return f"{answer} Let's get back to my question: {last_model_question}"
@@ -240,10 +353,6 @@ def generate_interview_question(
         elif answered_turns == 2:
             return f"Great! {name}, tell me about yourself."
 
-        mock_key = "software engineer" if "engineer" in key_role_lower or "developer" in key_role_lower else "default"
-        q_list = MOCK_QUESTIONS[mock_key]
-        
-        mock_index = answered_turns - 3
         if mock_index < len(q_list):
             return q_list[mock_index]
         return f"Thank you for taking the time to speak with me today, {name}. The interview is complete."
@@ -251,7 +360,7 @@ def generate_interview_question(
     # 1. Fallback to mock if API key is not present
     if not api_key:
         print("[LLM INFO] No GEMINI_API_KEY found. Falling back to rule-based questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up)
 
     # 2. Use Gemini API
     try:
@@ -262,15 +371,30 @@ def generate_interview_question(
             )
         elif interview_type == "hr":
             system_instruction = _build_system_prompt_hr(
-                user_name, role, company_name, experience_level, resume_text, job_description
+                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
             )
         elif interview_type == "behavioural":
             system_instruction = _build_system_prompt_behavioural(
-                user_name, role, company_name, experience_level, resume_text, job_description
+                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
+            )
+        elif interview_type == "negotiation":
+            system_instruction = _build_system_prompt_negotiation(
+                user_name, role, company_name, experience_level, resume_text
             )
         else:
             system_instruction = _build_system_prompt_technical(
-                user_name, role, company_name, experience_level, resume_text, job_description
+                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
+            )
+
+        # Dynamic adjustments to system instructions based on elapsed time
+        if is_time_up:
+            system_instruction += "\n\nCRITICAL INSTRUCTION: The interview time limit is up. You must politely conclude the interview in this turn. Thank the candidate, state that the interview is complete, and wish them a great day. Do NOT ask any new questions."
+        else:
+            # Reinforce clarifying question instructions
+            system_instruction += (
+                "\n\nCRITICAL REMINDER ON CLARIFICATIONS: If the candidate asks you to explain, repeat, or clarify a question, "
+                "you must explain that question in simple, helpful, and warm terms rather than repeating it verbatim. "
+                "Once explained, repeat/re-ask the current question so they can answer it."
             )
 
         model = genai.GenerativeModel(
@@ -303,7 +427,7 @@ def generate_interview_question(
         return response.text.strip()
     except Exception as e:
         print(f"[LLM ERROR] Gemini API call failed: {e}. Falling back to mock questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -571,6 +695,7 @@ def analyze_interview_with_llm(
             "hr": "HR Round",
             "dsa": "DSA Coding Round",
             "behavioural": "Behavioural Interview",
+            "negotiation": "Salary Negotiation Simulation",
         }.get(interview_type, "Interview")
 
         # Build code analysis section if applicable

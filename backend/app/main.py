@@ -17,8 +17,8 @@ Base.metadata.create_all(bind=engine)
 
 # ── Auto-migration: add new columns to existing tables without Alembic ──
 def check_and_add_columns():
-    """Inspect the live DB and ALTER TABLE to add any missing columns from the Speech model."""
-    from sqlalchemy import inspect as sa_inspect, Text, Float, Integer, String
+    """Inspect the live DB and ALTER TABLE to add any missing columns from the Speech and User models."""
+    from sqlalchemy import inspect as sa_inspect
     inspector = sa_inspect(engine)
 
     if not inspector.has_table("speeches"):
@@ -46,27 +46,66 @@ def check_and_add_columns():
         "technical_feedback": "TEXT",
         "non_technical_feedback": "TEXT",
         "short_summary_feedback": "TEXT",
+        # Negotiation fields
+        "negotiation_score": "FLOAT",
+        # Stress simulation fields
+        "stress_mode": "BOOLEAN DEFAULT FALSE",
+        "fidgeting_index": "FLOAT",
+        "speech_rate_variance": "FLOAT",
+        "stress_tolerance_score": "FLOAT",
     }
 
-    with engine.connect() as conn:
-        for col_name, col_type in new_columns.items():
-            if col_name not in existing_cols:
-                try:
+    for col_name, col_type in new_columns.items():
+        if col_name not in existing_cols:
+            try:
+                with engine.begin() as conn:
                     conn.execute(
                         __import__("sqlalchemy").text(
                             f'ALTER TABLE speeches ADD COLUMN "{col_name}" {col_type}'
                         )
                     )
-                    conn.commit()
-                    print(f"[MIGRATION] Added column '{col_name}' to speeches table.")
+                print(f"[MIGRATION] Added column '{col_name}' to speeches table.")
+            except Exception as e:
+                print(f"[MIGRATION] Skipping column '{col_name}': {e}")
+
+    # ── Users table migration ──
+    if inspector.has_table("users"):
+        existing_user_cols = {col["name"] for col in inspector.get_columns("users")}
+        user_new_columns = {
+            "streak_count": "INTEGER DEFAULT 0",
+            "last_active_date": "DATE",
+            "badges_unlocked": "TEXT DEFAULT '[]'",
+        }
+        for col_name, col_type in user_new_columns.items():
+            if col_name not in existing_user_cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            __import__("sqlalchemy").text(
+                                f'ALTER TABLE users ADD COLUMN "{col_name}" {col_type}'
+                            )
+                        )
+                    print(f"[MIGRATION] Added column '{col_name}' to users table.")
                 except Exception as e:
                     print(f"[MIGRATION] Skipping column '{col_name}': {e}")
 
 check_and_add_columns()
 # ── End auto-migration ──
 from app.config import settings
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load Whisper models in a background thread pool on startup
+    # so that the Uvicorn parent/child reload process starts instantly without locking.
+    import asyncio
+    from app.utils.audio import get_model_batch, get_model_stt
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, get_model_batch)
+    loop.run_in_executor(None, get_model_stt)
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 # Parse allowed origins from configuration settings
 allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
@@ -92,4 +131,11 @@ from app.routes import analysis
 app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
 
 from app.routes import agent
-app.include_router(agent.router, prefix="/agent", tags=["Agent"])
+app.include_router(agent.router, prefix="/agent", tags=["Agent"])
+
+from app.routes import trends
+app.include_router(trends.router, prefix="/trends", tags=["Trends"])
+
+from app.routes import meeting
+app.include_router(meeting.router, prefix="/meeting", tags=["Meeting"])
+

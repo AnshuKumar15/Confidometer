@@ -26,8 +26,8 @@ COPY app/ ./app/
 # Pre-download and cache MediaPipe landmarker models (.task files) during build
 RUN python -m app.utils.download_models
 
-# Pre-download and cache Whisper "small" model during build to prevent runtime download delays
-RUN python -c "import whisper; whisper.load_model('small', device='cpu')"
+# Pre-download and cache Whisper "small" and "medium" models during build to prevent runtime download delays
+RUN python -c "import whisper; whisper.load_model('small', device='cpu'); whisper.load_model('medium', device='cpu')"
 
 # Expose FastAPI port
 EXPOSE 8000

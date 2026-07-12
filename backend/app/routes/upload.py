@@ -52,6 +52,7 @@ async def upload_video(
                 speech.company_name = session.get("company_name")  # type: ignore
                 speech.interview_type = session.get("interview_type")  # type: ignore
                 speech.conversation_history = json.dumps(session.get("history", []))  # type: ignore
+                speech.stress_mode = session.get("stress_mode", False)  # type: ignore
 
                 # Persist DSA/coding round data
                 dsa_state = session.get("dsa_state")

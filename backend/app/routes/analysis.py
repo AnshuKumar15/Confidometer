@@ -87,6 +87,11 @@ def get_analysis(
         "optimization_score": speech.optimization_score,
         "thinking_process_score": speech.thinking_process_score,
         "communication_score": speech.communication_score,
+        # Negotiation
+        "negotiation_score": speech.negotiation_score,
+        # Stress simulation
+        "stress_mode": speech.stress_mode,
+        "stress_tolerance_score": speech.stress_tolerance_score,
         # Reports
         "technical_feedback": speech.technical_feedback,
         "non_technical_feedback": speech.non_technical_feedback,

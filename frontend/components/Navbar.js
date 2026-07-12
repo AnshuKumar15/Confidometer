@@ -12,11 +12,23 @@ import {
   HelpCircle,
   LogOut,
   ChevronDown,
+  ListTodo,
+  BookOpen,
+  Award,
+  Coins,
+  Beaker,
+  ClipboardList,
+  MonitorPlay,
+  Sun,
+  Moon,
+  X
 } from "lucide-react";
+import { getTrends } from "@/utils/api";
 
 const links = [
   { href: "/", label: "Home" },
   { href: "/upload", label: "AI Interview" },
+  { href: "/peer", label: "Peer-to-Peer" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/history", label: "History" }
 ];
@@ -31,10 +43,52 @@ export default function Navbar() {
   const [lastScrollY, setLastScrollY] = useState(0);
   const dropdownRef = useRef(null);
 
+  // Gamification & Theme states
+  const [theme, setTheme] = useState("dark");
+  const [showBadgesModal, setShowBadgesModal] = useState(false);
+  const [trendsData, setTrendsData] = useState(null);
+
   useEffect(() => {
     setAuthed(isAuthed());
     setUser(getUser());
   }, [pathname]);
+
+  // Load and apply theme and trends
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("confidometer_theme") || "dark";
+      setTheme(savedTheme);
+      if (savedTheme === "light") {
+        document.body.classList.add("light-theme");
+      } else {
+        document.body.classList.remove("light-theme");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === "dark" ? "light" : "dark";
+    setTheme(newTheme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("confidometer_theme", newTheme);
+      if (newTheme === "light") {
+        document.body.classList.add("light-theme");
+      } else {
+        document.body.classList.remove("light-theme");
+      }
+    }
+  };
+
+  const handleOpenBadges = async () => {
+    setDropdownOpen(false);
+    setShowBadgesModal(true);
+    try {
+      const data = await getTrends();
+      setTrendsData(data);
+    } catch (err) {
+      console.warn("Failed to load badges:", err);
+    }
+  };
 
   // Track scroll to show/hide navbar
   useEffect(() => {
@@ -139,73 +193,89 @@ export default function Navbar() {
               </button>
 
               {dropdownOpen && (
-                <div className="profile-dropdown glass">
+                <div className="profile-dropdown custom-profile-dropdown glass-premium">
+                  {/* Profile Header */}
                   <div className="profile-dropdown-header">
                     <span className="profile-avatar-lg">{getInitials()}</span>
                     <div className="profile-info">
                       <span className="profile-name">{user?.name || "User"}</span>
-                      <span className="profile-email">{user?.email || ""}</span>
+                      <span className="profile-email">Access all features with our Premium subscription!</span>
                     </div>
+                  </div>
+
+                  {/* Profile Grid of Cards */}
+                  <div className="profile-cards-grid">
+                    <button type="button" className="profile-grid-card">
+                      <ListTodo size={20} className="card-icon blue" />
+                      <span>My Lists</span>
+                    </button>
+                    <button type="button" className="profile-grid-card">
+                      <BookOpen size={20} className="card-icon green" />
+                      <span>Notebook</span>
+                    </button>
+                    <button type="button" className="profile-grid-card" onClick={handleOpenBadges}>
+                      <Award size={20} className="card-icon orange" />
+                      <span>Badges</span>
+                    </button>
+                    <button type="button" className="profile-grid-card">
+                      <Coins size={20} className="card-icon gold" />
+                      <span>Points</span>
+                    </button>
                   </div>
 
                   <div className="profile-dropdown-divider" />
 
+                  {/* Standard Text List Items */}
                   <Link
-                    href="/dashboard"
-                    className="profile-dropdown-item"
+                    href="/peer"
+                    className="profile-dropdown-item-new"
                     onClick={() => setDropdownOpen(false)}
                   >
-                    <LayoutDashboard size={16} />
-                    My Dashboard
+                    <Beaker size={16} className="item-icon" />
+                    Try New Features
                   </Link>
-                  <Link
-                    href="/history"
-                    className="profile-dropdown-item"
-                    onClick={() => setDropdownOpen(false)}
-                  >
-                    <Clock size={16} />
-                    Interview History
-                  </Link>
-                  <Link
-                    href="/upload"
-                    className="profile-dropdown-item"
-                    onClick={() => setDropdownOpen(false)}
-                  >
-                    <User size={16} />
-                    New Interview
-                  </Link>
-
-                  <div className="profile-dropdown-divider" />
 
                   <button
                     type="button"
-                    className="profile-dropdown-item"
-                    onClick={() => setDropdownOpen(false)}
-                    disabled
+                    className="profile-dropdown-item-new disabled"
                   >
-                    <Settings size={16} />
+                    <ClipboardList size={16} className="item-icon" />
+                    Orders
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item-new disabled"
+                  >
+                    <MonitorPlay size={16} className="item-icon" />
+                    My Playgrounds
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-dropdown-item-new disabled"
+                  >
+                    <Settings size={16} className="item-icon" />
                     Settings
-                    <span className="profile-soon-tag">Soon</span>
                   </button>
+
                   <button
                     type="button"
-                    className="profile-dropdown-item"
-                    onClick={() => setDropdownOpen(false)}
-                    disabled
+                    className="profile-dropdown-item-new"
+                    onClick={toggleTheme}
                   >
-                    <HelpCircle size={16} />
-                    Help & Support
-                    <span className="profile-soon-tag">Soon</span>
+                    {theme === "dark" ? <Sun size={16} className="item-icon" /> : <Moon size={16} className="item-icon" />}
+                    Appearance: {theme === "dark" ? "Dark Mode" : "Light Mode"}
                   </button>
 
                   <div className="profile-dropdown-divider" />
 
                   <button
                     type="button"
-                    className="profile-dropdown-item logout-item"
+                    className="profile-dropdown-item-new logout-item"
                     onClick={onLogout}
                   >
-                    <LogOut size={16} />
+                    <LogOut size={16} className="item-icon" />
                     Log out
                   </button>
                 </div>
@@ -214,6 +284,52 @@ export default function Navbar() {
           )}
         </div>
       </nav>
+
+      {/* ── Badges & Achievements Modal Overlay ── */}
+      {showBadgesModal && (
+        <div className="badges-modal-backdrop">
+          <div className="badges-modal-content glass-premium">
+            <button className="badges-modal-close" onClick={() => setShowBadgesModal(false)}>
+              <X size={18} />
+            </button>
+            <div className="badges-modal-header">
+              <Award size={36} className="modal-title-icon" />
+              <h2>Badges & Achievements</h2>
+              <p>View your active mock interview progress milestones and unlocks.</p>
+            </div>
+
+            {trendsData ? (
+              <div className="modal-gamification-body">
+                <div className="modal-streak-banner glass">
+                  <span className="modal-streak-fire">🔥</span>
+                  <div className="modal-streak-details">
+                    <h3>{trendsData.streak || 0} Day Practice Streak</h3>
+                    <p>Practice daily to keep your streak active and boost consistency!</p>
+                  </div>
+                  <div className="modal-sessions-badge">
+                    Total Sessions: {trendsData.total_interviews || 0}
+                  </div>
+                </div>
+
+                <div className="modal-badges-grid">
+                  {(trendsData.badges || []).map((badge) => (
+                    <div key={badge.id} className={`modal-badge-card ${badge.unlocked ? "unlocked" : "locked"}`}>
+                      <span className="modal-badge-icon">{badge.icon}</span>
+                      <div className="modal-badge-info">
+                        <h4>{badge.name}</h4>
+                        <p>{badge.description}</p>
+                      </div>
+                      {badge.unlocked && <span className="modal-badge-check">✓</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="loading-modal-text">Loading your profile achievements...</p>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

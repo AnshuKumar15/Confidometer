@@ -184,6 +184,25 @@ def process_speech(speech_id: int):
         speech.gesture_frequency = float(gesture_frequency)  # type: ignore
         speech.voice_stability_score = float(voice_stability_score)  # type: ignore
         speech.confidence_score = float(confidence_score)  # type: ignore
+
+        # 8.5 Compute fidgeting index & speech rate variance for stress metric logging
+        fidgeting = min(100.0, max(0.0, float(gesture_frequency) * 1.25))
+        speech_var = min(100.0, max(0.0, float(pitch_std) * 0.75))
+        speech.fidgeting_index = fidgeting  # type: ignore
+        speech.speech_rate_variance = speech_var  # type: ignore
+
+        # If stress mode was active, calculate stress tolerance score
+        if speech.stress_mode:
+            from app.services.scoring import calculate_stress_tolerance_score
+            speech.stress_tolerance_score = float(
+                calculate_stress_tolerance_score(
+                    fidgeting_index=fidgeting,
+                    speech_rate_variance=speech_var,
+                    filler_count=filler_count,
+                    eye_contact=eye_contact_percentage
+                )
+            )  # type: ignore
+
         db.commit()
         _update_progress(db, speech, 80)
 
@@ -224,6 +243,10 @@ def process_speech(speech_id: int):
         speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))  # type: ignore
         speech.filler_words_score = float(sub_scores.get("filler_words_score", max(0, 100 - filler_count * 3)))  # type: ignore
         speech.explanation_quality_score = float(sub_scores.get("explanation_quality_score", 50.0))  # type: ignore
+
+        # Negotiation simulation specific scoring
+        if interview_type_str == "negotiation":
+            speech.negotiation_score = float(sub_scores.get("negotiation_score", 60.0))  # type: ignore
 
         # Coding-specific scores (DSA / Technical rounds with code)
         if interview_type_str in ("dsa", "technical") and dsa_code_str:

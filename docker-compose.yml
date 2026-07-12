@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: confidometer_db
+    restart: always
+    environment:
+      POSTGRES_DB: confidence_tracker
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Charger@7
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: confidometer_backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:Charger%407@db:5432/confidence_tracker
+      - SECRET_KEY=supersecretkey123
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - CORS_ORIGINS=*
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: confidometer_frontend
+    restart: always
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: confidometer_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
