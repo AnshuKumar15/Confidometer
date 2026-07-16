@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 
 from app.routes import auth
-from app.models import user, speech  # ensure all models are registered before create_all
+from app.models import user, speech, meeting_request  # ensure all models are registered before create_all
 
 Base.metadata.create_all(bind=engine)
 
@@ -107,6 +107,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+from fastapi.staticfiles import StaticFiles
+import os
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 # Parse allowed origins from configuration settings
 allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
@@ -138,4 +143,7 @@ app.include_router(trends.router, prefix="/trends", tags=["Trends"])
 
 from app.routes import meeting
 app.include_router(meeting.router, prefix="/meeting", tags=["Meeting"])
+
+
+
 

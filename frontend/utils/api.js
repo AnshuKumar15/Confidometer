@@ -179,21 +179,9 @@ export function runCode(code, language, questionNumber, questionTitle, descripti
 }
 
 export async function fetchTTSAudio(text) {
-  const formData = new FormData();
-  formData.append("text", text);
-
-  const res = await fetch(`${API_BASE}/agent/tts`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!res.ok) {
-    throw new Error("TTS request failed");
-  }
-
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+  return `${API_BASE}/agent/tts?text=${encodeURIComponent(text)}`;
 }
+
 
 export function getUserHistory() {
   return request("/analysis/history", { auth: true });
@@ -202,6 +190,41 @@ export function getUserHistory() {
 export function getTrends() {
   return request("/trends/", { auth: true });
 }
+
+export function createMeetingRequest(formData) {
+  return request("/meeting/request", {
+    method: "POST",
+    body: formData,
+    auth: true
+  });
+}
+
+export function getPendingMeetingRequests() {
+  return request("/meeting/requests/pending", { auth: true });
+}
+
+export function getMyMeetingRequests() {
+  return request("/meeting/requests/my", { auth: true });
+}
+
+export function acceptMeetingRequest(requestId) {
+  return request(`/meeting/request/${requestId}/accept`, {
+    method: "POST",
+    auth: true
+  });
+}
+
+export function getMeetingRequestStatus(requestId) {
+  return request(`/meeting/request/${requestId}/status`, { auth: true });
+}
+
+export function deleteMeetingRequest(requestId) {
+  return request(`/meeting/request/${requestId}`, {
+    method: "DELETE",
+    auth: true
+  });
+}
+
 
 /**
  * Create a WebSocket connection for real-time Speech-to-Text via server-side Whisper.
@@ -282,3 +305,5 @@ export function createSTTWebSocket(sessionId, onResult, onError, onOpen, onClose
     isConnected: () => ws && ws.readyState === WebSocket.OPEN && !closed,
   };
 }
+
+

@@ -1229,7 +1229,8 @@ a {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.autocomplete-item:hover {
+.autocomplete-item:hover,
+.autocomplete-item.active {
   background: rgba(45, 212, 191, 0.12);
   color: var(--teal);
 }
@@ -4251,6 +4252,306 @@ body.light-theme .resume-drag-box {
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* AI Coach Floating Button */
+.coach-toggle-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: 50px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(11, 31, 47, 0.75);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  box-shadow: 0 8px 32px rgba(45, 212, 191, 0.15);
+}
+
+.coach-toggle-btn:hover {
+  transform: translateY(-4px) scale(1.05);
+  border-color: var(--teal);
+  box-shadow: 0 12px 40px rgba(45, 212, 191, 0.3);
+}
+
+.pulse-icon {
+  animation: pulseSparkle 2s infinite ease-in-out;
+}
+
+@keyframes pulseSparkle {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.2); opacity: 1; filter: drop-shadow(0 0 4px var(--teal)); }
+}
+
+/* Sliding AI Coach Drawer */
+.coach-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 440px;
+  max-width: 95vw;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-strong);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid var(--line);
+  box-shadow: -10px 0 50px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.coach-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(6, 17, 31, 0.4);
+}
+
+.coach-drawer-header .header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coach-drawer-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.coach-drawer-header .close-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.8rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.coach-drawer-header .close-btn:hover {
+  color: var(--text);
+}
+
+/* Chat Messages Area */
+.coach-drawer-messages {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+}
+
+.coach-drawer-messages::-webkit-scrollbar {
+  width: 6px;
+}
+.coach-drawer-messages::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 4px;
+}
+
+.chat-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-top: 40px;
+  gap: 12px;
+}
+
+.chat-welcome h4 {
+  margin: 8px 0 0 0;
+  font-size: 1.15rem;
+  color: var(--text);
+}
+
+.chat-welcome p {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0 0 20px 0;
+  max-width: 320px;
+}
+
+.chat-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.suggestion-chip {
+  background: rgba(15, 29, 49, 0.6);
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.suggestion-chip:hover {
+  border-color: var(--teal);
+  background: rgba(45, 212, 191, 0.1);
+  transform: translateX(4px);
+}
+
+/* Chat Bubbles */
+.chat-bubble-wrap {
+  display: flex;
+  width: 100%;
+}
+
+.chat-bubble-wrap.user {
+  justify-content: flex-end;
+}
+
+.chat-bubble-wrap.coach {
+  justify-content: flex-start;
+}
+
+.chat-bubble {
+  max-width: 85%;
+  padding: 12px 16px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.user .chat-bubble {
+  background: linear-gradient(135deg, var(--teal), #14b8a6);
+  color: #02060c;
+  font-weight: 550;
+  border-radius: 18px 18px 2px 18px;
+  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.25);
+}
+
+.coach .chat-bubble {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 18px 18px 18px 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.coach .chat-bubble code {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 0.85rem;
+  background: rgba(2, 6, 12, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--cyan);
+}
+
+.coach .chat-bubble pre {
+  margin: 10px 0 0 0;
+  background: rgba(2, 6, 12, 0.65);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.coach .chat-bubble pre code {
+  background: none;
+  padding: 0;
+  color: var(--text);
+}
+
+.chat-centered-loading {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 20px 0;
+}
+
+/* Chat Input Bar */
+.coach-drawer-input {
+  display: flex;
+  gap: 8px;
+  padding: 18px 24px 24px 24px;
+  border-top: 1px solid var(--line);
+  background: rgba(6, 17, 31, 0.5);
+}
+
+.coach-drawer-input input {
+  flex: 1;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  padding: 12px 16px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.coach-drawer-input input:focus {
+  border-color: var(--teal);
+}
+
+.coach-drawer-input button {
+  background: var(--teal);
+  border: none;
+  color: #02060c;
+  font-weight: 600;
+  padding: 0 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.coach-drawer-input button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.35);
+}
+
+.coach-drawer-input button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Loading Dots Animation */
+.loading-dots {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px !important;
+}
+
+.loading-dots span {
+  font-size: 1.5rem;
+  line-height: 0.5;
+  animation: dotBlink 1.4s infinite both;
+  color: var(--teal);
+}
+
+.loading-dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+
+.loading-dots span:nth-child(3) {
+  animation-delay: .4s;
+}
+
+@keyframes dotBlink {
+  0% { opacity: .2; }
+  20% { opacity: 1; }
+  100% { opacity: .2; }
+}
+
 
 
 

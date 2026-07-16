@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
 import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, createSTTWebSocket } from "@/utils/api";
+import { isAuthed } from "@/utils/auth";
 import {
   Camera, Mic, Play, Square, FileText, CheckCircle,
   Building2, Briefcase, Clock, Brain, MessageSquare,
-  Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap
+  Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
+  Volume2
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -66,6 +68,13 @@ const DSA_TIMER_TOTAL = 30 * 60;
 
 export default function UploadPage() {
   const router = useRouter();
+
+  // Auth check on mount
+  useEffect(() => {
+    if (!isAuthed()) {
+      router.push("/login?next=/upload");
+    }
+  }, [router]);
   
   // Setup States
   const [resumeFile, setResumeFile] = useState(null);
@@ -103,6 +112,7 @@ export default function UploadPage() {
   const recordedChunks = useRef([]);
   const speechCancelledRef = useRef(false);
   const isSubmittingResponseRef = useRef(false);
+  const responseInputRef = useRef(null);
 
   // Live Interview Timer State
   const [interviewDuration, setInterviewDuration] = useState(0);
@@ -293,6 +303,22 @@ export default function UploadPage() {
     }
   }, [messages, interimTranscript, error]);
 
+  // Auto-grow textarea height to fit content, up to a max limit
+  useEffect(() => {
+    if (responseInputRef.current) {
+      responseInputRef.current.style.height = "auto";
+      const scrollHeight = responseInputRef.current.scrollHeight;
+      // Cap at 120px height and enable scrollbar if it exceeds
+      if (scrollHeight > 120) {
+        responseInputRef.current.style.height = "120px";
+        responseInputRef.current.style.overflowY = "auto";
+      } else {
+        responseInputRef.current.style.height = `${scrollHeight}px`;
+        responseInputRef.current.style.overflowY = "hidden";
+      }
+    }
+  }, [interimTranscript]);
+
   // 1. Request permissions and show preview
   async function requestPermissions() {
     setError("");
@@ -339,7 +365,9 @@ export default function UploadPage() {
     try {
       const audioUrl = await fetchTTSAudio(text);
       if (speechCancelledRef.current) {
-        URL.revokeObjectURL(audioUrl);
+        if (audioUrl && audioUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(audioUrl);
+        }
         setIsSpeaking(false);
         return;
       }
@@ -354,7 +382,9 @@ export default function UploadPage() {
       audioRef.current = audio;
       audio.onended = () => {
         setIsSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
+        if (audioUrl && audioUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(audioUrl);
+        }
         // Auto-trigger recording after AI finishes asking
         if (!speechCancelledRef.current) {
           startListening();
@@ -362,7 +392,9 @@ export default function UploadPage() {
       };
       audio.onerror = () => {
         setIsSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
+        if (audioUrl && audioUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(audioUrl);
+        }
         if (!speechCancelledRef.current) {
           startListening();
         }
@@ -649,14 +681,19 @@ export default function UploadPage() {
     recognition.start();
   }
 
-  // ── Main entry point: try server STT first, fall back to browser ──
   function startListening() {
-    // Always try server-side Whisper STT first for better accuracy
-    try {
-      startServerSTT();
-    } catch (e) {
-      console.warn("[STT] Server STT failed to start, using browser fallback:", e);
+    // Default to browser Speech Recognition for zero-latency local development experience
+    const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (SpeechRecognition) {
+      console.log("[STT] Using browser Speech Recognition for zero-latency");
       startBrowserSTT();
+    } else {
+      console.log("[STT] Browser Speech Recognition not supported, falling back to server Whisper STT");
+      try {
+        startServerSTT();
+      } catch (e) {
+        console.warn("[STT] Server STT failed to start:", e);
+      }
     }
   }
 
@@ -1530,8 +1567,8 @@ export default function UploadPage() {
 
             {isRecordingResponse && (
               <div className="live-input-area" style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
-                <input
-                  type="text"
+                <textarea
+                  ref={responseInputRef}
                   className="response-text-input"
                   value={interimTranscript}
                   onChange={(e) => {
@@ -1543,11 +1580,14 @@ export default function UploadPage() {
                     }
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && interimTranscript.trim()) {
-                      const text = interimTranscript.trim();
-                      accumulatedTranscriptRef.current = "";
-                      setInterimTranscript("");
-                      submitResponse(text);
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (interimTranscript.trim()) {
+                        const text = interimTranscript.trim();
+                        accumulatedTranscriptRef.current = "";
+                        setInterimTranscript("");
+                        submitResponse(text);
+                      }
                     }
                   }}
                   placeholder={isComplete ? "Interview complete! Type 'thank you' and press Enter to finish." : "Speaking... you can also type or edit here."}
@@ -1558,7 +1598,10 @@ export default function UploadPage() {
                     borderRadius: "8px",
                     padding: "10px 14px",
                     color: "var(--text)",
-                    fontSize: "0.95rem"
+                    fontSize: "0.95rem",
+                    resize: "none",
+                    minHeight: "50px",
+                    fontFamily: "inherit"
                   }}
                 />
               </div>

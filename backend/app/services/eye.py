@@ -91,7 +91,7 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
     total_frames = 0
     looking_frames = 0
     frame_idx = 0
-    frame_skip = 3  # Better temporal resolution
+    frame_skip = 6  # Optimized for performance (5 FPS on 30 FPS video)
 
     if not os.path.exists(MODEL_PATH):
         print(f"[ERROR] Face landmarker model not found at {MODEL_PATH}")
@@ -115,9 +115,15 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
                 continue
 
             total_frames += 1
-            frame_h, frame_w = frame.shape[:2]
+            
+            # Resize frame to 320px width to speed up CPU inference dramatically
+            h, w = frame.shape[:2]
+            target_w = 320
+            target_h = int(h * (target_w / w))
+            resized_frame = cv2.resize(frame, (target_w, target_h))
+            frame_h, frame_w = resized_frame.shape[:2]
 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = landmarker.detect(mp_image)
 

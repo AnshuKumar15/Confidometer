@@ -139,11 +139,18 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                 break
 
             frame_idx += 1
-            if frame_idx % 2 != 0:  # Skip every other frame
+            if frame_idx % 6 != 0:  # Skip to process 5 FPS on 30 FPS video
                 continue
 
             total_frames += 1
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Resize frame to 320px width to speed up CPU inference dramatically
+            h, w = frame.shape[:2]
+            target_w = 320
+            target_h = int(h * (target_w / w))
+            resized_frame = cv2.resize(frame, (target_w, target_h))
+            
+            rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = pose.detect(mp_image)
 
@@ -163,7 +170,8 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                     if vis > 0.5:
                         current_pos = np.array([lm.x, lm.y])
                         if prev_positions[name] is not None:
-                            delta = float(np.linalg.norm(current_pos - prev_positions[name]))
+                            # Divide delta by 3.0 to scale it relative to the 3x larger time step
+                            delta = float(np.linalg.norm(current_pos - prev_positions[name])) / 3.0
                             frame_movement += delta
                             visible_count += 1
                         prev_positions[name] = current_pos

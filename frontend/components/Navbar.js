@@ -28,6 +28,7 @@ import { getTrends } from "@/utils/api";
 const links = [
   { href: "/", label: "Home" },
   { href: "/upload", label: "AI Interview" },
+  { href: "/speak", label: "Get Set Speak" },
   { href: "/peer", label: "Peer-to-Peer" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/history", label: "History" }
@@ -94,7 +95,7 @@ export default function Navbar() {
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      
+
       if (currentScrollY < 10) {
         setNavVisible(true);
       } else if (currentScrollY > lastScrollY) {
@@ -102,7 +103,7 @@ export default function Navbar() {
       } else {
         setNavVisible(true); // Scrolling up: show
       }
-      
+
       setLastScrollY(currentScrollY);
     };
 

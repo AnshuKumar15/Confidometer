@@ -176,6 +176,7 @@ export default function AutocompleteInput({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef(null);
 
   // Filter suggestions based on input value
@@ -195,6 +196,11 @@ export default function AutocompleteInput({
     setIsOpen(filtered.length > 0);
   }, [value, suggestions]);
 
+  // Reset active index when suggestions change
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [filteredSuggestions]);
+
   // Close on outside click
   useEffect(() => {
     function handleClickOutside(e) {
@@ -209,6 +215,24 @@ export default function AutocompleteInput({
   function handleKeyDown(e) {
     if (e.key === "Escape") {
       setIsOpen(false);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault(); // Prevent cursor moving in text input
+      if (!isOpen && filteredSuggestions.length > 0) {
+        setIsOpen(true);
+        setActiveIndex(0);
+      } else if (isOpen && filteredSuggestions.length > 0) {
+        setActiveIndex((prev) => (prev + 1) % filteredSuggestions.length);
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault(); // Prevent cursor moving in text input
+      if (isOpen && filteredSuggestions.length > 0) {
+        setActiveIndex((prev) => (prev - 1 + filteredSuggestions.length) % filteredSuggestions.length);
+      }
+    } else if (e.key === "Enter") {
+      if (isOpen && activeIndex >= 0 && activeIndex < filteredSuggestions.length) {
+        e.preventDefault(); // Prevent form submission
+        handleSelect(filteredSuggestions[activeIndex]);
+      }
     }
   }
 
@@ -258,7 +282,8 @@ export default function AutocompleteInput({
           {filteredSuggestions.map((suggestion, idx) => (
             <li
               key={idx}
-              className="autocomplete-item"
+              className={`autocomplete-item ${idx === activeIndex ? "active" : ""}`}
+              onMouseEnter={() => setActiveIndex(idx)}
               onMouseDown={(e) => {
                 e.preventDefault(); // Prevent blur before click fires
                 handleSelect(suggestion);

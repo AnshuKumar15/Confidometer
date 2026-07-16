@@ -21,6 +21,119 @@ router = APIRouter()
 #            "dsa_state": { "current_q": int, "questions": [...], "code_submissions": [...] } } }
 active_sessions = {}
 
+import collections
+import asyncio
+import re
+
+def clean_text_for_tts(text: str) -> str:
+    if not text:
+        return text
+    # 1. Add space between numbers and letters (e.g. "18lakh" -> "18 lakh")
+    text = re.sub(r'(\d+)([a-zA-Z]+)', r'\1 \2', text)
+    text = re.sub(r'([a-zA-Z]+)(\d+)', r'\1 \2', text)
+    
+    # 2. Match Indian grouping: XX,XX,XXX (Lakhs)
+    # e.g. 18,00,000 or 1,50,00,000
+    def repl_indian_lakh(match):
+        num_str = match.group(0).replace(",", "")
+        num = int(num_str)
+        lakhs = num / 100000.0
+        val = int(lakhs) if lakhs.is_integer() else round(lakhs, 2)
+        return f"{val} lakh"
+        
+    text = re.sub(r'\b\d{1,2},\d{2},\d{3}\b', repl_indian_lakh, text)
+    
+    # 3. Match Indian grouping: X,XX,XX,XXX or XX,XX,XX,XXX (Crores)
+    # e.g. 1,50,00,000 or 15,00,00,000
+    def repl_indian_crore(match):
+        num_str = match.group(0).replace(",", "")
+        num = int(num_str)
+        crores = num / 10000000.0
+        val = int(crores) if crores.is_integer() else round(crores, 2)
+        return f"{val} crore"
+        
+    text = re.sub(r'\b\d{1,2},\d{2},\d{2},\d{3}\b', repl_indian_crore, text)
+
+    # 4. If there's a plain 5-9 digit number explicitly followed by Indian currency words, convert it
+    def repl_large_plain_num(match):
+        num_str = match.group(1)
+        suffix = match.group(2)
+        num = int(num_str)
+        if num >= 10000000:
+            crores = num / 10000000.0
+            val = int(crores) if crores.is_integer() else round(crores, 2)
+            return f"{val} crore {suffix}"
+        else:
+            lakhs = num / 100000.0
+            val = int(lakhs) if lakhs.is_integer() else round(lakhs, 2)
+            return f"{val} lakh {suffix}"
+
+    text = re.sub(r'\b(\d{5,9})\b\s*(inr|rupees|rupee|rs)\b', repl_large_plain_num, text, flags=re.IGNORECASE)
+    
+    return text
+
+
+# Global LRU-like cache of recently synthesized/synthesizing text to speech audio.
+# Keys are the exact text string. Values are either a completed `bytes` object or an active `asyncio.Task`.
+_tts_cache = collections.OrderedDict()
+_tts_cache_lock = asyncio.Lock()
+MAX_TTS_CACHE_SIZE = 30
+
+async def _add_to_tts_cache(text: str, audio_bytes: bytes):
+    async with _tts_cache_lock:
+        if text in _tts_cache:
+            _tts_cache.pop(text)
+        _tts_cache[text] = audio_bytes
+        if len(_tts_cache) > MAX_TTS_CACHE_SIZE:
+            _tts_cache.popitem(last=False)
+
+def prefetch_tts(text: str):
+    """Starts a background task to pre-generate and cache TTS audio for the given text."""
+    if not text:
+        return
+    text = clean_text_for_tts(text)
+    try:
+        # Run the pre-generation in the background on the event loop
+        asyncio.create_task(_run_prefetch_tts(text))
+    except Exception as e:
+        print(f"[TTS PREFETCH START ERROR] {e}")
+
+async def _run_prefetch_tts(text: str):
+    async with _tts_cache_lock:
+        if text in _tts_cache:
+            return
+
+    async def task_impl():
+        VOICE = "en-US-JennyNeural"
+        try:
+            communicate = edge_tts.Communicate(
+                text,
+                VOICE,
+                rate="+10%",    # Faster pacing — feels conversational, not robotic
+                pitch="+3Hz",   # Slightly warmer/livelier tone
+            )
+            audio_data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data.extend(chunk["data"])
+            
+            completed_bytes = bytes(audio_data)
+            async with _tts_cache_lock:
+                _tts_cache[text] = completed_bytes
+            return completed_bytes
+        except Exception as e:
+            print(f"[TTS PREFETCH ERROR] {e}")
+            async with _tts_cache_lock:
+                _tts_cache.pop(text, None)
+            return None
+
+    task = asyncio.create_task(task_impl())
+    async with _tts_cache_lock:
+        _tts_cache[text] = task
+        if len(_tts_cache) > MAX_TTS_CACHE_SIZE:
+            _tts_cache.popitem(last=False)
+
+
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -136,6 +249,7 @@ async def initiate_interview(
             })
             response_payload["first_question"] = first_question
 
+        prefetch_tts(first_question)
         return response_payload
 
     except Exception as e:
@@ -229,40 +343,75 @@ async def respond_to_agent(
             
         response_payload["is_complete"] = is_complete
 
+    if "next_question" in response_payload:
+        prefetch_tts(response_payload["next_question"])
     return response_payload
 
 
+@router.get("/tts")
+async def text_to_speech_get(text: str = Query(...)):
+    """Convert text to speech using Microsoft Edge neural TTS voice, streaming the response via GET."""
+    return await _stream_tts(text)
+
+
 @router.post("/tts")
-async def text_to_speech(
-    text: str = Form(...)
-):
-    """Convert text to speech using Microsoft Edge neural TTS voice."""
+async def text_to_speech_post(text: str = Form(...)):
+    """Convert text to speech using Microsoft Edge neural TTS voice, streaming the response via POST."""
+    return await _stream_tts(text)
 
-    VOICE = "en-US-JennyNeural"  # Warmer, more human-sounding female voice
 
+async def _stream_tts(text: str):
+    from fastapi.responses import StreamingResponse
+    text = clean_text_for_tts(text)
+    
+    # Check if we have cached or prefetching item
+    cached_item = None
+    async with _tts_cache_lock:
+        if text in _tts_cache:
+            cached_item = _tts_cache[text]
+            
+    if cached_item is not None:
+        if isinstance(cached_item, bytes):
+            print(f"[TTS CACHE] Serving completed audio for text: {text[:30]}...")
+            async def cached_bytes_generator():
+                yield cached_item
+            return StreamingResponse(cached_bytes_generator(), media_type="audio/mpeg")
+            
+        elif isinstance(cached_item, asyncio.Task):
+            print(f"[TTS CACHE] Awaiting in-progress prefetch for text: {text[:30]}...")
+            try:
+                audio_bytes = await cached_item
+                if audio_bytes:
+                    async def cached_bytes_generator():
+                        yield audio_bytes
+                    return StreamingResponse(cached_bytes_generator(), media_type="audio/mpeg")
+            except Exception as e:
+                print(f"[TTS CACHE ERROR] Awaiting prefetch task failed: {e}")
+    
+    # Fallback to live stream if not in cache or if prefetching failed
+    print(f"[TTS CACHE] Miss, live streaming for text: {text[:30]}...")
+    VOICE = "en-US-JennyNeural"
     try:
         communicate = edge_tts.Communicate(
             text,
             VOICE,
-            rate="+10%",    # Faster pacing — feels conversational, not robotic
-            pitch="+3Hz",   # Slightly warmer/livelier tone
+            rate="+10%",
+            pitch="+3Hz",
         )
-        # Write to a temp file
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3", dir=UPLOAD_DIR)
-        tmp_path = tmp.name
-        tmp.close()
+        
+        async def audio_generator_and_cache():
+            audio_data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data.extend(chunk["data"])
+                    yield chunk["data"]
+            # After streaming completes, cache it
+            await _add_to_tts_cache(text, bytes(audio_data))
 
-        await communicate.save(tmp_path)
-
-        from fastapi.responses import FileResponse
-        return FileResponse(
-            tmp_path,
-            media_type="audio/mpeg",
-            filename="liza_speech.mp3",
-            background=BackgroundTask(lambda: os.remove(tmp_path) if os.path.exists(tmp_path) else None)
-        )
+        return StreamingResponse(audio_generator_and_cache(), media_type="audio/mpeg")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+
 
 
 @router.post("/run")

@@ -112,18 +112,27 @@ def process_speech(speech_id: int):
                 future_gesture: "gesture",
             }
 
+            completed_count = 0
             for future in as_completed(futures):
                 name = futures[future]
                 try:
                     if name == "audio":
                         audio_result = cast(dict[str, Any], future.result())
-                        _update_progress(db, speech, 50)
                     elif name == "eye":
                         eye_contact_percentage = cast(float, future.result())
-                        _update_progress(db, speech, 65)
                     elif name == "gesture":
                         gesture_frequency = cast(float, future.result())
-                        _update_progress(db, speech, 70)
+
+                    completed_count += 1
+                    prog_val = 5 + completed_count * 21 # 26%, 47%, 68%
+                    if completed_count == 1:
+                        prog_val = 30
+                    elif completed_count == 2:
+                        prog_val = 55
+                    elif completed_count == 3:
+                        prog_val = 70
+                    
+                    _update_progress(db, speech, prog_val)
                 except Exception as exc:
                     print(f"[ERROR] {name} pipeline failed: {exc}")
                     print(traceback.format_exc())
@@ -266,6 +275,18 @@ def process_speech(speech_id: int):
             except Exception:
                 pass
         speech.short_summary_feedback = analysis.get("short_summary_feedback", "")  # type: ignore
+
+        # ── Prefetch TTS audio for the short summary feedback ──
+        try:
+            from app.routes.agent import prefetch_tts
+            if speech.short_summary_feedback:
+                print(f"[INFO] Prefetching TTS audio for speech ID {speech.id} short summary feedback...")
+                prefetch_tts(speech.short_summary_feedback)
+        except Exception as prefetch_err:
+            print(f"[WARN] Failed to prefetch TTS: {prefetch_err}")
+
+
+
 
         speech.status = "completed"  # type: ignore
         _update_progress(db, speech, 100)

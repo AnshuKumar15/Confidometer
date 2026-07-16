@@ -40,6 +40,8 @@ export default function DashboardClient() {
   // Active report tab
   const [activeReportTab, setActiveReportTab] = useState("technical");
 
+
+
   // Load trends data
   useEffect(() => {
     async function loadTrends() {
@@ -95,6 +97,8 @@ export default function DashboardClient() {
     loadHistory();
   }, []);
 
+
+
   // Parse JSON feedback
   const technicalFeedback = useMemo(() => {
     if (!data?.technical_feedback) return [];
@@ -149,7 +153,9 @@ export default function DashboardClient() {
         setIsSpeakingFeedback(false);
         setFeedbackPlayed(true);
         setDashboardUnlocked(true);
-        URL.revokeObjectURL(audioUrl);
+        if (audioUrl && audioUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(audioUrl);
+        }
         // Persist unlock
         if (typeof window !== "undefined") {
           sessionStorage.setItem(`confidometer_dashboard_unlocked_${speechId}`, "1");
@@ -159,7 +165,9 @@ export default function DashboardClient() {
         setIsSpeakingFeedback(false);
         setFeedbackPlayed(true);
         setDashboardUnlocked(true);
-        URL.revokeObjectURL(audioUrl);
+        if (audioUrl && audioUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(audioUrl);
+        }
       };
       await audio.play();
     } catch {
@@ -615,6 +623,8 @@ export default function DashboardClient() {
           </ResponsiveContainer>
         </section>
       )}
+
+
     </motion.div>
   );
 }

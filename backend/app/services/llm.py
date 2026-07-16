@@ -119,8 +119,8 @@ def _build_system_prompt_hr(user_name, role, company_name, experience_level, res
         f"{experience_context}"
         f"Here is the candidate's resume:\n{resume_text}\n"
         "\nINSTRUCTIONS & FLOW:\n"
-        "1. Start with a warm greeting, introduce yourself as Liza, and ask how the candidate is doing.\n"
-        "2. Ask them to introduce themselves.\n"
+        "1. Start with a friendly greeting, introduce yourself as Liza.\n"
+        "2. Ask the candidate to briefly introduce themselves.\n"
         "3. Ask HR-focused questions: motivation, teamwork, conflict resolution, salary expectations, work culture preferences, strengths/weaknesses, career goals, etc.\n"
         "4. Keep questions conversational, empathetic, and relevant to the role and company.\n"
         "5. Ask exactly ONE question at a time. Keep responses concise (2-3 sentences).\n"
@@ -230,7 +230,8 @@ def generate_interview_question(
     user_name: str = "Anshu", company_name: str = "",
     experience_level: str = "", job_description: str = "",
     interview_type: str = "technical", dsa_context: dict = None,
-    is_time_up: bool = False, stress_mode: bool = False
+    is_time_up: bool = False, stress_mode: bool = False,
+    is_peer: bool = False
 ) -> str:
     """
     Generate the next interview question based on interview type and conversation history.
@@ -239,7 +240,7 @@ def generate_interview_question(
     api_key = os.environ.get("GEMINI_API_KEY")
 
     # Short-circuit greeting (Turn 1) to avoid API call latency and save quota
-    if not conversation_history and interview_type != "dsa":
+    if not conversation_history and interview_type != "dsa" and not is_peer:
         greeting_role = role if role else "specified"
         company_part = f" at {company_name}" if company_name else ""
         round_label = {
@@ -250,7 +251,7 @@ def generate_interview_question(
         }.get(interview_type, "interview")
         return f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?"
 
-    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False):
+    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False):
         # 1. Count how many of the user turns were NOT questions/clarification requests
         answered_turns = 0
         for msg in history:
@@ -360,7 +361,7 @@ def generate_interview_question(
     # 1. Fallback to mock if API key is not present
     if not api_key:
         print("[LLM INFO] No GEMINI_API_KEY found. Falling back to rule-based questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer)
 
     # 2. Use Gemini API
     try:
@@ -397,8 +398,27 @@ def generate_interview_question(
                 "Once explained, repeat/re-ask the current question so they can answer it."
             )
 
+        if is_peer:
+            system_instruction += (
+                "\n\nCRITICAL PEER INTERVIEW MODE:\n"
+                "You are generating questions for a HUMAN interviewer to read aloud to the candidate.\n"
+                "1. Do NOT include any introductions or self-identifying statements (e.g. do NOT say 'I'm Liza', 'Welcome', or 'Hi {name}').\n"
+                "2. Ask the interview question directly. The very first character should be the beginning of the question.\n"
+                "3. Do not include candidate name greetings (e.g., do not say 'Anshu, welcome'). Start directly with the technical context or the question itself."
+            )
+
+        # Reinforce number formatting rules: write as numeric digits, but they will be spoken correctly via TTS
+        system_instruction += (
+            "\n\nCRITICAL OFFER WRITING RULE: When discussing salaries, packages, compensation, and money, "
+            "you must ALWAYS write them in numeric digit representations using standard comma grouping (e.g., write '18,00,000 rupees' or '18,00,000 INR' "
+            "instead of 'eighteen lakh rupees', and write '$100,000' or '100,000 USD' instead of 'one hundred thousand dollars'). "
+            "Do NOT write out monetary numbers in words, but ALWAYS format them as numbers in digits so they display clean and professional "
+            "on screen. The text-to-speech engine will automatically convert these numbers to natural spoken words."
+        )
+
+
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.1-flash-lite",
             system_instruction=system_instruction
         )
         
@@ -427,7 +447,7 @@ def generate_interview_question(
         return response.text.strip()
     except Exception as e:
         print(f"[LLM ERROR] Gemini API call failed: {e}. Falling back to mock questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -541,7 +561,7 @@ IMPORTANT RULES:
 3. Boilerplate code should have the correct function signature with a placeholder comment.
 4. Return ONLY valid JSON. No markdown fences, no explanation, no extra text."""
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
@@ -767,7 +787,7 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
 
 IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, no extra text. Just the JSON object."""
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
@@ -837,7 +857,7 @@ TASK:
 
 IMPORTANT: Return ONLY valid JSON. No markdown wrappers, no explanations, no text before or after the JSON."""
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
         response = model.generate_content(prompt)
         raw = response.text.strip()
 

@@ -3,8 +3,12 @@ from moviepy import VideoFileClip
 import os
 import subprocess
 import tempfile
+import threading
 
 import imageio_ffmpeg
+
+# Thread lock to serialize access to Whisper's non-thread-safe inference engine
+_whisper_lock = threading.Lock()
 
 # Load models lazily
 _model_stt = None
@@ -27,17 +31,10 @@ def get_model_batch():
     return _model_batch
 
 def get_model_stt():
-    global _model_stt, _model_batch
+    global _model_stt
     if _model_stt is None:
-        try:
-            print("[INFO] Loading Whisper 'medium' model for real-time STT...")
-            _model_stt = whisper.load_model("medium", device="cpu")
-            print("[INFO] Whisper 'medium' model loaded successfully for real-time STT.")
-        except Exception as e:
-            print(f"[WARN] Failed to load Whisper 'medium' model ({e}). Falling back to 'small'...")
-            # Reuse model_batch as fallback to avoid loading another copy of 'small'
-            _model_stt = get_model_batch()
-            print("[INFO] Using batch model as fallback for real-time STT.")
+        print("[INFO] Using 'small' model for real-time STT (reusing batch model).")
+        _model_stt = get_model_batch()
     return _model_stt
 
 #extracts audio and sends it to output_path
@@ -85,15 +82,15 @@ def transcribe_audio(audio_path: str):
         active_model = get_model_stt()
     if active_model is None:
         raise RuntimeError("No Whisper model is loaded")
-    result = active_model.transcribe(
-        audio_path,
-        initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
-        beam_size=5,           # wider beam search for more accurate decoding
-        best_of=5,             # consider top-5 candidates
-        temperature=0.0,       # deterministic — no sampling randomness
-        condition_on_previous_text=True,  # use context for coherence
-        language="en",         # lock to English to avoid language detection overhead
-    )
+    with _whisper_lock:
+        result = active_model.transcribe(
+            audio_path,
+            initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
+            beam_size=1,           # Fast greedy search
+            temperature=0.0,       # deterministic — no sampling randomness
+            condition_on_previous_text=True,  # use context for coherence
+            language="en",         # lock to English to avoid language detection overhead
+        )
     return result["text"]
 
 
@@ -148,16 +145,16 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
             active_model = get_model_batch()
         if active_model is None:
             raise RuntimeError("No Whisper model is loaded")
-        result = active_model.transcribe(
-            tmp_wav.name,
-            beam_size=5,
-            best_of=3,             # slightly fewer candidates for speed in real-time
-            temperature=0.0,
-            language="en",
-            condition_on_previous_text=False,  # each chunk is independent
-            no_speech_threshold=0.5,           # filter out non-speech noise
-            initial_prompt="Interview response. Natural conversational English.",
-        )
+        with _whisper_lock:
+            result = active_model.transcribe(
+                tmp_wav.name,
+                beam_size=1,           # Fast greedy search for real-time latency
+                temperature=0.0,
+                language="en",
+                condition_on_previous_text=False,  # each chunk is independent
+                no_speech_threshold=0.5,           # filter out non-speech noise
+                initial_prompt="Interview response. Natural conversational English.",
+            )
 
         return {
             "text": result.get("text", "").strip(),

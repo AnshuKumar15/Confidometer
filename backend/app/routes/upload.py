@@ -46,6 +46,8 @@ async def upload_video(
     if session_id:
         try:
             from app.routes.agent import active_sessions
+            from app.routes.meeting import active_rooms
+            
             session = active_sessions.get(session_id)
             if session:
                 speech.role = session.get("role")  # type: ignore
@@ -53,7 +55,8 @@ async def upload_video(
                 speech.interview_type = session.get("interview_type")  # type: ignore
                 speech.conversation_history = json.dumps(session.get("history", []))  # type: ignore
                 speech.stress_mode = session.get("stress_mode", False)  # type: ignore
-
+                speech.resume_text = session.get("resume_text")  # type: ignore
+ 
                 # Persist DSA/coding round data
                 dsa_state = session.get("dsa_state")
                 if dsa_state:
@@ -68,6 +71,15 @@ async def upload_video(
                             code_parts.append(f"// === {q_title} ===\n{sub.get('code', '')}")
                         speech.dsa_code = "\n\n".join(code_parts)  # type: ignore
                     speech.dsa_question_details = json.dumps(dsa_state.get("questions", []))  # type: ignore
+            else:
+                room = active_rooms.get(session_id)
+                if room:
+                    speech.role = room.get("role")  # type: ignore
+                    speech.company_name = "Peer Interview"  # type: ignore
+                    speech.interview_type = "technical"  # type: ignore
+                    speech.conversation_history = json.dumps(room.get("history", []))  # type: ignore
+                    speech.stress_mode = False  # type: ignore
+                    speech.resume_text = room.get("resume_text")  # type: ignore
         except Exception as e:
             print(f"[WARN] Could not attach session context: {e}")
 

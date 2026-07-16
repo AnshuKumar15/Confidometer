@@ -29,8 +29,8 @@ RUN python -m app.utils.download_models
 # Pre-download and cache Whisper "small" and "medium" models during build to prevent runtime download delays
 RUN python -c "import whisper; whisper.load_model('small', device='cpu'); whisper.load_model('medium', device='cpu')"
 
-# Expose FastAPI port
-EXPOSE 8000
+# Expose FastAPI port (Hugging Face expects port 7860)
+EXPOSE 7860
 
 # Start FastAPI application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
