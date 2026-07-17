@@ -1,6 +1,6 @@
 from typing import Any, Optional, cast
 import os
-import math
+
 
 import cv2
 import mediapipe as mp
@@ -25,13 +25,8 @@ def _largest_face(gray_frame: Any, face_cascade: Any) -> Optional[tuple[int, int
     return cast(tuple[int, int, int, int], max(faces, key=lambda f: f[2] * f[3]))
 
 
-def _bell_curve_score(value: float, ideal: float, width: float) -> float:
-    """
-    Gaussian bell-curve scoring.
-    Returns 100 at `ideal`, decaying towards 0 as `value` moves away.
-    `width` controls how quickly it decays.
-    """
-    return 100.0 * math.exp(-((value - ideal) / width) ** 2)
+from app.utils.scoring_utils import bell_curve_score
+
 
 
 def _gesture_from_motion(video_path: str) -> float:
@@ -101,7 +96,7 @@ def _gesture_from_motion(video_path: str) -> float:
         return 0.0
 
     activity_ratio = active_frames / analyzed_frames
-    return round(_bell_curve_score(activity_ratio, ideal=0.50, width=0.35), 2)
+    return round(bell_curve_score(activity_ratio, ideal=0.50, width=0.35), 2)
 
 
 def _gesture_from_mediapipe(video_path: str) -> float:
@@ -194,7 +189,7 @@ def _gesture_from_mediapipe(video_path: str) -> float:
     avg_movement = float(np.mean(per_frame_movements))
 
     # Normalize score
-    score = _bell_curve_score(avg_movement, ideal=0.015, width=0.018)
+    score = bell_curve_score(avg_movement, ideal=0.015, width=0.018)
     print(f"[DEBUG] Gesture avg movement/frame: {avg_movement:.5f} => score: {score:.1f}")
     return round(max(0.0, min(100.0, score)), 2)
 

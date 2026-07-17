@@ -789,6 +789,18 @@ export default function SpeakPage() {
     <div className="speak-cream-band">
       <div className="speak-page-wrapper">
 
+        {/* Top left "Back" button shown only in active mode */}
+        {mode === "active" && (
+          <button 
+            type="button" 
+            className="speak-back-btn"
+            onClick={handleReset}
+            title="Back to Topic Selector"
+          >
+            ← Back
+          </button>
+        )}
+
         {/* Top right "Baby steps to the Mic" written signature */}
         <div className="speak-header-badge">
           Baby steps to the Mic

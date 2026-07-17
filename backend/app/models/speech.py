@@ -58,8 +58,6 @@ class Speech(Base):
     non_technical_feedback = Column(Text, nullable=True)
     short_summary_feedback = Column(Text, nullable=True)
 
-
-
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User")

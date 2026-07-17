@@ -44,10 +44,38 @@
   letter-spacing: -0.02em;
 }
 
+/* Back button on top left of cream area */
+.speak-back-btn {
+  position: absolute;
+  top: 24px;
+  left: 48px;
+  background: none;
+  border: none;
+  color: #3b5f54;
+  font-family: var(--font-heading), sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.2s ease, transform 0.2s ease;
+  letter-spacing: -0.02em;
+}
+
+.speak-back-btn:hover {
+  color: #1a3d34;
+  transform: translateX(-3px);
+}
+
 @media (max-width: 900px) {
   .speak-header-badge {
     position: static;
     margin-top: 10px;
+  }
+  .speak-back-btn {
+    position: static;
+    margin-bottom: 10px;
   }
 }
 

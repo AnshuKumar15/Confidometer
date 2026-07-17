@@ -14,6 +14,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import cast, Any
 from app.services.gesture import analyze_gesture
+from app.utils.scoring_utils import bell_curve_score
 
 
 def _update_progress(db: Session, speech: Speech, progress: int):
@@ -124,7 +125,6 @@ def process_speech(speech_id: int):
                         gesture_frequency = cast(float, future.result())
 
                     completed_count += 1
-                    prog_val = 5 + completed_count * 21 # 26%, 47%, 68%
                     if completed_count == 1:
                         prog_val = 30
                     elif completed_count == 2:
@@ -152,16 +152,12 @@ def process_speech(speech_id: int):
         pitch_std = voice_metrics["pitch_std"]
         speaking_rate_score = voice_metrics["speaking_rate_score"]
 
-        # ── Smooth voice stability scoring using Gaussian bell curves ──
-        def _bell(value: float, ideal: float, width: float) -> float:
-            return 100.0 * math.exp(-((value - ideal) / width) ** 2)
-
         # Pitch stability: ideal ~35 Hz std (natural variation), width 30
-        pitch_score = _bell(pitch_std, ideal=35.0, width=30.0)
+        pitch_score = bell_curve_score(pitch_std, ideal=35.0, width=30.0)
         pitch_score = max(0.0, min(100.0, pitch_score))
 
         # Silence management: ideal ~25% pause ratio, width 20%
-        silence_score = _bell(silence_ratio, ideal=0.25, width=0.20)
+        silence_score = bell_curve_score(silence_ratio, ideal=0.25, width=0.20)
         silence_score = max(0.0, min(100.0, silence_score))
 
         # Combine: pitch 45%, silence 30%, speaking rate 25%

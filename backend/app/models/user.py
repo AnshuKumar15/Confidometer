@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Date
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 class User(Base):
@@ -9,7 +9,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     name = Column(String, nullable=True)
     hashed_password = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Gamification fields
     streak_count = Column(Integer, default=0)

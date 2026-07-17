@@ -10,13 +10,6 @@ class UserDetail(BaseModel):
     class Config:
         from_attributes = True
 
-class MeetingRequestCreate(BaseModel):
-    role: str
-    interview_type: str
-    company_name: str
-    job_description: Optional[str] = None
-    scheduled_at: Optional[datetime] = None  # None for Immediate/Now
-
 class MeetingRequestResponse(BaseModel):
     id: int
     user_id: int

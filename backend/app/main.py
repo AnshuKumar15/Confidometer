@@ -143,7 +143,3 @@ app.include_router(trends.router, prefix="/trends", tags=["Trends"])
 
 from app.routes import meeting
 app.include_router(meeting.router, prefix="/meeting", tags=["Meeting"])
-
-
-
-

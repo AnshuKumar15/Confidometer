@@ -305,5 +305,3 @@ export function createSTTWebSocket(sessionId, onResult, onError, onOpen, onClose
     isConnected: () => ws && ws.readyState === WebSocket.OPEN && !closed,
   };
 }
-
-

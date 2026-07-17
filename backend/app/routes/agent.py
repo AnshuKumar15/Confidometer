@@ -4,13 +4,13 @@ from app.services.llm import generate_interview_question, generate_dsa_question
 from app.utils.security import get_current_user
 from app.utils.audio import transcribe_chunk
 from app.services.stt import SmartTranscriber, _extract_confidence
-from starlette.background import BackgroundTask
 import os
 import uuid
 import json
 import asyncio
 import edge_tts
-import tempfile
+import collections
+import re
 
 router = APIRouter()
 
@@ -21,9 +21,7 @@ router = APIRouter()
 #            "dsa_state": { "current_q": int, "questions": [...], "code_submissions": [...] } } }
 active_sessions = {}
 
-import collections
-import asyncio
-import re
+
 
 def clean_text_for_tts(text: str) -> str:
     if not text:

@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, UploadFile, File, Depends, Form
 from typing import Optional
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.database import get_db
 from app.models.speech import Speech
 from app.utils.security import get_current_user
 from fastapi import BackgroundTasks
@@ -14,12 +14,6 @@ router = APIRouter()
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 @router.post("/")
 async def upload_video(
@@ -55,7 +49,6 @@ async def upload_video(
                 speech.interview_type = session.get("interview_type")  # type: ignore
                 speech.conversation_history = json.dumps(session.get("history", []))  # type: ignore
                 speech.stress_mode = session.get("stress_mode", False)  # type: ignore
-                speech.resume_text = session.get("resume_text")  # type: ignore
  
                 # Persist DSA/coding round data
                 dsa_state = session.get("dsa_state")
@@ -79,7 +72,6 @@ async def upload_video(
                     speech.interview_type = "technical"  # type: ignore
                     speech.conversation_history = json.dumps(room.get("history", []))  # type: ignore
                     speech.stress_mode = False  # type: ignore
-                    speech.resume_text = room.get("resume_text")  # type: ignore
         except Exception as e:
             print(f"[WARN] Could not attach session context: {e}")
 

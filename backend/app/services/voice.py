@@ -1,11 +1,6 @@
-import math
 import librosa
 import numpy as np
-
-
-def _bell_curve_score(value: float, ideal: float, width: float) -> float:
-    """Gaussian bell-curve: 100 at ideal, decaying towards 0."""
-    return 100.0 * math.exp(-((value - ideal) / width) ** 2)
+from app.utils.scoring_utils import bell_curve_score
 
 
 def analyze_voice(audio_path: str) -> dict:
@@ -80,9 +75,7 @@ def analyze_voice(audio_path: str) -> dict:
     except Exception:
         estimated_wpm = 130.0  # Default to ideal if estimation fails
 
-    # Score WPM: ideal = 140 WPM, width = 50
-    # 90-190 WPM scores well; outside that range degrades
-    speaking_rate_score = _bell_curve_score(estimated_wpm, ideal=140.0, width=50.0)
+    speaking_rate_score = bell_curve_score(estimated_wpm, ideal=140.0, width=50.0)
     speaking_rate_score = max(0.0, min(100.0, speaking_rate_score))
 
     print(f"[DEBUG] Voice: duration={duration_sec:.1f}s, silence_ratio={silence_ratio:.2%}, "
@@ -92,8 +85,6 @@ def analyze_voice(audio_path: str) -> dict:
     return {
         "duration_sec": duration_sec,
         "silence_ratio": silence_ratio,
-        "avg_pitch": avg_pitch,
         "pitch_std": pitch_std,
         "speaking_rate_score": speaking_rate_score,
-        "estimated_wpm": estimated_wpm,
     }

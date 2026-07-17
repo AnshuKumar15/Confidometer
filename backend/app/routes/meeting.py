@@ -8,24 +8,17 @@ from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File, Form
 from starlette.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.models.meeting_request import PeerInterviewRequest
 from app.schema.meeting_schema import MeetingRequestResponse
 from app.utils.security import get_current_user
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question
-from app.utils.audio import transcribe_chunk, _whisper_lock
+from app.utils.audio import transcribe_chunk
 from app.services.stt import SmartTranscriber, _extract_confidence
 
 router = APIRouter()
 
-# ── Database Dependency ──
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 # ── In-memory active room state ──
 # Active peer rooms: { room_id: { "role_name": str, "company_name": str, "interview_type": str, "resume_text": str, "job_description": str, "resume_filename": str, "interviewer": {...}, "interviewee": {...}, "phase": str, "history": [...], "transcriber": SmartTranscriber, "created_at": str } }
@@ -203,7 +196,7 @@ async def peer_signaling(
             "phase": "warmup",
             "history": [],
             "transcriber": SmartTranscriber(),
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
         # Query database to retrieve matched request context
