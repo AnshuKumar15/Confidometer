@@ -611,8 +611,37 @@ export default function SpeakPage() {
     requestAnimationFrame(tick);
   };
 
-  // Start active mode without launching countdown/camera yet
-  const handleStartTimer = () => {
+  // Helper to request & activate camera stream
+  const startCameraStream = async () => {
+    if (stream) return stream;
+    try {
+      const activeStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+        audio: true
+      });
+      setStream(activeStream);
+
+      // Initialize Web Audio API visualizer
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx && !audioContextRef.current) {
+        const audioContext = new AudioCtx();
+        const source = audioContext.createMediaStreamSource(activeStream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        audioContextRef.current = audioContext;
+        analyserRef.current = analyser;
+      }
+      return activeStream;
+    } catch (err) {
+      console.warn("Failed to gain device access:", err);
+      return null;
+    }
+  };
+
+  // Start active mode and turn on camera stream immediately
+  const handleStartTimer = async () => {
     setMode("active");
     setTimeLeft(totalTime);
     setIsPlaying(false);
@@ -620,6 +649,7 @@ export default function SpeakPage() {
       URL.revokeObjectURL(recordingBlobUrl);
       setRecordingBlobUrl(null);
     }
+    await startCameraStream();
   };
 
   // Triggered when user plays/pauses speaking countdown
@@ -643,32 +673,10 @@ export default function SpeakPage() {
       playStartChimeSound(); // Trigger the premium ascending bell arpeggio!
 
       // 1. Ensure stream is active
-      let activeStream = stream;
+      let activeStream = await startCameraStream();
       if (!activeStream) {
-        try {
-          activeStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480 },
-            audio: true
-          });
-          setStream(activeStream);
-
-          // Initialize Web Audio API visualizer
-          const AudioCtx = window.AudioContext || window.webkitAudioContext;
-          if (AudioCtx) {
-            const audioContext = new AudioCtx();
-            const source = audioContext.createMediaStreamSource(activeStream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-
-            audioContextRef.current = audioContext;
-            analyserRef.current = analyser;
-          }
-        } catch (err) {
-          console.warn("Failed to gain device access:", err);
-          setIsPlaying(false);
-          return;
-        }
+        setIsPlaying(false);
+        return;
       }
 
       // 2. Start or Resume MediaRecorder
@@ -760,7 +768,6 @@ export default function SpeakPage() {
     setVisibleActiveIndex(1);
   };
 
-  // Cleanup object URLs on unmount to prevent leaks
   useEffect(() => {
     return () => {
       if (recordingBlobUrl) {
@@ -768,6 +775,13 @@ export default function SpeakPage() {
       }
     };
   }, [recordingBlobUrl]);
+
+  useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
 
   // Circle timer path definitions (increased radius for larger radial)
   const radius = 105;
@@ -800,11 +814,6 @@ export default function SpeakPage() {
             ← Back
           </button>
         )}
-
-        {/* Top right "Baby steps to the Mic" written signature */}
-        <div className="speak-header-badge">
-          Baby steps to the Mic
-        </div>
 
         {mode === "setup" ? (
           /* ═══════════════ SPIN MODE (SETUP) ═══════════════ */
@@ -839,27 +848,6 @@ export default function SpeakPage() {
                 
                 {/* Custom dropdown headers matching the screenshot pills exactly */}
                 <div className="speak-selectors-header">
-                  
-                  {/* Language Pill dropdown */}
-                  <div className="speak-selector-pill" onClick={(e) => { e.stopPropagation(); setLangOpen(!langOpen); setDiffOpen(false); setCatOpen(false); }}>
-                    <button type="button" className="speak-pill-btn">
-                      <span>{language} ▾</span>
-                    </button>
-                    {langOpen && (
-                      <div className="speak-dropdown-panel">
-                        {LANGUAGES.map((lang) => (
-                          <button 
-                            key={lang} 
-                            type="button" 
-                            className={`speak-dropdown-item ${language === lang ? "active" : ""}`}
-                            onClick={() => setLanguage(lang)}
-                          >
-                            {lang}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
 
                   {/* Difficulty Pill dropdown */}
                   <div className="speak-selector-pill" onClick={(e) => { e.stopPropagation(); setDiffOpen(!diffOpen); setLangOpen(false); setCatOpen(false); }}>
@@ -1009,7 +997,9 @@ export default function SpeakPage() {
                     <div className="speak-mic-badge">
                       <span className="speak-red-dot" />
                       <Mic size={14} />
-                      <span>Recording Live</span>
+                      <span>
+                        {isPlaying ? "Recording Live" : "Live"} • {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
+                      </span>
                     </div>
                   </div>
                 )}

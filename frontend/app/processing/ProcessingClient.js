@@ -33,6 +33,14 @@ export default function ProcessingClient() {
   const [progress, setProgress] = useState(0);
   const [displayProgress, setDisplayProgress] = useState(0);
 
+  // Enable light theme on mount
+  useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
+
   // Smooth animation of displayed progress toward actual progress
   useEffect(() => {
     if (displayProgress < progress) {

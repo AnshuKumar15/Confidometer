@@ -69,11 +69,15 @@ const DSA_TIMER_TOTAL = 30 * 60;
 export default function UploadPage() {
   const router = useRouter();
 
-  // Auth check on mount
+  // Auth check on mount & theme class
   useEffect(() => {
+    document.body.classList.add("light-theme-bg");
     if (!isAuthed()) {
       router.push("/login?next=/upload");
     }
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
   }, [router]);
   
   // Setup States

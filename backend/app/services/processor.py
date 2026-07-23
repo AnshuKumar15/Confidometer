@@ -43,7 +43,7 @@ def _audio_pipeline(video_path: str, audio_path: str) -> dict[str, Any]:
     print(f"[INFO] [Thread-Audio] Filler count: {filler_count}")
 
     print(f"[INFO] [Thread-Audio] Running voice analysis...")
-    voice_metrics = analyze_voice(audio_path)
+    voice_metrics = analyze_voice(audio_path, transcript=transcript)
 
     return {
         "transcript": transcript,

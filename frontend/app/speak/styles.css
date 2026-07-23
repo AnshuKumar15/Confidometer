@@ -14,7 +14,10 @@
   right: 50%;
   margin-left: -50vw;
   margin-right: -50vw;
-  padding: 60px 0;
+  padding: 80px 0 60px;
+  margin-top: -50px;
+  margin-bottom: -40px;
+  min-height: 100vh;
   display: flex;
   justify-content: center;
   border-top: 1px solid rgba(26, 61, 52, 0.08);
@@ -35,7 +38,7 @@
 /* Header Text "Baby steps to the Mic" on top right of cream area */
 .speak-header-badge {
   position: absolute;
-  top: 24px;
+  top: 50px;
   right: 48px;
   font-family: var(--font-heading), sans-serif;
   font-size: 1.6rem;
@@ -47,25 +50,31 @@
 /* Back button on top left of cream area */
 .speak-back-btn {
   position: absolute;
-  top: 24px;
+  top: 95px;
   left: 48px;
-  background: none;
-  border: none;
-  color: #3b5f54;
+  z-index: 30;
+  background: rgba(26, 61, 52, 0.06);
+  border: 1px solid rgba(26, 61, 52, 0.18);
+  padding: 8px 18px;
+  border-radius: 99px;
+  color: #1a3d34;
   font-family: var(--font-heading), sans-serif;
-  font-size: 1.6rem;
+  font-size: 1.05rem;
   font-weight: 800;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: color 0.2s ease, transform 0.2s ease;
-  letter-spacing: -0.02em;
+  transition: all 0.2s ease;
+  letter-spacing: -0.01em;
+  box-shadow: 0 4px 12px rgba(26, 61, 52, 0.05);
 }
 
 .speak-back-btn:hover {
+  background: rgba(26, 61, 52, 0.12);
   color: #1a3d34;
   transform: translateX(-3px);
+  border-color: rgba(26, 61, 52, 0.3);
 }
 
 @media (max-width: 900px) {
@@ -441,7 +450,7 @@
   grid-template-columns: 1.25fr 1fr;
   gap: 40px;
   width: 100%;
-  margin-top: 10px;
+  margin-top: 55px;
 }
 
 .speak-camera-card {

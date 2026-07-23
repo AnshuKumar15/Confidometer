@@ -96,6 +96,7 @@ function ScrollColumn({ items, value, onChange }) {
             <div
               key={idx}
               onClick={() => handleItemClick(idx)}
+              className="dt-wheel-item"
               style={{
                 height: `${ITEM_HEIGHT}px`,
                 display: "flex",
@@ -319,7 +320,7 @@ export default function DateTimePicker({ value, onChange, required }) {
       {/* Dropdown Popover */}
       {isOpen && (
         <div
-          className="glass"
+          className="glass dt-picker-popover"
           style={{
             position: "absolute",
             top: "calc(100% + 8px)",
@@ -444,7 +445,7 @@ export default function DateTimePicker({ value, onChange, required }) {
           <div style={{ flex: "1 1 230px", display: "flex", flexDirection: "column", gap: "12px" }}>
             <span style={{ fontWeight: "700", fontSize: "0.95rem", marginBottom: "4px" }}>Time Selection</span>
             
-            <div style={{
+            <div className="dt-time-wheel" style={{
               display: "flex",
               justifyContent: "center",
               alignItems: "center",

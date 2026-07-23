@@ -44,41 +44,15 @@ export default function Navbar() {
   const [lastScrollY, setLastScrollY] = useState(0);
   const dropdownRef = useRef(null);
 
-  // Gamification & Theme states
-  const [theme, setTheme] = useState("dark");
+  // Gamification & Badges modal states
   const [showBadgesModal, setShowBadgesModal] = useState(false);
   const [trendsData, setTrendsData] = useState(null);
 
+  // Load user data on pathname change
   useEffect(() => {
     setAuthed(isAuthed());
     setUser(getUser());
   }, [pathname]);
-
-  // Load and apply theme and trends
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedTheme = localStorage.getItem("confidometer_theme") || "dark";
-      setTheme(savedTheme);
-      if (savedTheme === "light") {
-        document.body.classList.add("light-theme");
-      } else {
-        document.body.classList.remove("light-theme");
-      }
-    }
-  }, []);
-
-  const toggleTheme = () => {
-    const newTheme = theme === "dark" ? "light" : "dark";
-    setTheme(newTheme);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("confidometer_theme", newTheme);
-      if (newTheme === "light") {
-        document.body.classList.add("light-theme");
-      } else {
-        document.body.classList.remove("light-theme");
-      }
-    }
-  };
 
   const handleOpenBadges = async () => {
     setDropdownOpen(false);
@@ -258,15 +232,6 @@ export default function Navbar() {
                   >
                     <Settings size={16} className="item-icon" />
                     Settings
-                  </button>
-
-                  <button
-                    type="button"
-                    className="profile-dropdown-item-new"
-                    onClick={toggleTheme}
-                  >
-                    {theme === "dark" ? <Sun size={16} className="item-icon" /> : <Moon size={16} className="item-icon" />}
-                    Appearance: {theme === "dark" ? "Dark Mode" : "Light Mode"}
                   </button>
 
                   <div className="profile-dropdown-divider" />

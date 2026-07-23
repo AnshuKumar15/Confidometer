@@ -8,12 +8,14 @@ import MetricCard from "@/components/MetricCard";
 import { getAnalysis, getUserHistory, fetchTTSAudio, getTrends } from "@/utils/api";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell
 } from "recharts";
 import {
   Eye, Mic, Brain, MessageCircle, Volume2, ChevronDown, ChevronUp,
   CheckCircle, AlertTriangle, TrendingUp, Award, Star, Sparkles,
-  Code2, Terminal, Zap, DollarSign
+  Code2, Terminal, Zap, DollarSign, Flame, ArrowUpRight, ArrowDownRight,
+  Target, ShieldCheck, CheckCircle2, Lock
 } from "lucide-react";
 
 export default function DashboardClient() {
@@ -40,7 +42,24 @@ export default function DashboardClient() {
   // Active report tab
   const [activeReportTab, setActiveReportTab] = useState("technical");
 
+  // Chart line visibility toggles — default to only Confidence for a clean view
+  const [visibleLines, setVisibleLines] = useState({
+    confidence: true,
+    eye: false,
+    fluency: false,
+    technical: false,
+    filler: false
+  });
 
+
+
+  // Enable light theme on mount
+  useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
 
   // Load trends data
   useEffect(() => {
@@ -54,7 +73,6 @@ export default function DashboardClient() {
     }
     loadTrends();
   }, []);
-
   useEffect(() => {
     if (!speechId) {
       setLoading(false);
@@ -99,7 +117,7 @@ export default function DashboardClient() {
 
 
 
-  // Parse JSON feedback
+  // ── Top Level Hooks (Must execute unconditionally on every render) ──
   const technicalFeedback = useMemo(() => {
     if (!data?.technical_feedback) return [];
     try {
@@ -118,22 +136,98 @@ export default function DashboardClient() {
     } catch { return {}; }
   }, [data]);
 
-  // Combine standard non-technical feedback with custom stress telemetry
   const enrichedNonTechnicalFeedback = useMemo(() => {
     const nt = { ...nonTechnicalFeedback };
     if (data?.stress_mode) {
       nt["fidgeting"] = {
-        score: data.fidgeting_index || 0,
+        score: data?.fidgeting_index || 0,
         feedback: "Fidgeting activity level monitored under stress."
       };
       nt["speech_var"] = {
-        score: data.speech_rate_variance || 0,
+        score: data?.speech_rate_variance || 0,
         feedback: "Speaking pace variation and rate spikes recorded under stress."
       };
     }
     return nt;
   }, [nonTechnicalFeedback, data]);
 
+  const subScores = useMemo(() => {
+    if (!data) return [];
+    const list = [
+      { label: "Eye Contact", value: Number(data.eye_contact_score || data.eye_contact || 0), icon: <Eye size={18} /> },
+      { label: "Technical Knowledge", value: Number(data.technical_knowledge_score || 50), icon: <Brain size={18} /> },
+      { label: "Fluency", value: Number(data.fluency_score || 50), icon: <Mic size={18} /> },
+      { label: "Use of Words", value: Number(data.use_of_words_score || 50), icon: <MessageCircle size={18} /> },
+      { label: "Filler Words", value: Number(data.filler_words_score || Math.max(0, 100 - Number(data.filler_count || 0) * 4)), icon: <Volume2 size={18} /> },
+      { label: "Explanation Quality", value: Number(data.explanation_quality_score || 50), icon: <Star size={18} /> },
+    ];
+    if (data.interview_type === "negotiation") {
+      list.push({ label: "Negotiation Score", value: Number(data.negotiation_score || 60), icon: <DollarSign size={18} /> });
+    }
+    if (data.stress_mode) {
+      list.push({ label: "Stress Composure", value: Number(data.stress_tolerance_score || 70), icon: <Zap size={18} /> });
+    }
+    if (data.code_quality_score != null) {
+      list.push(
+        { label: "Code Quality", value: Number(data.code_quality_score || 0), icon: <Code2 size={18} /> },
+        { label: "Optimization", value: Number(data.optimization_score || 0), icon: <Terminal size={18} /> },
+        { label: "Thinking Process", value: Number(data.thinking_process_score || 0), icon: <Brain size={18} /> },
+        { label: "Communication", value: Number(data.communication_score || 0), icon: <MessageCircle size={18} /> }
+      );
+    }
+    return list;
+  }, [data]);
+
+  const strengths = useMemo(() => {
+    return subScores.filter((s) => s.value >= 70).slice(0, 3);
+  }, [subScores]);
+
+  const focusAreas = useMemo(() => {
+    return subScores.filter((s) => s.value < 70).sort((a, b) => a.value - b.value).slice(0, 3);
+  }, [subScores]);
+
+  const progressChartData = useMemo(() => {
+    return historyData
+      .slice()
+      .reverse()
+      .map((item, idx) => ({
+        name: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : `#${idx + 1}`,
+        confidence: Number(item.confidence_score || 0),
+        eye: Number(item.eye_contact_score || item.eye_contact || 0),
+        fluency: Number(item.fluency_score || 50),
+        technical: Number(item.technical_knowledge_score || 50),
+        filler: Number(item.filler_words_score || 50),
+      }));
+  }, [historyData]);
+
+  const donutData = useMemo(() => {
+    if (!trendsData?.type_breakdown) return [];
+    const TYPE_COLORS = {
+      technical: "#a78bfa",
+      hr: "#2dd4bf",
+      dsa: "#f59e0b",
+      behavioural: "#22d3ee",
+      negotiation: "#f87171"
+    };
+    return Object.entries(trendsData.type_breakdown).map(([t, count]) => ({
+      name: t.toUpperCase(),
+      value: count,
+      color: TYPE_COLORS[t.toLowerCase()] || "#94a3b8"
+    }));
+  }, [trendsData]);
+
+  const confidenceTrend = useMemo(() => {
+    const scoreVal = Number(data?.confidence_score || 0);
+    const prevSession = historyData && historyData.length > 1 ? historyData[1] : null;
+    if (!prevSession) return null;
+    const prevVal = Number(prevSession.confidence_score || 0);
+    const diff = scoreVal - prevVal;
+    return {
+      diff,
+      formatted: diff >= 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`,
+      isUp: diff >= 0
+    };
+  }, [data, historyData]);
 
   // Speak short summary
   async function handleGetFeedback() {
@@ -195,7 +289,7 @@ export default function DashboardClient() {
   }
 
   if (loading) {
-    return <p className="muted centered">Loading dashboard...</p>;
+    return <DashboardSkeleton />;
   }
 
   if (error) {
@@ -203,48 +297,9 @@ export default function DashboardClient() {
   }
 
   const score = Number(data?.confidence_score || 0);
-
-  // Sub-scores
-  const subScores = [
-    { label: "Eye Contact", value: Number(data?.eye_contact_score || data?.eye_contact || 0), icon: <Eye size={18} /> },
-    { label: "Technical Knowledge", value: Number(data?.technical_knowledge_score || 50), icon: <Brain size={18} /> },
-    { label: "Fluency", value: Number(data?.fluency_score || 50), icon: <Mic size={18} /> },
-    { label: "Use of Words", value: Number(data?.use_of_words_score || 50), icon: <MessageCircle size={18} /> },
-    { label: "Filler Words", value: Number(data?.filler_words_score || Math.max(0, 100 - Number(data?.filler_count || 0) * 4)), icon: <Volume2 size={18} /> },
-    { label: "Explanation Quality", value: Number(data?.explanation_quality_score || 50), icon: <Star size={18} /> },
-  ];
-
-  if (data?.interview_type === "negotiation") {
-    subScores.push({
-      label: "Negotiation Score",
-      value: Number(data?.negotiation_score || 60),
-      icon: <DollarSign size={18} />
-    });
-  }
-
-  if (data?.stress_mode) {
-    subScores.push({
-      label: "Stress Composure",
-      value: Number(data?.stress_tolerance_score || 70),
-      icon: <Zap size={18} />
-    });
-  }
-
-  // Add coding scores if available (DSA / Technical rounds)
   const hasCodingScores = data?.code_quality_score != null;
-  if (hasCodingScores) {
-    subScores.push(
-      { label: "Code Quality", value: Number(data.code_quality_score || 0), icon: <Code2 size={18} /> },
-      { label: "Optimization", value: Number(data.optimization_score || 0), icon: <Terminal size={18} /> },
-      { label: "Thinking Process", value: Number(data.thinking_process_score || 0), icon: <Brain size={18} /> },
-      { label: "Communication", value: Number(data.communication_score || 0), icon: <MessageCircle size={18} /> },
-    );
-  }
-
-  // Parse coding feedback from non-technical
   const codingFeedback = nonTechnicalFeedback?.coding_feedback || null;
 
-  // Non-technical metrics for graphical display
   const ntMetrics = [
     { key: "eye_contact", label: "Eye Contact", icon: <Eye size={16} /> },
     { key: "gestures", label: "Gestures", icon: <TrendingUp size={16} /> },
@@ -260,20 +315,8 @@ export default function DashboardClient() {
     );
   }
 
-
-
-  // Progress tracking chart data
-  const progressChartData = historyData
-    .slice()
-    .reverse()
-    .map((item, idx) => ({
-      name: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : `#${idx + 1}`,
-      confidence: Number(item.confidence_score || 0),
-      eye: Number(item.eye_contact_score || item.eye_contact || 0),
-      fluency: Number(item.fluency_score || 50),
-      technical: Number(item.technical_knowledge_score || 50),
-      filler: Number(item.filler_words_score || 50),
-    }));
+  const streakCount = trendsData?.streak || 0;
+  const totalInterviewsCount = trendsData?.total_interviews || (historyData ? historyData.length : 1);
 
   // ─── LOCKED OVERLAY ───
   if (!dashboardUnlocked) {
@@ -334,35 +377,119 @@ export default function DashboardClient() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* ── Overall Score Section ── */}
+      {/* ── Overall Score & Hero Section ── */}
       <section className="dashboard-hero-section">
         <GaugeChart score={score} />
 
-        <div className="sub-scores-grid">
-          {subScores.map((s) => {
-            const color =
-              s.value >= 70 ? "var(--teal)" :
-              s.value >= 40 ? "var(--amber)" :
-              "var(--danger)";
-            return (
-              <div className="sub-score-card glass" key={s.label}>
-                <div className="sub-score-icon" style={{ color }}>{s.icon}</div>
-                <div className="sub-score-info">
-                  <span className="sub-score-label">{s.label}</span>
-                  <div className="sub-score-bar-track">
-                    <motion.div
-                      className="sub-score-bar-fill"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, s.value)}%` }}
-                      transition={{ duration: 0.8, delay: 0.2 }}
-                      style={{ background: color }}
-                    />
-                  </div>
-                  <span className="sub-score-value" style={{ color }}>{s.value.toFixed(1)}</span>
-                </div>
+        <div className="sub-scores-container">
+          {/* Quick Stats Pill Header */}
+          <div className="quick-stats-row glass">
+            <div className="stat-pill">
+              <Flame size={16} className="stat-icon-flame" />
+              <div className="stat-text">
+                <span className="stat-val">{streakCount} Day</span>
+                <span className="stat-lbl">Streak</span>
               </div>
-            );
-          })}
+            </div>
+            <div className="stat-divider" />
+            <div className="stat-pill">
+              <Award size={16} className="stat-icon-award" />
+              <div className="stat-text">
+                <span className="stat-val">{totalInterviewsCount}</span>
+                <span className="stat-lbl">Interviews</span>
+              </div>
+            </div>
+            <div className="stat-divider" />
+            <div className="stat-pill">
+              <TrendingUp size={16} className="stat-icon-trend" />
+              <div className="stat-text">
+                <span className="stat-val">
+                  {confidenceTrend ? (
+                    <span className={confidenceTrend.isUp ? "trend-up" : "trend-down"}>
+                      {confidenceTrend.isUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                      {confidenceTrend.formatted}
+                    </span>
+                  ) : (
+                    "New"
+                  )}
+                </span>
+                <span className="stat-lbl">vs Last Session</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-Scores Grid */}
+          <div className="sub-scores-grid">
+            {subScores.map((s) => {
+              const color =
+                s.value >= 70 ? "var(--teal)" :
+                s.value >= 40 ? "var(--amber)" :
+                "var(--danger)";
+              return (
+                <div className="sub-score-card glass" key={s.label} style={{ borderLeft: `4px solid ${color}` }}>
+                  <div className="sub-score-icon" style={{ color }}>{s.icon}</div>
+                  <div className="sub-score-info">
+                    <div className="sub-score-header-line">
+                      <span className="sub-score-label">{s.label}</span>
+                      <span className="sub-score-value" style={{ color }}>{s.value.toFixed(1)}</span>
+                    </div>
+                    <div className="sub-score-bar-track">
+                      <motion.div
+                        className="sub-score-bar-fill"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, s.value)}%` }}
+                        transition={{ duration: 0.8, delay: 0.2 }}
+                        style={{ background: `linear-gradient(90deg, ${color}, ${color}cc)` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Strengths & Focus Areas Section ── */}
+      <section className="strengths-focus-section">
+        <div className="sf-card glass sf-strengths">
+          <div className="sf-header">
+            <CheckCircle2 size={20} className="sf-icon-green" />
+            <h4>Top Strengths</h4>
+          </div>
+          {strengths.length > 0 ? (
+            <ul className="sf-list">
+              {strengths.map((item) => (
+                <li key={item.label} className="sf-item">
+                  <span className="sf-bullet green" />
+                  <span className="sf-label">{item.label}</span>
+                  <span className="sf-score green">{item.value.toFixed(0)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="sf-empty">Keep practicing to unlock your core strengths!</p>
+          )}
+        </div>
+
+        <div className="sf-card glass sf-focus">
+          <div className="sf-header">
+            <Target size={20} className="sf-icon-amber" />
+            <h4>Priority Focus Areas</h4>
+          </div>
+          {focusAreas.length > 0 ? (
+            <ul className="sf-list">
+              {focusAreas.map((item) => (
+                <li key={item.label} className="sf-item">
+                  <span className="sf-bullet amber" />
+                  <span className="sf-label">{item.label}</span>
+                  <span className="sf-score amber">{item.value.toFixed(0)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="sf-empty">Outstanding performance across all evaluated areas!</p>
+          )}
         </div>
       </section>
 
@@ -603,28 +730,175 @@ export default function DashboardClient() {
       {/* ── Progress Tracking Section ── */}
       {progressChartData.length > 1 && (
         <section className="progress-tracking-section glass">
-          <h3><TrendingUp size={18} /> Progress Over Time</h3>
-          <p className="report-subtitle">Track your improvement across interviews</p>
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={progressChartData} margin={{ top: 10, right: 20, left: -10, bottom: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.12)" />
-              <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-              <YAxis stroke="#94a3b8" domain={[0, 100]} fontSize={12} />
+          <div className="progress-header-row">
+            <div>
+              <h3><TrendingUp size={18} /> Progress Over Time</h3>
+              <p className="report-subtitle">Track your performance improvement across sessions</p>
+            </div>
+            {/* Interactive Line Filter Toggles */}
+            <div className="chart-line-toggles">
+              {[
+                { key: "confidence", label: "Confidence", color: "#2dd4bf" },
+                { key: "eye", label: "Eye Contact", color: "#22d3ee" },
+                { key: "fluency", label: "Fluency", color: "#f59e0b" },
+                { key: "technical", label: "Technical", color: "#a78bfa" },
+                { key: "filler", label: "Filler Control", color: "#f87171" },
+              ].map((m) => (
+                <button
+                  key={m.key}
+                  className={`chart-pill-toggle ${visibleLines[m.key] ? "active" : ""}`}
+                  style={{
+                    borderColor: m.color,
+                    color: visibleLines[m.key] ? "#ffffff" : "var(--muted)",
+                    backgroundColor: visibleLines[m.key] ? `${m.color}25` : "transparent"
+                  }}
+                  onClick={() => setVisibleLines(prev => ({ ...prev, [m.key]: !prev[m.key] }))}
+                >
+                  <span className="pill-dot" style={{ background: m.color }} />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={340}>
+            <LineChart data={progressChartData} margin={{ top: 10, right: 20, left: -10, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="4 6" stroke="rgba(148,163,184,0.08)" vertical={false} />
+              <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} interval="preserveStartEnd" angle={-30} textAnchor="end" height={50} />
+              <YAxis stroke="#94a3b8" domain={[0, 100]} fontSize={11} tickCount={5} />
               <Tooltip
-                contentStyle={{ background: "#0b1f2f", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 10, color: "#eaf2ff" }}
+                contentStyle={{ background: "#0b1f2f", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 12, color: "#eaf2ff", fontSize: "0.85rem" }}
               />
-              <Legend />
-              <Line type="monotone" dataKey="confidence" stroke="#2dd4bf" strokeWidth={2} name="Confidence" dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="eye" stroke="#22d3ee" strokeWidth={2} name="Eye Contact" dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="fluency" stroke="#f59e0b" strokeWidth={2} name="Fluency" dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="technical" stroke="#a78bfa" strokeWidth={2} name="Technical" dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="filler" stroke="#f87171" strokeWidth={2} name="Filler Control" dot={{ r: 3 }} />
+              {visibleLines.confidence && <Line type="monotone" dataKey="confidence" stroke="#2dd4bf" strokeWidth={2.5} name="Confidence" dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />}
+              {visibleLines.eye && <Line type="monotone" dataKey="eye" stroke="#22d3ee" strokeWidth={1.8} name="Eye Contact" dot={false} activeDot={{ r: 4 }} />}
+              {visibleLines.fluency && <Line type="monotone" dataKey="fluency" stroke="#f59e0b" strokeWidth={1.8} name="Fluency" dot={false} activeDot={{ r: 4 }} />}
+              {visibleLines.technical && <Line type="monotone" dataKey="technical" stroke="#a78bfa" strokeWidth={1.8} name="Technical" dot={false} activeDot={{ r: 4 }} />}
+              {visibleLines.filler && <Line type="monotone" dataKey="filler" stroke="#f87171" strokeWidth={1.8} name="Filler Control" dot={false} activeDot={{ r: 4 }} />}
             </LineChart>
           </ResponsiveContainer>
         </section>
       )}
 
+      {/* ── Badges & Practice Distribution Grid ── */}
+      <section className="badges-breakdown-grid">
+        {/* Badges Section */}
+        <div className="badges-card glass">
+          <h3><Award size={18} /> Earned Achievements</h3>
+          <p className="report-subtitle">Milestones unlocked during your interview practice</p>
+          <div className="badges-flex-list">
+            {(trendsData?.badges || []).map((badge) => (
+              <div
+                key={badge.id}
+                className={`badge-item ${badge.unlocked ? "unlocked" : "locked"}`}
+                title={badge.description}
+              >
+                <div className="badge-icon-box">
+                  <span className="badge-emoji">{badge.icon}</span>
+                  {!badge.unlocked && <Lock size={12} className="badge-lock-icon" />}
+                </div>
+                <div className="badge-info">
+                  <span className="badge-name">{badge.name}</span>
+                  <span className="badge-desc">{badge.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Practice Breakdown Donut Chart */}
+        {donutData.length > 0 && (
+          <div className="donut-card glass">
+            <h3><PieChart size={18} /> Practice Distribution</h3>
+            <p className="report-subtitle">Breakdown across interview categories</p>
+            <div className="donut-chart-wrap">
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={donutData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                  >
+                    {donutData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: "#0b1f2f", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 10, color: "#eaf2ff" }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="donut-legend">
+                {donutData.map((item) => (
+                  <div key={item.name} className="donut-legend-item">
+                    <span className="legend-dot" style={{ background: item.color }} />
+                    <span className="legend-name">{item.name}</span>
+                    <span className="legend-count">({item.value})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
 
     </motion.div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="dashboard-skeleton" style={{ display: "grid", gap: "24px", opacity: 0.85, paddingBottom: "40px" }}>
+      {/* Header Skeleton */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+        <div style={{ width: "100%" }}>
+          <div className="skeleton skeleton-title" style={{ width: "250px" }} />
+          <div className="skeleton skeleton-text" style={{ width: "400px" }} />
+        </div>
+      </div>
+
+      {/* Main Row: Big Gauge and Key Info */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "24px" }}>
+        <div className="glass" style={{ padding: "30px", borderRadius: "24px", textAlign: "center", display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div className="skeleton skeleton-text" style={{ width: "120px", margin: "0 auto" }} />
+          <div className="skeleton skeleton-circle" />
+          <div className="skeleton skeleton-text" style={{ width: "160px", margin: "0 auto" }} />
+        </div>
+
+        <div className="glass" style={{ padding: "30px", borderRadius: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+          <div className="skeleton skeleton-title" style={{ width: "180px", height: "22px" }} />
+          <div className="skeleton skeleton-text" style={{ width: "100%" }} />
+          <div className="skeleton skeleton-text" style={{ width: "95%" }} />
+          <div className="skeleton skeleton-text" style={{ width: "85%" }} />
+          <div className="skeleton skeleton-text" style={{ width: "90%" }} />
+        </div>
+      </div>
+
+      {/* Sub-scores Grid Skeleton */}
+      <div>
+        <div className="skeleton skeleton-title" style={{ width: "150px", height: "20px", marginBottom: "16px" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "16px" }}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="glass" style={{ padding: "20px", borderRadius: "16px", display: "flex", alignItems: "center", gap: "16px" }}>
+              <div className="skeleton" style={{ width: "36px", height: "36px", borderRadius: "50%" }} />
+              <div style={{ flex: 1 }}>
+                <div className="skeleton skeleton-text" style={{ width: "60%", height: "12px", marginBottom: "6px" }} />
+                <div className="skeleton skeleton-text" style={{ width: "40%", height: "16px", marginBottom: "0" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart Row Skeleton */}
+      <div className="glass" style={{ padding: "30px", borderRadius: "24px" }}>
+        <div className="skeleton skeleton-title" style={{ width: "200px", height: "20px", marginBottom: "20px" }} />
+        <div className="skeleton skeleton-rect" />
+      </div>
+    </div>
   );
 }

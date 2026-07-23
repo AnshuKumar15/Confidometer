@@ -18,6 +18,13 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
+
   const [rules, setRules] = useState({
     length: false,
     uppercase: false,

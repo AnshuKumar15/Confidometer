@@ -9,6 +9,13 @@ export default function HistoryPage() {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;

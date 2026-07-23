@@ -3,7 +3,7 @@ import numpy as np
 from app.utils.scoring_utils import bell_curve_score
 
 
-def analyze_voice(audio_path: str) -> dict:
+def analyze_voice(audio_path: str, transcript: str | None = None) -> dict:
     """
     Analyze voice characteristics from an audio file.
 
@@ -61,19 +61,23 @@ def analyze_voice(audio_path: str) -> dict:
         pitch_std = float(np.std(pitch_values))
 
     # ── 4. Speaking rate estimation ──
-    # Estimate syllables from audio energy peaks as a proxy for words spoken
-    # This gives a rough WPM without needing the transcript
-    # Use onset detection to estimate syllable count
-    try:
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr)
-        estimated_syllables = len(onsets)
-        # Rough conversion: ~1.5 syllables per word (English average)
-        estimated_words = estimated_syllables / 1.5
-        minutes = duration_sec / 60.0 if duration_sec > 0 else 1.0
+    # Prefer exact word count from transcript if provided; fallback to audio onset energy peaks
+    minutes = duration_sec / 60.0 if duration_sec > 0 else 1.0
+
+    if transcript and transcript.strip():
+        words = transcript.strip().split()
+        estimated_words = len(words)
         estimated_wpm = estimated_words / minutes if minutes > 0 else 0
-    except Exception:
-        estimated_wpm = 130.0  # Default to ideal if estimation fails
+    else:
+        try:
+            onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+            onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr)
+            estimated_syllables = len(onsets)
+            # Rough conversion: ~1.5 syllables per word (English average)
+            estimated_words = estimated_syllables / 1.5
+            estimated_wpm = estimated_words / minutes if minutes > 0 else 0
+        except Exception:
+            estimated_wpm = 130.0  # Default to ideal if estimation fails
 
     speaking_rate_score = bell_curve_score(estimated_wpm, ideal=140.0, width=50.0)
     speaking_rate_score = max(0.0, min(100.0, speaking_rate_score))

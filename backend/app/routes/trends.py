@@ -144,14 +144,16 @@ def get_trends(
     db: Session = Depends(get_db),
 ):
     """Return historical performance trends, streak data, and badge progress."""
+    # Re-fetch user in the active db session to persist changes (current_user is detached)
+    user = db.query(User).filter(User.id == current_user.id).first()
 
     # Update streak
-    _update_streak(db, current_user)
+    _update_streak(db, user)
 
     # Fetch all completed speeches
     speeches = (
         db.query(Speech)
-        .filter(Speech.user_id == current_user.id, Speech.status == "completed")
+        .filter(Speech.user_id == user.id, Speech.status == "completed")
         .order_by(Speech.created_at.asc())
         .all()
     )
@@ -170,7 +172,7 @@ def get_trends(
         })
 
     # Compute badges
-    earned_badge_ids = _compute_badges(db, current_user, speeches)
+    earned_badge_ids = _compute_badges(db, user, speeches)
 
     # Build full badge list with unlock status
     all_badges = []
@@ -190,7 +192,7 @@ def get_trends(
         type_counts[t] = type_counts.get(t, 0) + 1
 
     return {
-        "streak": current_user.streak_count or 0,
+        "streak": user.streak_count or 0,
         "total_interviews": len(speeches),
         "trend_data": trend_points,
         "badges": all_badges,

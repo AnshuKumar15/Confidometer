@@ -20,6 +20,14 @@ import {
 export default function PeerInterviewPage() {
   const router = useRouter();
 
+  // Enable light theme on mount
+  useEffect(() => {
+    document.body.classList.add("light-theme-bg");
+    return () => {
+      document.body.classList.remove("light-theme-bg");
+    };
+  }, []);
+
   // Auth check on mount
   useEffect(() => {
     if (!isAuthed()) {
@@ -404,10 +412,7 @@ export default function PeerInterviewPage() {
       {activeTab === "lobby" && (
         <section className="lobby-section">
           {loading ? (
-            <div style={{ textAlign: "center", padding: "60px 0" }}>
-              <div className="peer-lobby-spinner" style={{ margin: "0 auto 20px auto" }} />
-              <p style={{ color: "var(--muted)" }}>Loading requests feed...</p>
-            </div>
+            <LobbySkeleton />
           ) : pendingRequests.length === 0 ? (
             <div className="glass" style={{ textAlign: "center", padding: "60px 20px", borderRadius: "16px", border: "1px solid var(--line)" }}>
               <Users size={48} style={{ color: "var(--muted)", marginBottom: "16px", opacity: 0.5 }} />
@@ -426,7 +431,7 @@ export default function PeerInterviewPage() {
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
                       <span className="badge" style={{ background: "rgba(0,184,148,0.12)", color: "var(--teal)", padding: "4px 10px", borderRadius: "6px", fontSize: "0.78rem", fontWeight: "600", textTransform: "uppercase" }}>
-                        {req.interview_type}
+                        {req.interview_type ? req.interview_type.charAt(0).toUpperCase() + req.interview_type.slice(1) : ""}
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px", color: req.scheduled_at ? "var(--cyan)" : "#fdcb6e", fontSize: "0.82rem", fontWeight: "600" }}>
                         <Clock size={14} />
@@ -599,10 +604,7 @@ export default function PeerInterviewPage() {
       {activeTab === "my-schedule" && (
         <section className="schedule-section">
           {loading ? (
-            <div style={{ textAlign: "center", padding: "60px 0" }}>
-              <div className="peer-lobby-spinner" style={{ margin: "0 auto 20px auto" }} />
-              <p style={{ color: "var(--muted)" }}>Loading schedule...</p>
-            </div>
+            <ScheduleSkeleton />
           ) : myRequests.length === 0 ? (
             <div className="glass" style={{ textAlign: "center", padding: "60px 20px", borderRadius: "16px", border: "1px solid var(--line)" }}>
               <Calendar size={48} style={{ color: "var(--muted)", marginBottom: "16px", opacity: 0.5 }} />
@@ -632,7 +634,7 @@ export default function PeerInterviewPage() {
                         </h3>
                         <div style={{ display: "flex", gap: "16px", color: "var(--muted)", fontSize: "0.88rem", flexWrap: "wrap" }}>
                           <span>Company: <strong style={{ color: "var(--text)" }}>{req.company_name}</strong></span>
-                          <span>Type: <strong style={{ color: "var(--text)" }}>{req.interview_type}</strong></span>
+                          <span>Type: <strong style={{ color: "var(--text)" }}>{req.interview_type ? req.interview_type.charAt(0).toUpperCase() + req.interview_type.slice(1) : ""}</strong></span>
                           {req.scheduled_at && (
                             <span>Date: <strong style={{ color: "var(--cyan)" }}>{new Date(req.scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></span>
                           )}
@@ -718,6 +720,52 @@ export default function PeerInterviewPage() {
           transform: scale(1.05);
         }
       `}</style>
+    </div>
+  );
+}
+
+function LobbySkeleton() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "20px" }}>
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="glass" style={{ padding: "24px", borderRadius: "16px", border: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: "16px", opacity: 0.85 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="skeleton" style={{ width: "100px", height: "22px", borderRadius: "6px" }} />
+            <div className="skeleton" style={{ width: "60px", height: "16px" }} />
+          </div>
+          <div>
+            <div className="skeleton skeleton-text" style={{ width: "80%", height: "16px", marginBottom: "10px" }} />
+            <div className="skeleton skeleton-text" style={{ width: "100%", height: "12px", marginBottom: "6px" }} />
+            <div className="skeleton skeleton-text" style={{ width: "90%", height: "12px" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
+            <div className="skeleton" style={{ width: "120px", height: "14px" }} />
+            <div className="skeleton" style={{ width: "110px", height: "36px", borderRadius: "12px" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScheduleSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px", opacity: 0.85 }}>
+      {[...Array(2)].map((_, i) => (
+        <div key={i} className="glass" style={{ padding: "20px", borderRadius: "16px", border: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <div className="skeleton" style={{ width: "90px", height: "20px", borderRadius: "6px" }} />
+              <div className="skeleton" style={{ width: "150px", height: "16px" }} />
+            </div>
+            <div className="skeleton" style={{ width: "80px", height: "16px" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="skeleton skeleton-text" style={{ width: "40%", height: "14px" }} />
+            <div className="skeleton" style={{ width: "100px", height: "32px", borderRadius: "8px" }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

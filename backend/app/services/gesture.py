@@ -100,23 +100,28 @@ def _gesture_from_motion(video_path: str) -> float:
 
 
 def _gesture_from_mediapipe(video_path: str) -> float:
-    """MediaPipe Pose-based gesture analysis tracking wrists + elbows."""
+    """MediaPipe Pose-based gesture analysis tracking upper body (shoulders, elbows, wrists, index fingers)."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return 0.0
 
-    # Track 4 upper-body landmark indices
     landmark_ids = {
-        "left_wrist": 15,
-        "right_wrist": 16,
+        "left_shoulder": 11,
+        "right_shoulder": 12,
         "left_elbow": 13,
         "right_elbow": 14,
+        "left_wrist": 15,
+        "right_wrist": 16,
+        "left_index": 19,
+        "right_index": 20,
     }
 
     prev_positions: dict[str, np.ndarray | None] = {k: None for k in landmark_ids}
     per_frame_movements: list[float] = []
     total_frames = 0
+    frames_with_detections = 0
     frame_idx = 0
+    sample_stride = 6  # Sample at ~5 FPS for 30 FPS video
 
     if not os.path.exists(MODEL_PATH):
         print(f"[ERROR] Pose landmarker model not found at {MODEL_PATH}")
@@ -134,23 +139,22 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                 break
 
             frame_idx += 1
-            if frame_idx % 6 != 0:  # Skip to process 5 FPS on 30 FPS video
+            if frame_idx % sample_stride != 0:
                 continue
 
             total_frames += 1
-            
-            # Resize frame to 320px width to speed up CPU inference dramatically
+
+            # Resize frame to 320px width to speed up CPU inference
             h, w = frame.shape[:2]
             target_w = 320
             target_h = int(h * (target_w / w))
             resized_frame = cv2.resize(frame, (target_w, target_h))
-            
+
             rgb = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
             result = pose.detect(mp_image)
 
-            if not result.pose_landmarks:
-                per_frame_movements.append(0.0)
+            if not result.pose_landmarks or len(result.pose_landmarks) == 0:
                 continue
 
             landmarks = result.pose_landmarks[0]
@@ -162,11 +166,11 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                     lm = landmarks[lm_id]
                     vis = getattr(lm, "visibility", 0.0)
 
-                    if vis > 0.5:
+                    if vis > 0.4:
                         current_pos = np.array([lm.x, lm.y])
                         if prev_positions[name] is not None:
-                            # Divide delta by 3.0 to scale it relative to the 3x larger time step
-                            delta = float(np.linalg.norm(current_pos - prev_positions[name])) / 3.0
+                            # Divide delta by sample_stride to scale movement to per-frame velocity
+                            delta = float(np.linalg.norm(current_pos - prev_positions[name])) / float(sample_stride)
                             frame_movement += delta
                             visible_count += 1
                         prev_positions[name] = current_pos
@@ -175,30 +179,31 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                 except IndexError:
                     continue
 
-            # Average movement per visible landmark in this frame
             if visible_count > 0:
+                frames_with_detections += 1
                 per_frame_movements.append(frame_movement / visible_count)
-            else:
-                per_frame_movements.append(0.0)
 
     cap.release()
 
-    if total_frames == 0 or len(per_frame_movements) == 0:
+    if frames_with_detections == 0 or len(per_frame_movements) == 0:
         return 0.0
 
     avg_movement = float(np.mean(per_frame_movements))
 
-    # Normalize score
-    score = bell_curve_score(avg_movement, ideal=0.015, width=0.018)
-    print(f"[DEBUG] Gesture avg movement/frame: {avg_movement:.5f} => score: {score:.1f}")
+    # Scale score with bell curve centered around ideal interview body movement (ideal ~0.015 per frame)
+    score = bell_curve_score(avg_movement, ideal=0.015, width=0.020)
+    print(f"[DEBUG] MediaPipe Gesture avg movement/frame: {avg_movement:.5f} across {frames_with_detections} detected frames => score: {score:.1f}")
     return round(max(0.0, min(100.0, score)), 2)
+
 
 
 def analyze_gesture(video_path: str) -> float:
     try:
-        return _gesture_from_mediapipe(video_path)
+        score = _gesture_from_mediapipe(video_path)
+        if score > 0.0:
+            return score
     except Exception as err:
-        print(f"[WARN] MediaPipe pose tasks analysis failed, using OpenCV fallback: {err}")
+        print(f"[WARN] MediaPipe pose tasks analysis failed: {err}")
 
-    print("[INFO] Using OpenCV-based gesture analysis")
+    print("[INFO] MediaPipe detected insufficient pose landmarks — Using OpenCV upper-body motion fallback")
     return _gesture_from_motion(video_path)
