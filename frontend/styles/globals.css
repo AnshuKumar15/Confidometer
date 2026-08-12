@@ -8758,12 +8758,14 @@ body.dark-theme-bg .page-bg {
 .aa-gradient-text {
   background: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 50%, #06b6d4 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 body.light-theme-bg .aa-gradient-text {
   background: linear-gradient(135deg, #0d9488 0%, #0f766e 50%, #0284c7 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 

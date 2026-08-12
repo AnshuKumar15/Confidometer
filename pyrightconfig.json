@@ -1,16 +1,22 @@
 {
-  "venvPath": "d:/Confidometer/Confidometer/backend",
+  "venvPath": "backend",
   "venv": "venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Windows",
   "extraPaths": [
-    "backend"
+    "backend",
+    "backend/venv/Lib/site-packages"
   ],
   "executionEnvironments": [
     {
       "root": "backend",
+      "venvPath": "backend",
+      "venv": "venv",
       "pythonVersion": "3.13",
-      "extraPaths": ["backend"]
+      "extraPaths": [
+        "backend",
+        "venv/Lib/site-packages"
+      ]
     }
   ]
 }
