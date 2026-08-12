@@ -24,7 +24,7 @@ from app.services.scheduler import run_autoapply_cycle_for_user
 
 router = APIRouter()
 
-UPLOAD_DIR = "uploads/resumes"
+UPLOAD_DIR = os.path.join(os.environ.get("UPLOAD_DIR", "uploads"), "resumes")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ── ONBOARDING & RESUME PARSING ──

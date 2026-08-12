@@ -26,8 +26,13 @@ COPY app/ ./app/
 # Pre-download and cache MediaPipe landmarker models (.task files) during build
 RUN python -m app.utils.download_models
 
-# Pre-download and cache Whisper "small" and "medium" models during build to prevent runtime download delays
-RUN python -c "import whisper; whisper.load_model('small', device='cpu'); whisper.load_model('medium', device='cpu')"
+# Only pre-download local Whisper models if NOT using Groq API (saves ~2GB image size + build time)
+# Uncomment the line below if you want local Whisper as a fallback:
+# RUN python -c "import whisper; whisper.load_model('small', device='cpu')"
+
+# Use /data for persistent file storage (Hugging Face Spaces provides this volume)
+RUN mkdir -p /data/uploads
+ENV UPLOAD_DIR=/data/uploads
 
 # Expose FastAPI port (Hugging Face expects 7860, Render uses 10000, Koyeb uses 8000)
 EXPOSE 7860

@@ -132,15 +132,16 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
     tmp_input = None
     tmp_wav = None
     try:
-        os.makedirs("uploads", exist_ok=True)
+        upload_dir = os.environ.get("UPLOAD_DIR", "uploads")
+        os.makedirs(upload_dir, exist_ok=True)
         tmp_input = tempfile.NamedTemporaryFile(
-            delete=False, suffix=".webm", dir="uploads"
+            delete=False, suffix=".webm", dir=upload_dir
         )
         tmp_input.write(audio_bytes)
         tmp_input.close()
 
         tmp_wav = tempfile.NamedTemporaryFile(
-            delete=False, suffix=".wav", dir="uploads"
+            delete=False, suffix=".wav", dir=upload_dir
         )
         tmp_wav.close()
 
