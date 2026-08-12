@@ -1,6 +1,19 @@
 import { getToken, clearSession } from "@/utils/auth";
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/+$/, "");
+export const getApiBase = () => {
+  if (process.env.NEXT_PUBLIC_API_BASE) {
+    return process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, "");
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return "https://confidometer-backend.onrender.com";
+    }
+  }
+  return "http://127.0.0.1:8000";
+};
+
+export const API_BASE = getApiBase();
 
 // Derive WebSocket URL from API_BASE (http → ws, https → wss)
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
@@ -34,7 +47,8 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
     : undefined;
 
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const res = await fetch(`${API_BASE}${cleanPath}`, {
+  const baseUrl = getApiBase();
+  const res = await fetch(`${baseUrl}${cleanPath}`, {
     method,
     headers: finalHeaders,
     body: payload,

@@ -1,5 +1,5 @@
 import { getToken, clearSession } from "@/utils/auth";
-import { API_BASE } from "@/utils/api";
+import { getApiBase } from "@/utils/api";
 
 async function request(path, { method = "GET", body, auth = true, headers = {} } = {}) {
   const finalHeaders = {
@@ -30,9 +30,10 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
     : undefined;
 
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const baseUrl = getApiBase();
   let res;
   try {
-    res = await fetch(`${API_BASE}${cleanPath}`, {
+    res = await fetch(`${baseUrl}${cleanPath}`, {
       method,
       headers: finalHeaders,
       body: payload,
