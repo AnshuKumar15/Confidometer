@@ -29,9 +29,10 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
       : JSON.stringify(body)
     : undefined;
 
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
   let res;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${API_BASE}${cleanPath}`, {
       method,
       headers: finalHeaders,
       body: payload,
@@ -41,9 +42,11 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
     // If primary host failed (e.g. 127.0.0.1 vs localhost), try fallback URL
     const altBase = API_BASE.includes("127.0.0.1")
       ? API_BASE.replace("127.0.0.1", "localhost")
-      : API_BASE.replace("localhost", "127.0.0.1");
+      : API_BASE.includes("localhost")
+      ? API_BASE.replace("localhost", "127.0.0.1")
+      : API_BASE;
     try {
-      res = await fetch(`${altBase}${path}`, {
+      res = await fetch(`${altBase}${cleanPath}`, {
         method,
         headers: finalHeaders,
         body: payload,

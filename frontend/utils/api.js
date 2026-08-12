@@ -1,6 +1,6 @@
 import { getToken, clearSession } from "@/utils/auth";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 // Derive WebSocket URL from API_BASE (http → ws, https → wss)
 export const WS_BASE = API_BASE.replace(/^http/, "ws");
@@ -33,7 +33,8 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
       : JSON.stringify(body)
     : undefined;
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const res = await fetch(`${API_BASE}${cleanPath}`, {
     method,
     headers: finalHeaders,
     body: payload,
