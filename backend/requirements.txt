@@ -19,3 +19,4 @@ psycopg2-binary
 librosa
 httpx
 beautifulsoup4
+groq

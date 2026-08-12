@@ -1,29 +1,46 @@
-import whisper
 from moviepy import VideoFileClip
 import os
 import subprocess
 import tempfile
 import threading
-
 import imageio_ffmpeg
 
-# Thread lock to serialize access to Whisper's non-thread-safe inference engine
-_whisper_lock = threading.Lock()
+# Check for Groq API Key
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = None
 
-# Load models lazily
+if GROQ_API_KEY:
+    try:
+        from groq import Groq
+        groq_client = Groq(api_key=GROQ_API_KEY)
+        print("[INFO] Groq API client initialized successfully for ultra-fast Whisper STT.")
+    except Exception as e:
+        print(f"[WARN] Failed to initialize Groq client ({e}). Will use local Whisper fallback.")
+
+# Lazy local whisper models fallback
+whisper = None
+_whisper_lock = threading.Lock()
 _model_stt = None
 _model_batch = None
+
+def _ensure_whisper_imported():
+    global whisper
+    if whisper is None:
+        import whisper as _w
+        whisper = _w
 
 def get_model_batch():
     global _model_batch, _model_stt
     if _model_batch is None:
         try:
+            _ensure_whisper_imported()
             print("[INFO] Loading Whisper 'small' model for batch processing...")
             _model_batch = whisper.load_model("small", device="cpu")
             print("[INFO] Whisper 'small' model loaded successfully for batch processing.")
         except Exception as e:
             print(f"[WARN] Failed to load Whisper 'small' model ({e}). Falling back to 'tiny'...")
             try:
+                _ensure_whisper_imported()
                 _model_batch = whisper.load_model("tiny", device="cpu")
                 print("[INFO] Whisper 'tiny' model loaded successfully for batch processing.")
             except Exception as e_tiny:
@@ -37,7 +54,6 @@ def get_model_stt():
         _model_stt = get_model_batch()
     return _model_stt
 
-#extracts audio and sends it to output_path
 def extract_audio(video_path: str, output_path: str):
     try:
         clip = VideoFileClip(video_path)
@@ -49,7 +65,6 @@ def extract_audio(video_path: str, output_path: str):
         finally:
             clip.close()
     except Exception as moviepy_error:
-        # Some browser-recorded webm files have missing duration metadata.
         print(f"[WARN] MoviePy audio extraction failed, trying ffmpeg fallback: {moviepy_error}")
 
     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
@@ -74,9 +89,25 @@ def extract_audio(video_path: str, output_path: str):
             f"ffmpeg fallback failed for {video_path}: {result.stderr.strip() or result.stdout.strip()}"
         )
 
-#takes the output path and converts the audio to text
-def transcribe_audio(audio_path: str):
-    # Use model_batch (small/tiny) for post-interview processing speed
+def transcribe_audio(audio_path: str) -> str:
+    # Try Groq API first if available
+    if groq_client:
+        try:
+            print("[INFO] Transcribing full audio via Groq Whisper API (whisper-large-v3-turbo)...")
+            with open(audio_path, "rb") as file:
+                transcription = groq_client.audio.transcriptions.create(
+                    file=(os.path.basename(audio_path), file.read()),
+                    model="whisper-large-v3-turbo",
+                    prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
+                    response_format="json",
+                    language="en",
+                    temperature=0.0
+                )
+                return transcription.text
+        except Exception as groq_err:
+            print(f"[WARN] Groq API transcription failed ({groq_err}), falling back to local Whisper...")
+
+    # Fallback to local Whisper
     active_model = get_model_batch()
     if active_model is None:
         active_model = get_model_stt()
@@ -87,37 +118,27 @@ def transcribe_audio(audio_path: str):
             audio_path,
             initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
             beam_size=1,           # Fast greedy search
-            temperature=0.0,       # deterministic — no sampling randomness
-            condition_on_previous_text=True,  # use context for coherence
-            language="en",         # lock to English to avoid language detection overhead
+            temperature=0.0,       # deterministic
+            condition_on_previous_text=True,
+            language="en",
         )
     return result["text"]
-
 
 def transcribe_chunk(audio_bytes: bytes) -> dict:
     """
     Transcribe a raw audio chunk (webm/wav bytes) for real-time STT.
-
-    Accepts raw audio bytes from the frontend WebSocket, writes to a temp file,
-    runs Whisper, and returns structured results including text and confidence.
-
-    Returns:
-        dict with keys:
-        - "text": transcribed text string
-        - "segments": list of segment dicts with avg_logprob for confidence
-        - "language": detected language
+    Uses Groq Whisper API if available for sub-100ms speed, or falls back to local Whisper.
     """
     tmp_input = None
     tmp_wav = None
     try:
-        # Write incoming audio bytes to a temp file
+        os.makedirs("uploads", exist_ok=True)
         tmp_input = tempfile.NamedTemporaryFile(
             delete=False, suffix=".webm", dir="uploads"
         )
         tmp_input.write(audio_bytes)
         tmp_input.close()
 
-        # Convert to WAV 16kHz mono using ffmpeg (Whisper's expected format)
         tmp_wav = tempfile.NamedTemporaryFile(
             delete=False, suffix=".wav", dir="uploads"
         )
@@ -138,8 +159,37 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
             print(f"[WARN] ffmpeg chunk conversion failed: {conv_result.stderr}")
             return {"text": "", "segments": [], "language": "en"}
 
-        # Run Whisper on the chunk
-        # Use model_stt (medium) for live real-time transcription latency test
+        # Try Groq API for sub-100ms real-time chunk transcription
+        if groq_client:
+            try:
+                with open(tmp_wav.name, "rb") as file:
+                    transcription = groq_client.audio.transcriptions.create(
+                        file=("chunk.wav", file.read()),
+                        model="whisper-large-v3-turbo",
+                        prompt="Interview response. Natural conversational English.",
+                        response_format="verbose_json",
+                        language="en",
+                        temperature=0.0
+                    )
+                    text = getattr(transcription, "text", "") or ""
+                    raw_segments = getattr(transcription, "segments", []) or []
+                    segments = []
+                    for seg in raw_segments:
+                        seg_dict = seg if isinstance(seg, dict) else seg.__dict__ if hasattr(seg, "__dict__") else {}
+                        segments.append({
+                            "text": seg_dict.get("text", ""),
+                            "avg_logprob": seg_dict.get("avg_logprob", 0.0),
+                            "no_speech_prob": seg_dict.get("no_speech_prob", 0.0),
+                        })
+                    return {
+                        "text": text.strip(),
+                        "segments": segments,
+                        "language": getattr(transcription, "language", "en") or "en",
+                    }
+            except Exception as groq_err:
+                print(f"[WARN] Groq chunk transcription failed ({groq_err}), falling back to local Whisper...")
+
+        # Fallback to local Whisper
         active_model = get_model_stt()
         if active_model is None:
             active_model = get_model_batch()
@@ -148,11 +198,11 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
         with _whisper_lock:
             result = active_model.transcribe(
                 tmp_wav.name,
-                beam_size=1,           # Fast greedy search for real-time latency
+                beam_size=1,
                 temperature=0.0,
                 language="en",
-                condition_on_previous_text=False,  # each chunk is independent
-                no_speech_threshold=0.5,           # filter out non-speech noise
+                condition_on_previous_text=False,
+                no_speech_threshold=0.5,
                 initial_prompt="Interview response. Natural conversational English.",
             )
 
@@ -174,7 +224,6 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
         return {"text": "", "segments": [], "language": "en"}
 
     finally:
-        # Clean up temp files
         for f in [tmp_input, tmp_wav]:
             if f and os.path.exists(f.name):
                 try:

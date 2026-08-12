@@ -1,10 +1,13 @@
-# Force IPv4 globally to prevent connection/DNS resolution timeouts on Windows when IPv6 is misconfigured or blocked
 import socket
-original_getaddrinfo = socket.getaddrinfo
-def forced_getaddrinfo(*args, **kwargs):
-    responses = original_getaddrinfo(*args, **kwargs)
-    return [res for res in responses if res[0] == socket.AF_INET]
-socket.getaddrinfo = forced_getaddrinfo
+import sys
+
+# Force IPv4 globally to prevent connection/DNS resolution timeouts on Windows when IPv6 is misconfigured or blocked
+if sys.platform == "win32":
+    original_getaddrinfo = socket.getaddrinfo
+    def forced_getaddrinfo(*args, **kwargs):
+        responses = original_getaddrinfo(*args, **kwargs)
+        return [res for res in responses if res[0] == socket.AF_INET]
+    socket.getaddrinfo = forced_getaddrinfo
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,14 +119,18 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load Whisper models in a background thread pool on startup
-    # so that the Uvicorn parent/child reload process starts instantly without locking.
     import asyncio
-    from app.utils.audio import get_model_batch, get_model_stt
     from app.services.scheduler import start_scheduler, stop_scheduler
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, get_model_batch)
-    loop.run_in_executor(None, get_model_stt)
+
+    # Only pre-load local Whisper models if Groq API is NOT configured
+    # When Groq is available, STT is handled via API calls — no need to load ~2GB of PyTorch models into RAM
+    if not os.environ.get("GROQ_API_KEY"):
+        from app.utils.audio import get_model_batch, get_model_stt
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, get_model_batch)
+        loop.run_in_executor(None, get_model_stt)
+    else:
+        print("[INFO] GROQ_API_KEY detected — skipping local Whisper model loading to save RAM.")
 
     # Start AutoApply background scheduler
     start_scheduler()
@@ -134,8 +141,9 @@ app = FastAPI(lifespan=lifespan)
 
 from fastapi.staticfiles import StaticFiles
 import os
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Parse allowed origins from configuration settings
 allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
