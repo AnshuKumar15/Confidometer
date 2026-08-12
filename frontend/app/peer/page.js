@@ -20,14 +20,6 @@ import {
 export default function PeerInterviewPage() {
   const router = useRouter();
 
-  // Enable light theme on mount
-  useEffect(() => {
-    document.body.classList.add("light-theme-bg");
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
-  }, []);
-
   // Auth check on mount
   useEffect(() => {
     if (!isAuthed()) {

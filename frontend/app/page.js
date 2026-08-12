@@ -8,7 +8,7 @@ import {
   MessageSquare, DollarSign, Mic, Eye, TrendingUp,
   BarChart3, Award, Zap, Target, Volume2, Video,
   Activity, Timer, Code2, Shield, Headphones, BookOpen, Box,
-  Bot, User
+  Bot, User, ChevronDown
 } from "lucide-react";
 
 /* ── Symmetrical waveform matching the screenshot size/style but wider ── */
@@ -259,8 +259,40 @@ function RenderLogo({ logoType }) {
   return null;
 }
 
+const FAQS = [
+  {
+    question: "What is Confidometer and how does it work?",
+    answer: "Confidometer is an AI-powered interview preparation platform. It conducts live practice interviews across 5 distinct rounds (Technical, HR, DSA Coding, Behavioural, Salary Negotiation), analyzes your speech, vocal stability, eye contact, and response quality, and delivers instant actionable telemetry."
+  },
+  {
+    question: "Do I need a camera and microphone to practice?",
+    answer: "For real-time visual and vocal analytics (eye contact tracking, filler word counts, vocal stability), a webcam and microphone are recommended. However, you can also practice in audio-only or text response modes."
+  },
+  {
+    question: "How does the DSA Coding round work?",
+    answer: "The DSA Coding round provides 2 LeetCode problems (1 Easy + 1 Medium) with an integrated code editor, compiler sandbox (Python, JavaScript, C++, Java), automated test suite execution, and a 30-minute timer."
+  },
+  {
+    question: "Is my resume and video data stored securely?",
+    answer: "Yes, privacy is paramount. Your resume, transcripts, and recorded video chunks are encrypted, processed strictly for generating your personalized interview telemetry, and never shared with third parties."
+  },
+  {
+    question: "What is Stress Simulation Mode?",
+    answer: "Stress Mode tests your composure under high pressure. Liza asks challenging follow-up questions with strict timer constraints while tracking fidgeting index, speech rate variance, and biometric deviations."
+  },
+  {
+    question: "Can I practice mock interviews with real peers?",
+    answer: "Yes! Our Peer-to-Peer mode matches you with candidates targeting top tech roles. You take turns as interviewer and interviewee while our AI provides live telemetry for both participants."
+  }
+];
+
 export default function LandingPage() {
   const [indices, setIndices] = useState([0, 1, 2]);
+  const [openFaq, setOpenFaq] = useState(null);
+
+  const toggleFaq = (index) => {
+    setOpenFaq(openFaq === index ? null : index);
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -278,13 +310,6 @@ export default function LandingPage() {
       });
     }, 4000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.add("light-theme-bg");
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
   }, []);
 
   return (
@@ -769,6 +794,70 @@ export default function LandingPage() {
             </Link>
           </div>
         </section>
+
+        {/* ━━━━ SECTION 12: FAQ ━━━━ */}
+        <section className="lp-section lp-faq-section">
+          <div className="lp-section-header">
+            <h2>Frequently Asked Questions</h2>
+            <p>Everything you need to know about preparing with Confidometer.</p>
+          </div>
+
+          <div className="lp-faq-container">
+            {FAQS.map((faq, index) => (
+              <div
+                key={index}
+                className={`lp-faq-item ${openFaq === index ? "open" : ""}`}
+                onClick={() => toggleFaq(index)}
+              >
+                <div className="lp-faq-question">
+                  <h3>{faq.question}</h3>
+                  <span className="lp-faq-icon">
+                    <ChevronDown
+                      size={20}
+                      style={{
+                        transform: openFaq === index ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.3s ease"
+                      }}
+                    />
+                  </span>
+                </div>
+                {openFaq === index && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="lp-faq-answer"
+                  >
+                    <p>{faq.answer}</p>
+                  </motion.div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ━━━━ SECTION 13: FOOTER BAR ━━━━ */}
+        <footer className="lp-footer">
+          <div className="lp-footer-content">
+            <div className="lp-footer-copyright">
+              © {new Date().getFullYear()} Confidometer. All Rights Reserved.
+            </div>
+            <div className="lp-footer-links">
+              <Link href="/upload">AI Mock Interview</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/upload">DSA Coding</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/speak">Get Set Speak</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/peer">Peer Mock</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/dashboard">Dashboard</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/history">History</Link>
+            </div>
+          </div>
+        </footer>
 
       </div>
     </div>

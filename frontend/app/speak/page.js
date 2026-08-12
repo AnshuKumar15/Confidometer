@@ -776,13 +776,6 @@ export default function SpeakPage() {
     };
   }, [recordingBlobUrl]);
 
-  useEffect(() => {
-    document.body.classList.add("light-theme-bg");
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
-  }, []);
-
   // Circle timer path definitions (increased radius for larger radial)
   const radius = 105;
   const strokeWidth = 10;

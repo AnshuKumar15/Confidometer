@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 
 from app.routes import auth
-from app.models import user, speech, meeting_request  # ensure all models are registered before create_all
+from app.models import user, speech, meeting_request, autoapply_models  # ensure all models are registered before create_all
 
 Base.metadata.create_all(bind=engine)
 
@@ -89,6 +89,26 @@ def check_and_add_columns():
                 except Exception as e:
                     print(f"[MIGRATION] Skipping column '{col_name}': {e}")
 
+    # ── User Preferences table migration ──
+    if inspector.has_table("user_preferences"):
+        existing_pref_cols = {col["name"] for col in inspector.get_columns("user_preferences")}
+        pref_new_columns = {
+            "career_goal_intent": "VARCHAR",
+            "education_level": "VARCHAR",
+        }
+        for col_name, col_type in pref_new_columns.items():
+            if col_name not in existing_pref_cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            __import__("sqlalchemy").text(
+                                f'ALTER TABLE user_preferences ADD COLUMN "{col_name}" {col_type}'
+                            )
+                        )
+                    print(f"[MIGRATION] Added column '{col_name}' to user_preferences table.")
+                except Exception as e:
+                    print(f"[MIGRATION] Skipping column '{col_name}': {e}")
+
 check_and_add_columns()
 # ── End auto-migration ──
 from app.config import settings
@@ -100,10 +120,15 @@ async def lifespan(app: FastAPI):
     # so that the Uvicorn parent/child reload process starts instantly without locking.
     import asyncio
     from app.utils.audio import get_model_batch, get_model_stt
+    from app.services.scheduler import start_scheduler, stop_scheduler
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, get_model_batch)
     loop.run_in_executor(None, get_model_stt)
+
+    # Start AutoApply background scheduler
+    start_scheduler()
     yield
+    stop_scheduler()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -143,3 +168,6 @@ app.include_router(trends.router, prefix="/trends", tags=["Trends"])
 
 from app.routes import meeting
 app.include_router(meeting.router, prefix="/meeting", tags=["Meeting"])
+
+from app.routes import autoapply
+app.include_router(autoapply.router, prefix="/autoapply", tags=["AutoApply"])

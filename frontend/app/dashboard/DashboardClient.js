@@ -6,6 +6,7 @@ import GaugeChart from "@/components/GaugeChart";
 import BarChart from "@/components/BarChart";
 import MetricCard from "@/components/MetricCard";
 import { getAnalysis, getUserHistory, fetchTTSAudio, getTrends } from "@/utils/api";
+import { useTheme } from "@/components/ThemeProvider";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -19,6 +20,7 @@ import {
 } from "lucide-react";
 
 export default function DashboardClient() {
+  const { theme } = useTheme();
   const params = useSearchParams();
   const speechId = useMemo(() => params.get("speechId"), [params]);
 
@@ -52,14 +54,6 @@ export default function DashboardClient() {
   });
 
 
-
-  // Enable light theme on mount
-  useEffect(() => {
-    document.body.classList.add("light-theme-bg");
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
-  }, []);
 
   // Load trends data
   useEffect(() => {
@@ -763,11 +757,17 @@ export default function DashboardClient() {
 
           <ResponsiveContainer width="100%" height={340}>
             <LineChart data={progressChartData} margin={{ top: 10, right: 20, left: -10, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="4 6" stroke="rgba(148,163,184,0.08)" vertical={false} />
-              <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} interval="preserveStartEnd" angle={-30} textAnchor="end" height={50} />
-              <YAxis stroke="#94a3b8" domain={[0, 100]} fontSize={11} tickCount={5} />
+              <CartesianGrid strokeDasharray="4 6" stroke={theme === "dark" ? "rgba(180,220,200,0.1)" : "rgba(26,61,52,0.1)"} vertical={false} />
+              <XAxis dataKey="name" stroke={theme === "dark" ? "#8aa99e" : "#5e7a70"} fontSize={11} interval="preserveStartEnd" angle={-30} textAnchor="end" height={50} />
+              <YAxis stroke={theme === "dark" ? "#8aa99e" : "#5e7a70"} domain={[0, 100]} fontSize={11} tickCount={5} />
               <Tooltip
-                contentStyle={{ background: "#0b1f2f", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 12, color: "#eaf2ff", fontSize: "0.85rem" }}
+                contentStyle={{
+                  background: theme === "dark" ? "#1e2d26" : "#ffffff",
+                  border: theme === "dark" ? "1px solid rgba(180,220,200,0.2)" : "1px solid rgba(26,61,52,0.15)",
+                  borderRadius: 12,
+                  color: theme === "dark" ? "#e8f0ec" : "#1a3d34",
+                  fontSize: "0.85rem"
+                }}
               />
               {visibleLines.confidence && <Line type="monotone" dataKey="confidence" stroke="#2dd4bf" strokeWidth={2.5} name="Confidence" dot={false} activeDot={{ r: 5, strokeWidth: 2 }} />}
               {visibleLines.eye && <Line type="monotone" dataKey="eye" stroke="#22d3ee" strokeWidth={1.8} name="Eye Contact" dot={false} activeDot={{ r: 4 }} />}

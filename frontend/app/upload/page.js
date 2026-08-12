@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
 import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, createSTTWebSocket } from "@/utils/api";
 import { isAuthed } from "@/utils/auth";
+import { useTheme } from "@/components/ThemeProvider";
 import {
   Camera, Mic, Play, Square, FileText, CheckCircle,
   Building2, Briefcase, Clock, Brain, MessageSquare,
@@ -67,17 +68,14 @@ const LANGUAGES = [
 const DSA_TIMER_TOTAL = 30 * 60;
 
 export default function UploadPage() {
+  const { theme } = useTheme();
   const router = useRouter();
 
-  // Auth check on mount & theme class
+  // Auth check on mount
   useEffect(() => {
-    document.body.classList.add("light-theme-bg");
     if (!isAuthed()) {
       router.push("/login?next=/upload");
     }
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
   }, [router]);
   
   // Setup States
@@ -1129,7 +1127,7 @@ export default function UploadPage() {
                 <div className="media-permit-row">
                   <button
                     type="button"
-                    className={`button ${permissionGranted ? "primary" : ""}`}
+                    className={`button ${permissionGranted ? "primary" : "subtle"}`}
                     onClick={requestPermissions}
                     disabled={loading}
                   >
@@ -1390,7 +1388,7 @@ export default function UploadPage() {
                   <MonacoEditor
                     height="100%"
                     language={LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python"}
-                    theme="vs-dark"
+                    theme={theme === "dark" ? "vs-dark" : "light"}
                     value={codeDrafts[activeQIndex] || ""}
                     onChange={(value) => {
                       setCodeDrafts((prev) => ({

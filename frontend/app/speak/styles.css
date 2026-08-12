@@ -244,8 +244,8 @@
 .speak-slot-viewport {
   position: relative;
   height: 260px;
-  background: #faf8f2;
-  border-radius: 24px;
+  background: transparent;
+  border: none;
   overflow: hidden;
   width: 100%;
 }
@@ -727,4 +727,267 @@
 @keyframes pulse-icon {
   0%, 100% { transform: scale(1); opacity: 0.6; }
   50% { transform: scale(1.1); opacity: 0.85; }
+}
+
+/* ━━━━ SPEAK PAGE DARK THEME OVERRIDES ━━━━ */
+body.dark-theme-bg .speak-cream-band {
+  --text: #e8f0ec;
+  --muted: #8aa99e;
+  --teal: #2dd4bf;
+  --cyan: #22d3ee;
+  --amber: #f59e0b;
+  background: #0f1a16;
+  color: #e8f0ec;
+  border-top-color: rgba(180, 220, 200, 0.1);
+  border-bottom-color: rgba(180, 220, 200, 0.1);
+}
+
+body.dark-theme-bg .speak-header-badge {
+  color: #2dd4bf;
+}
+
+body.dark-theme-bg .speak-back-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(180, 220, 200, 0.18);
+  color: #e8f0ec;
+}
+
+body.dark-theme-bg .speak-back-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #2dd4bf;
+  border-color: rgba(45, 212, 191, 0.3);
+}
+
+body.dark-theme-bg .speak-title-card h1,
+body.dark-theme-bg .speak-recorded-actions h3,
+body.dark-theme-bg .topic-card-text span {
+  color: #e8f0ec;
+}
+
+body.dark-theme-bg .speak-title-card p,
+body.dark-theme-bg .speak-recorded-actions p {
+  color: #8aa99e;
+}
+
+body.dark-theme-bg .topic-card-btn {
+  background: #1e2d26;
+  border-color: rgba(180, 220, 200, 0.12);
+  color: #e8f0ec;
+}
+
+body.dark-theme-bg .topic-card-btn:hover {
+  background: #243830;
+  border-color: #2dd4bf;
+}
+
+body.dark-theme-bg .diff-pill {
+  background: #141f1b;
+  border-color: rgba(180, 220, 200, 0.15);
+  color: #8aa99e;
+}
+
+body.dark-theme-bg .diff-pill.active {
+  background: #243830;
+  color: #2dd4bf;
+  border-color: #2dd4bf;
+}
+
+body.dark-theme-bg .speak-question-card {
+  background: #1e2d26;
+  border-color: rgba(180, 220, 200, 0.12);
+  color: #e8f0ec;
+}
+
+body.dark-theme-bg .speak-question-card h2 {
+  color: #e8f0ec;
+}
+
+/* Bright Dark Theme Colors for Get Set Speak & Steps */
+body.dark-theme-bg .speak-brand-title {
+  color: #2dd4bf !important;
+  text-shadow: 0 0 20px rgba(45, 212, 191, 0.25) !important;
+}
+
+body.dark-theme-bg .speak-step-item,
+body.dark-theme-bg .speak-step-text {
+  color: #5eead4 !important;
+}
+
+body.dark-theme-bg .speak-pill-btn {
+  background: #1e2d26 !important;
+  color: #e8f0ec !important;
+  border-color: rgba(180, 220, 200, 0.18) !important;
+}
+
+body.dark-theme-bg .speak-pill-btn:hover {
+  border-color: #2dd4bf !important;
+  color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-dropdown-panel {
+  background: #1e2d26 !important;
+  border-color: rgba(180, 220, 200, 0.18) !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+body.dark-theme-bg .speak-dropdown-item {
+  color: #e8f0ec !important;
+}
+
+body.dark-theme-bg .speak-dropdown-item:hover {
+  background: rgba(45, 212, 191, 0.12) !important;
+  color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-dropdown-item.active {
+  background: rgba(45, 212, 191, 0.2) !important;
+  color: #2dd4bf !important;
+}
+
+/* Slot Machine Reel & Action Buttons Dark Theme */
+body.dark-theme-bg .speak-slot-viewport {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body.dark-theme-bg .speak-slot-viewport::before {
+  background: linear-gradient(to bottom, #0f1a16 10%, transparent) !important;
+}
+
+body.dark-theme-bg .speak-slot-viewport::after {
+  background: linear-gradient(to top, #0f1a16 10%, transparent) !important;
+}
+
+body.dark-theme-bg .speak-slot-highlight-bar {
+  background: transparent !important;
+  border-top: 1px solid rgba(45, 212, 191, 0.2) !important;
+  border-bottom: 1px solid rgba(45, 212, 191, 0.2) !important;
+}
+
+body.dark-theme-bg .speak-slot-item {
+  color: rgba(232, 240, 236, 0.35) !important;
+}
+
+body.dark-theme-bg .speak-slot-item.active {
+  color: #5eead4 !important;
+  text-shadow: 0 0 15px rgba(45, 212, 191, 0.2) !important;
+}
+
+body.dark-theme-bg .speak-btn-spin {
+  background: #2dd4bf !important;
+  color: #0f1a16 !important;
+  box-shadow: 0 10px 24px rgba(45, 212, 191, 0.3) !important;
+}
+
+body.dark-theme-bg .speak-btn-spin:hover {
+  background: #26b8a5 !important;
+  box-shadow: 0 14px 30px rgba(45, 212, 191, 0.4) !important;
+}
+
+body.dark-theme-bg .speak-btn-timer {
+  background: #1e2d26 !important;
+  color: #e8f0ec !important;
+  border: 1.5px solid #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-btn-timer:hover {
+  background: rgba(45, 212, 191, 0.12) !important;
+  border-color: #5eead4 !important;
+  color: #5eead4 !important;
+}
+
+body.dark-theme-bg .speak-lever-lbl {
+  color: #8aa99e !important;
+}
+
+body.dark-theme-bg .speak-lever-track {
+  background: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-lever-handle {
+  background: #243830 !important;
+  border-color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-lever-handle span.stripe {
+  background: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-lever-dot {
+  background: #2dd4bf !important;
+}
+
+/* Active Timer Screen Dark Theme */
+body.dark-theme-bg .speak-back-btn {
+  color: #2dd4bf !important;
+  background: rgba(45, 212, 191, 0.12) !important;
+  border: 1px solid rgba(45, 212, 191, 0.25) !important;
+}
+
+body.dark-theme-bg .speak-back-btn:hover {
+  background: #2dd4bf !important;
+  color: #0f1a16 !important;
+}
+
+body.dark-theme-bg .speak-active-topic-lbl {
+  color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-active-topic-text {
+  color: #5eead4 !important;
+  text-shadow: 0 0 20px rgba(45, 212, 191, 0.15) !important;
+}
+
+body.dark-theme-bg .speak-timer-ring-bg {
+  stroke: rgba(180, 220, 200, 0.12) !important;
+}
+
+body.dark-theme-bg .speak-timer-ring-fill {
+  stroke: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-timer-value {
+  color: #5eead4 !important;
+  text-shadow: 0 0 25px rgba(45, 212, 191, 0.2) !important;
+}
+
+body.dark-theme-bg .speak-adjust-btn {
+  background: rgba(45, 212, 191, 0.12) !important;
+  border: 1px solid rgba(45, 212, 191, 0.25) !important;
+  color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-adjust-btn:hover {
+  background: #2dd4bf !important;
+  color: #0f1a16 !important;
+}
+
+body.dark-theme-bg .speak-btn-circle.reset {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1.5px solid rgba(180, 220, 200, 0.2) !important;
+  color: #e8f0ec !important;
+}
+
+body.dark-theme-bg .speak-btn-circle.reset:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #2dd4bf !important;
+  border-color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .speak-btn-circle.play {
+  background: #2dd4bf !important;
+  color: #0f1a16 !important;
+  box-shadow: 0 6px 20px rgba(45, 212, 191, 0.35) !important;
+}
+
+body.dark-theme-bg .speak-btn-circle.play:hover {
+  background: #26b8a5 !important;
+  box-shadow: 0 8px 25px rgba(45, 212, 191, 0.5) !important;
+}
+
+body.dark-theme-bg .speak-mic-badge {
+  background: #141f1b !important;
+  color: #e8f0ec !important;
+  border: 1px solid rgba(180, 220, 200, 0.15) !important;
 }

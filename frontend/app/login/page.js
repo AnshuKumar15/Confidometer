@@ -13,13 +13,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    document.body.classList.add("light-theme-bg");
-    return () => {
-      document.body.classList.remove("light-theme-bg");
-    };
-  }, []);
-
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");

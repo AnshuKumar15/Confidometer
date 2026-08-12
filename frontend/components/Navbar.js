@@ -24,9 +24,11 @@ import {
   X
 } from "lucide-react";
 import { getTrends } from "@/utils/api";
+import { useTheme } from "@/components/ThemeProvider";
 
 const links = [
   { href: "/", label: "Home" },
+  { href: "/autoapply", label: "AutoApply 🚀" },
   { href: "/upload", label: "AI Interview" },
   { href: "/speak", label: "Get Set Speak" },
   { href: "/peer", label: "Peer-to-Peer" },
@@ -35,6 +37,7 @@ const links = [
 ];
 
 export default function Navbar() {
+  const { theme, setTheme } = useTheme();
   const pathname = usePathname();
   const router = useRouter();
   const [authed, setAuthed] = useState(false);
@@ -225,6 +228,31 @@ export default function Navbar() {
                     <MonitorPlay size={16} className="item-icon" />
                     My Playgrounds
                   </button>
+
+                  <div className="profile-dropdown-theme-toggle">
+                    <div className="theme-toggle-header">
+                      {theme === "dark" ? <Moon size={15} className="item-icon" /> : <Sun size={15} className="item-icon" />}
+                      <span>Appearance</span>
+                    </div>
+                    <div className="theme-segmented-control">
+                      <button
+                        type="button"
+                        className={`theme-segment-btn ${theme === "light" ? "active" : ""}`}
+                        onClick={() => setTheme("light")}
+                      >
+                        <Sun size={13} />
+                        <span>Light</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`theme-segment-btn ${theme === "dark" ? "active" : ""}`}
+                        onClick={() => setTheme("dark")}
+                      >
+                        <Moon size={13} />
+                        <span>Dark</span>
+                      </button>
+                    </div>
+                  </div>
 
                   <button
                     type="button"

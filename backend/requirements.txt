@@ -17,3 +17,5 @@ python-dotenv
 edge-tts
 psycopg2-binary
 librosa
+httpx
+beautifulsoup4
