@@ -148,32 +148,41 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Parse allowed origins from configuration settings
 allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
-# Allow common deployment domains (Vercel, Netlify, Render, localhost) dynamically
-origin_regex = r"https?://.*\.onrender\.com|https?://.*\.vercel\.app|https?://.*\.netlify\.app|https?://localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?"
+# Match all HTTP/HTTPS origins dynamically (Vercel, Netlify, Render, localhost, custom domains)
+origin_regex = r"https?://.*"
 
-if "*" in allowed_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"https?://.*",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_origin_regex=origin_regex,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins if "*" not in allowed_origins else [],
+    allow_origin_regex=origin_regex,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
 @app.get("/")
 def root():
     return {"message": "Confidence Tracker API Running"}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for production uptime monitors (Better Stack / UptimeRobot)."""
+    try:
+        from app.database import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "healthy"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+    
+    is_healthy = db_status == "healthy"
+    return {
+        "status": "ok" if is_healthy else "degraded",
+        "database": db_status
+    }
 
 from app.routes import upload
 app.include_router(upload.router, prefix="/upload", tags=["Upload"])

@@ -6,19 +6,28 @@ export const getApiBase = () => {
   }
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
-    if (host !== "localhost" && host !== "127.0.0.1") {
-      return "https://confidometer-backend.onrender.com";
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "http://127.0.0.1:8000";
     }
+    return "https://confidometer-backend.onrender.com";
   }
-  return "http://127.0.0.1:8000";
+  // Server-side (SSR) context
+  if (process.env.NODE_ENV === "development") {
+    return "http://127.0.0.1:8000";
+  }
+  return "https://confidometer-backend.onrender.com";
+};
+
+export const getWsBase = () => {
+  return getApiBase().replace(/^http/, "ws");
 };
 
 export const API_BASE = getApiBase();
 
 // Derive WebSocket URL from API_BASE (http → ws, https → wss)
-export const WS_BASE = API_BASE.replace(/^http/, "ws");
+export const WS_BASE = getWsBase();
 
-async function request(path, { method = "GET", body, auth = false, headers = {} } = {}) {
+async function request(path, { method = "GET", body, auth = false, headers = {} } = {}, retries = 3) {
   const finalHeaders = {
     ...headers
   };
@@ -47,13 +56,36 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
     : undefined;
 
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const baseUrl = getApiBase();
-  const res = await fetch(`${baseUrl}${cleanPath}`, {
-    method,
-    headers: finalHeaders,
-    body: payload,
-    cache: "no-store"
-  });
+  
+  let res;
+  let attempt = 0;
+  while (attempt < retries) {
+    const baseUrl = getApiBase();
+    try {
+      res = await fetch(`${baseUrl}${cleanPath}`, {
+        method,
+        headers: finalHeaders,
+        body: payload,
+        cache: "no-store"
+      });
+
+      // If Render backend is waking up from sleep (502 / 503 / 504), wait and retry
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries - 1) {
+        attempt++;
+        await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
+        continue;
+      }
+
+      break;
+    } catch (fetchError) {
+      // Network error (Failed to fetch) - likely Render sleeping or cold start
+      attempt++;
+      if (attempt >= retries) {
+        throw fetchError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
+    }
+  }
 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
@@ -194,7 +226,7 @@ export function runCode(code, language, questionNumber, questionTitle, descripti
 }
 
 export async function fetchTTSAudio(text) {
-  return `${API_BASE}/agent/tts?text=${encodeURIComponent(text)}`;
+  return `${getApiBase()}/agent/tts?text=${encodeURIComponent(text)}`;
 }
 
 
@@ -252,7 +284,7 @@ export function deleteMeetingRequest(requestId) {
  * @returns {{ send: function, close: function, isConnected: function }}
  */
 export function createSTTWebSocket(sessionId, onResult, onError, onOpen, onClose) {
-  const url = `${WS_BASE}/agent/ws/stt?session_id=${encodeURIComponent(sessionId)}`;
+  const url = `${getWsBase()}/agent/ws/stt?session_id=${encodeURIComponent(sessionId)}`;
   let ws = null;
   let closed = false;
 

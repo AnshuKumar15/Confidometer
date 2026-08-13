@@ -30,31 +30,32 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
     : undefined;
 
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const baseUrl = getApiBase();
+  
   let res;
-  try {
-    res = await fetch(`${baseUrl}${cleanPath}`, {
-      method,
-      headers: finalHeaders,
-      body: payload,
-      cache: "no-store"
-    });
-  } catch (err) {
-    // If primary host failed (e.g. 127.0.0.1 vs localhost), try fallback URL
-    const altBase = API_BASE.includes("127.0.0.1")
-      ? API_BASE.replace("127.0.0.1", "localhost")
-      : API_BASE.includes("localhost")
-      ? API_BASE.replace("localhost", "127.0.0.1")
-      : API_BASE;
+  let attempt = 0;
+  while (attempt < retries) {
+    const baseUrl = getApiBase();
     try {
-      res = await fetch(`${altBase}${cleanPath}`, {
+      res = await fetch(`${baseUrl}${cleanPath}`, {
         method,
         headers: finalHeaders,
         body: payload,
         cache: "no-store"
       });
-    } catch (fallbackErr) {
-      throw err;
+
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < retries - 1) {
+        attempt++;
+        await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
+        continue;
+      }
+
+      break;
+    } catch (fetchError) {
+      attempt++;
+      if (attempt >= retries) {
+        throw fetchError;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2500 * attempt));
     }
   }
 
