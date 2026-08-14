@@ -162,11 +162,11 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"message": "Confidence Tracker API Running"}
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     """Health check endpoint for production uptime monitors (Better Stack / UptimeRobot)."""
     try:
