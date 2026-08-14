@@ -14,7 +14,8 @@ def analyze_voice(audio_path: str, transcript: str | None = None) -> dict:
     - pitch_std: std deviation of fundamental frequency (Hz)
     - speaking_rate_score: 0-100 score based on estimated WPM (ideal 130-150)
     """
-    y, sr = librosa.load(audio_path, sr=None)
+    # Force 16kHz mono resampling to reduce memory usage by 4x
+    y, sr = librosa.load(audio_path, sr=16000)
 
     # ── 1. Duration ──
     duration_sec = librosa.get_duration(y=y, sr=sr)
