@@ -105,7 +105,10 @@ def transcribe_audio(audio_path: str) -> str:
                 )
                 return transcription.text
         except Exception as groq_err:
-            print(f"[WARN] Groq API transcription failed ({groq_err}), falling back to local Whisper...")
+            print(f"[WARN] Groq API transcription failed: {groq_err}")
+            if os.getenv("GROQ_API_KEY"):
+                raise RuntimeError(f"Groq Whisper STT API error: {groq_err}")
+            print("[INFO] Falling back to local Whisper...")
 
     # Fallback to local Whisper
     active_model = get_model_batch()

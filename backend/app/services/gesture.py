@@ -121,7 +121,13 @@ def _gesture_from_mediapipe(video_path: str) -> float:
     total_frames = 0
     frames_with_detections = 0
     frame_idx = 0
-    sample_stride = 6  # Sample at ~5 FPS for 30 FPS video
+
+    # Dynamically cap total sampled frames to ~150 to keep processing super fast on Render (0.1 vCPU)
+    total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    if total_video_frames > 0:
+        sample_stride = max(6, total_video_frames // 150)
+    else:
+        sample_stride = 6
 
     if not os.path.exists(MODEL_PATH):
         print(f"[ERROR] Pose landmarker model not found at {MODEL_PATH}")
