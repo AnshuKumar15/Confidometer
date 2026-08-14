@@ -11,7 +11,8 @@ import os
 import json
 import traceback
 import math
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from typing import cast, Any
 from app.services.gesture import analyze_gesture
 from app.utils.scoring_utils import bell_curve_score
@@ -22,8 +23,13 @@ def _update_progress(db: Session, speech: Speech, progress: int):
     try:
         speech.progress = progress  # type: ignore
         db.commit()
-    except Exception:
-        pass
+        print(f"[PROGRESS] Updated to {progress}%")
+    except Exception as e:
+        print(f"[ERROR] Failed to update progress to {progress}%: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _audio_pipeline(video_path: str, audio_path: str) -> dict[str, Any]:
@@ -87,6 +93,10 @@ def process_speech(speech_id: int):
         audio_path = base + ".wav"
 
         print(f"[INFO] Processing speech ID: {speech_id}")
+        print(f"[INFO] Video path: {video_path}")
+        print(f"[INFO] Video file exists: {os.path.exists(video_path)}")
+        if os.path.exists(video_path):
+            print(f"[INFO] Video file size: {os.path.getsize(video_path)} bytes")
         _update_progress(db, speech, 5)
 
         # ──────────────────────────────────────────────────────────
@@ -97,25 +107,68 @@ def process_speech(speech_id: int):
         # keeps peak RAM under 200MB while finishing in ~15s.
         # ──────────────────────────────────────────────────────────
         import gc
+        import sys
+
+        def _force_gc():
+            """Aggressively free memory between pipeline stages."""
+            gc.collect(generation=2)
+            gc.collect(generation=1)
+            gc.collect(generation=0)
+            # On Linux (Render), release freed memory pages back to OS
+            if sys.platform == "linux":
+                try:
+                    import ctypes
+                    libc = ctypes.CDLL("libc.so.6")
+                    libc.malloc_trim(0)
+                except Exception:
+                    pass
+
         print("[INFO] Starting sequential analysis (audio -> eye -> gesture)...")
 
         # 1. Audio pipeline
         print("[INFO] Running audio pipeline...")
-        audio_result = _audio_pipeline(video_path, audio_path)
+        t0 = time.time()
+        try:
+            audio_result = _audio_pipeline(video_path, audio_path)
+        except Exception as audio_err:
+            print(f"[ERROR] Audio pipeline failed after {time.time()-t0:.1f}s: {audio_err}")
+            print(traceback.format_exc())
+            raise
+        print(f"[INFO] Audio pipeline completed in {time.time()-t0:.1f}s")
         _update_progress(db, speech, 30)
-        gc.collect()
+        # Clean up the extracted audio file to free disk I/O buffers
+        try:
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+        except OSError:
+            pass
+        _force_gc()
 
         # 2. Eye contact pipeline
         print("[INFO] Running eye contact pipeline...")
-        eye_contact_percentage = _eye_pipeline(video_path)
+        t0 = time.time()
+        try:
+            eye_contact_percentage = _eye_pipeline(video_path)
+        except Exception as eye_err:
+            print(f"[ERROR] Eye contact pipeline failed after {time.time()-t0:.1f}s: {eye_err}")
+            print(traceback.format_exc())
+            raise
+        print(f"[INFO] Eye contact pipeline completed in {time.time()-t0:.1f}s")
         _update_progress(db, speech, 55)
-        gc.collect()
+        _force_gc()
 
         # 3. Gesture pipeline
         print("[INFO] Running gesture pipeline...")
-        gesture_frequency = _gesture_pipeline(video_path)
+        t0 = time.time()
+        try:
+            gesture_frequency = _gesture_pipeline(video_path)
+        except Exception as gesture_err:
+            print(f"[ERROR] Gesture pipeline failed after {time.time()-t0:.1f}s: {gesture_err}")
+            print(traceback.format_exc())
+            raise
+        print(f"[INFO] Gesture pipeline completed in {time.time()-t0:.1f}s")
         _update_progress(db, speech, 70)
-        gc.collect()
+        _force_gc()
 
         print("[INFO] Sequential analysis complete.")
 

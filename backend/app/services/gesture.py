@@ -122,10 +122,10 @@ def _gesture_from_mediapipe(video_path: str) -> float:
     frames_with_detections = 0
     frame_idx = 0
 
-    # Dynamically cap total sampled frames to ~150 to keep processing super fast on Render (0.1 vCPU)
+    # Dynamically cap total sampled frames to ~100 to keep memory under control on Render (512MB)
     total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     if total_video_frames > 0:
-        sample_stride = max(6, total_video_frames // 150)
+        sample_stride = max(6, total_video_frames // 100)
     else:
         sample_stride = 6
 
@@ -150,9 +150,9 @@ def _gesture_from_mediapipe(video_path: str) -> float:
 
             total_frames += 1
 
-            # Resize frame to 320px width to speed up CPU inference
+            # Resize frame to 240px width to minimize memory on Render (512MB)
             h, w = frame.shape[:2]
-            target_w = 320
+            target_w = 240
             target_h = int(h * (target_w / w))
             resized_frame = cv2.resize(frame, (target_w, target_h))
 
