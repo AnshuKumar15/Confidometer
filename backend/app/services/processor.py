@@ -265,21 +265,19 @@ def process_speech(speech_id: int):
         speech.confidence_score = float(confidence_score)  # type: ignore
 
         # 8.5 Compute fidgeting index & speech rate variance for stress metric logging
-        fidgeting = min(100.0, max(0.0, float(gesture_frequency) * 1.25))
-        speech_var = min(100.0, max(0.0, float(pitch_std) * 0.75))
+        fidgeting = min(100.0, max(0.0, gesture_frequency * 1.25))
+        speech_var = min(100.0, max(0.0, pitch_std * 0.75))
         speech.fidgeting_index = fidgeting  # type: ignore
         speech.speech_rate_variance = speech_var  # type: ignore
 
         # If stress mode was active, calculate stress tolerance score
         if speech.stress_mode:
             from app.services.scoring import calculate_stress_tolerance_score
-            speech.stress_tolerance_score = float(
-                calculate_stress_tolerance_score(
-                    fidgeting_index=fidgeting,
-                    speech_rate_variance=speech_var,
-                    filler_count=filler_count,
-                    eye_contact=eye_contact_percentage
-                )
+            speech.stress_tolerance_score = calculate_stress_tolerance_score(
+                fidgeting_index=fidgeting,
+                speech_rate_variance=speech_var,
+                filler_count=filler_count,
+                eye_contact=eye_contact_percentage
             )  # type: ignore
 
         try:
@@ -294,13 +292,13 @@ def process_speech(speech_id: int):
             db = SessionLocal()
             speech = db.query(Speech).filter(Speech.id == speech_id).first()
             if speech:
-                speech.filler_count = int(filler_count)
-                speech.eye_contact_percentage = float(eye_contact_percentage)
-                speech.gesture_frequency = float(gesture_frequency)
-                speech.voice_stability_score = float(voice_stability_score)
-                speech.confidence_score = float(confidence_score)
-                speech.fidgeting_index = fidgeting
-                speech.speech_rate_variance = speech_var
+                speech.filler_count = filler_count  # type: ignore
+                speech.eye_contact_percentage = eye_contact_percentage  # type: ignore
+                speech.gesture_frequency = gesture_frequency  # type: ignore
+                speech.voice_stability_score = voice_stability_score  # type: ignore
+                speech.confidence_score = confidence_score  # type: ignore
+                speech.fidgeting_index = fidgeting  # type: ignore
+                speech.speech_rate_variance = speech_var  # type: ignore
                 db.commit()
         _update_progress(db, speech, 80)
 

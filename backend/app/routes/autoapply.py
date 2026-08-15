@@ -176,7 +176,7 @@ async def trigger_job_search(current_user: User = Depends(get_current_user), db:
         db.commit()
 
     # Reset min match score to 0 so all matches > 0% are recommended
-    config.min_match_score = 0.0
+    config.min_match_score = 0.0  # type: ignore
     db.commit()
 
     # Convert any old threshold-skipped matches with overall_score > 0 to 'matched'
