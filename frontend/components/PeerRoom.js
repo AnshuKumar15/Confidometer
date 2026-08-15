@@ -61,12 +61,30 @@ export default function PeerRoom({
 
   // ── Setup local media ──
   useEffect(() => {
+    let cancelled = false;
+
     async function setupMedia() {
+      // Guard: skip if stream is already acquired (React Strict Mode double-mount)
+      if (localStreamRef.current) {
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+        }
+        setMediaReady(true);
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480 },
           audio: true,
         });
+
+        if (cancelled) {
+          // Component unmounted before getUserMedia resolved — release the stream
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -74,15 +92,19 @@ export default function PeerRoom({
         setMediaReady(true);
       } catch (err) {
         console.error("Failed to access camera/mic:", err);
-        // Set ready even on error so they can join the lobby (e.g. no webcam scenario)
-        setMediaReady(true);
+        if (!cancelled) {
+          // Set ready even on error so they can join the lobby (e.g. no webcam scenario)
+          setMediaReady(true);
+        }
       }
     }
     setupMedia();
 
     return () => {
+      cancelled = true;
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
       }
     };
   }, []);

@@ -145,19 +145,19 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-# Parse allowed origins from configuration settings
-allowed_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
-
-# Match all HTTP/HTTPS origins dynamically (Vercel, Netlify, Render, localhost, custom domains)
-origin_regex = r"https?://.*"
-
+# CORS: Use origin regex to dynamically match and echo back the requesting origin.
+# When allow_credentials=True, the CORS spec forbids Access-Control-Allow-Origin: *
+# so we use allow_origin_regex which causes Starlette to echo back the actual origin.
+# NOTE: Do NOT combine allow_origins (explicit list) with allow_origin_regex — some
+# Starlette versions have bugs where the preflight response omits the header entirely.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if "*" not in allowed_origins else [],
-    allow_origin_regex=origin_regex,
+    allow_origins=[],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])

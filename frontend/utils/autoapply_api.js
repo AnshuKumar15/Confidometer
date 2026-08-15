@@ -1,7 +1,7 @@
 import { getToken, clearSession } from "@/utils/auth";
 import { getApiBase } from "@/utils/api";
 
-async function request(path, { method = "GET", body, auth = true, headers = {} } = {}) {
+async function request(path, { method = "GET", body, auth = true, headers = {} } = {}, retries = 3) {
   const finalHeaders = {
     ...headers
   };

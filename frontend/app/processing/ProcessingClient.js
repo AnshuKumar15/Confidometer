@@ -47,11 +47,16 @@ export default function ProcessingClient() {
     if (!speechId) return;
 
     let cancelled = false;
+    let errorCount = 0;
+    const MAX_RETRIES = 5;
 
     const poll = async () => {
       try {
         const data = await getAnalysis(speechId);
         if (cancelled) return;
+
+        // Reset error count on successful fetch
+        errorCount = 0;
 
         // Update progress
         const serverProgress = data.progress || 0;
@@ -88,8 +93,13 @@ export default function ProcessingClient() {
 
         setTimeout(poll, 2000);
       } catch (err) {
-        if (!cancelled) {
+        if (cancelled) return;
+        errorCount++;
+        if (errorCount >= MAX_RETRIES) {
           setError(err.message || "Unable to fetch progress");
+        } else {
+          // Retry with increasing delay (2s, 4s, 6s, 8s, 10s)
+          setTimeout(poll, 2000 * errorCount);
         }
       }
     };
