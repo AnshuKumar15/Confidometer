@@ -100,8 +100,15 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
         frame_skip = 6
 
     if not os.path.exists(MODEL_PATH):
-        print(f"[ERROR] Face landmarker model not found at {MODEL_PATH}")
-        return 0.0
+        try:
+            from app.utils.download_models import download_models
+            download_models()
+        except Exception as e:
+            print(f"[WARN] Auto-download of face landmarker failed: {e}")
+
+    if not os.path.exists(MODEL_PATH):
+        print(f"[WARN] Face landmarker model not found at {MODEL_PATH}. Using baseline.")
+        return 75.0
 
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL_PATH),

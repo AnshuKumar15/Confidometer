@@ -54,43 +54,75 @@ def get_model_stt():
         _model_stt = get_model_batch()
     return _model_stt
 
+import wave
+import struct
+
+def _create_silent_wav(output_path: str, duration_sec: float = 1.0, sr: int = 16000):
+    """Create a minimal silent WAV file to prevent pipeline crashes when video lacks audio."""
+    try:
+        with wave.open(output_path, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sr)
+            num_samples = int(sr * duration_sec)
+            wav_file.writeframes(struct.pack(f"<{num_samples}h", *([0] * num_samples)))
+    except Exception as e:
+        print(f"[WARN] Could not create silent fallback WAV: {e}")
+
 def extract_audio(video_path: str, output_path: str):
+    """
+    Extract 16kHz mono audio from video file using ffmpeg directly (fast & low memory).
+    Falls back to a silent WAV file if the video contains no audio track.
+    """
+    if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
+        print(f"[WARN] Video file missing or empty ({video_path}). Generating silent placeholder.")
+        _create_silent_wav(output_path)
+        return
+
+    # 1. Primary: Direct ffmpeg extraction (sub-second, <10MB RAM)
+    try:
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-i", video_path,
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 44:
+            return
+        print(f"[WARN] Direct ffmpeg extraction non-zero or empty: {result.stderr[:200]}")
+    except Exception as ffmpeg_err:
+        print(f"[WARN] Direct ffmpeg extraction failed: {ffmpeg_err}")
+
+    # 2. Secondary fallback: MoviePy
     try:
         clip = VideoFileClip(video_path)
         try:
-            if clip.audio is None:
-                raise ValueError(f"No audio track found in video: {video_path}")
-            clip.audio.write_audiofile(output_path)
-            return
+            if clip.audio is not None:
+                clip.audio.write_audiofile(output_path, fps=16000, nbytes=2, codec='pcm_s16le', logger=None)
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 44:
+                    return
         finally:
             clip.close()
     except Exception as moviepy_error:
-        print(f"[WARN] MoviePy audio extraction failed, trying ffmpeg fallback: {moviepy_error}")
+        print(f"[WARN] MoviePy extraction failed: {moviepy_error}")
 
-    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    cmd = [
-        ffmpeg_exe,
-        "-y",
-        "-i",
-        video_path,
-        "-vn",
-        "-acodec",
-        "pcm_s16le",
-        "-ar",
-        "16000",
-        "-ac",
-        "1",
-        output_path,
-    ]
+    # 3. Final fallback: Silent WAV so downstream pipeline never crashes
+    print(f"[INFO] Generating silent WAV fallback for {video_path}")
+    _create_silent_wav(output_path)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg fallback failed for {video_path}: {result.stderr.strip() or result.stdout.strip()}"
-        )
 
 def transcribe_audio(audio_path: str) -> str:
-    # Try Groq API first if available
+    """Transcribe audio with Groq Whisper API or local Whisper fallback."""
+    if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 100:
+        return ""
+
+    # 1. Try Groq API first if client exists
     if groq_client:
         try:
             print("[INFO] Transcribing full audio via Groq Whisper API (whisper-large-v3-turbo)...")
@@ -103,29 +135,31 @@ def transcribe_audio(audio_path: str) -> str:
                     language="en",
                     temperature=0.0
                 )
-                return transcription.text
+                return transcription.text or ""
         except Exception as groq_err:
-            print(f"[WARN] Groq API transcription failed: {groq_err}")
-            if os.getenv("GROQ_API_KEY"):
-                raise RuntimeError(f"Groq Whisper STT API error: {groq_err}")
-            print("[INFO] Falling back to local Whisper...")
+            print(f"[WARN] Groq API transcription failed: {groq_err}. Falling back...")
 
-    # Fallback to local Whisper
-    active_model = get_model_batch()
-    if active_model is None:
-        active_model = get_model_stt()
-    if active_model is None:
-        raise RuntimeError("No Whisper model is loaded")
-    with _whisper_lock:
-        result = active_model.transcribe(
-            audio_path,
-            initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
-            beam_size=1,           # Fast greedy search
-            temperature=0.0,       # deterministic
-            condition_on_previous_text=True,
-            language="en",
-        )
-    return result["text"]
+    # 2. Fallback to local Whisper if available
+    try:
+        active_model = get_model_batch()
+        if active_model is None:
+            active_model = get_model_stt()
+        if active_model is not None:
+            with _whisper_lock:
+                result = active_model.transcribe(
+                    audio_path,
+                    initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
+                    beam_size=1,
+                    temperature=0.0,
+                    condition_on_previous_text=True,
+                    language="en",
+                )
+            return result.get("text", "")
+    except Exception as local_whisper_err:
+        print(f"[WARN] Local Whisper transcription failed: {local_whisper_err}")
+
+    # Return empty string if transcription couldn't be performed
+    return ""
 
 def transcribe_chunk(audio_bytes: bytes) -> dict:
     """

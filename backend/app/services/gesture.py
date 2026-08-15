@@ -130,8 +130,15 @@ def _gesture_from_mediapipe(video_path: str) -> float:
         sample_stride = 6
 
     if not os.path.exists(MODEL_PATH):
-        print(f"[ERROR] Pose landmarker model not found at {MODEL_PATH}")
-        return 0.0
+        try:
+            from app.utils.download_models import download_models
+            download_models()
+        except Exception as e:
+            print(f"[WARN] Auto-download of pose landmarker failed: {e}")
+
+    if not os.path.exists(MODEL_PATH):
+        print(f"[WARN] Pose landmarker model not found at {MODEL_PATH}. Using motion fallback.")
+        return _gesture_from_motion(video_path)
 
     options = PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL_PATH),

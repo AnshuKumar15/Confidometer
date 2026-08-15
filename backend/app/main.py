@@ -122,6 +122,13 @@ async def lifespan(app: FastAPI):
     import asyncio
     from app.services.scheduler import start_scheduler, stop_scheduler
 
+    # Ensure MediaPipe model files (.task) are present
+    try:
+        from app.utils.download_models import download_models
+        download_models()
+    except Exception as dl_err:
+        print(f"[WARN] Failed to pre-download models: {dl_err}")
+
     # Only pre-load local Whisper models if Groq API is NOT configured
     # When Groq is available, STT is handled via API calls — no need to load ~2GB of PyTorch models into RAM
     if not os.environ.get("GROQ_API_KEY"):
