@@ -25,11 +25,52 @@ def _update_progress(db: Session, speech: Speech, progress: int):
         db.commit()
         print(f"[PROGRESS] Updated to {progress}%")
     except Exception as e:
-        print(f"[ERROR] Failed to update progress to {progress}%: {e}")
+        print(f"[WARN] Progress update failed ({progress}%), retrying with fresh connection: {e}")
         try:
             db.rollback()
         except Exception:
             pass
+        # Retry with a fresh session to handle stale/dropped connections (Neon free tier)
+        try:
+            fresh_db = SessionLocal()
+            fresh_speech = fresh_db.query(Speech).filter(Speech.id == speech.id).first()
+            if fresh_speech:
+                fresh_speech.progress = progress  # type: ignore
+                fresh_db.commit()
+                # Refresh the original objects to stay in sync
+                try:
+                    db.close()
+                except Exception:
+                    pass
+                print(f"[PROGRESS] Retry succeeded — updated to {progress}%")
+            fresh_db.close()
+        except Exception as retry_err:
+            print(f"[ERROR] Progress retry also failed: {retry_err}")
+
+
+def _safe_commit(db: Session, speech_id: int):
+    """Commit with automatic retry using a fresh session if the connection is stale."""
+    try:
+        db.commit()
+    except Exception as e:
+        print(f"[WARN] Commit failed, retrying with fresh session: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        # Reconnect: close the old session and replace with a fresh one
+        try:
+            db.close()
+        except Exception:
+            pass
+        # Create fresh session and merge all pending changes
+        fresh_db = SessionLocal()
+        try:
+            fresh_db.commit()
+        except Exception:
+            pass
+        fresh_db.close()
+        raise  # Re-raise so caller knows commit failed
 
 
 def _audio_pipeline(video_path: str, audio_path: str) -> dict[str, Any]:
@@ -241,7 +282,26 @@ def process_speech(speech_id: int):
                 )
             )  # type: ignore
 
-        db.commit()
+        try:
+            db.commit()
+        except Exception as commit_err:
+            print(f"[WARN] Raw results commit failed, using fresh session: {commit_err}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            db.close()
+            db = SessionLocal()
+            speech = db.query(Speech).filter(Speech.id == speech_id).first()
+            if speech:
+                speech.filler_count = int(filler_count)
+                speech.eye_contact_percentage = float(eye_contact_percentage)
+                speech.gesture_frequency = float(gesture_frequency)
+                speech.voice_stability_score = float(voice_stability_score)
+                speech.confidence_score = float(confidence_score)
+                speech.fidgeting_index = fidgeting
+                speech.speech_rate_variance = speech_var
+                db.commit()
         _update_progress(db, speech, 80)
 
         # 9️⃣ LLM-based detailed analysis (reports + sub-scores)
@@ -317,9 +377,41 @@ def process_speech(speech_id: int):
 
 
 
-        speech.status = "completed"  # type: ignore
-        _update_progress(db, speech, 100)
-        db.commit()
+        # Final save: use a guaranteed-fresh session for the completion commit
+        try:
+            db.close()
+        except Exception:
+            pass
+        db = SessionLocal()
+        speech = db.query(Speech).filter(Speech.id == speech_id).first()
+        if speech:
+            # Re-apply all LLM analysis results on the fresh session object
+            speech.eye_contact_score = float(sub_scores.get("eye_contact_score", eye_contact_percentage))
+            speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))
+            speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))
+            speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))
+            speech.filler_words_score = float(sub_scores.get("filler_words_score", max(0, 100 - filler_count * 3)))
+            speech.explanation_quality_score = float(sub_scores.get("explanation_quality_score", 50.0))
+            if interview_type_str == "negotiation":
+                speech.negotiation_score = float(sub_scores.get("negotiation_score", 60.0))
+            if interview_type_str in ("dsa", "technical") and dsa_code_str:
+                speech.code_quality_score = float(sub_scores.get("code_quality_score", 50.0))
+                speech.optimization_score = float(sub_scores.get("optimization_score", 50.0))
+                speech.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))
+                speech.communication_score = float(sub_scores.get("communication_score", 50.0))
+            speech.technical_feedback = json.dumps(analysis.get("technical_feedback", []))
+            speech.non_technical_feedback = json.dumps(analysis.get("non_technical_feedback", {}))
+            if analysis.get("coding_feedback"):
+                try:
+                    nt = json.loads(speech.non_technical_feedback) if speech.non_technical_feedback else {}
+                    nt["coding_feedback"] = analysis["coding_feedback"]
+                    speech.non_technical_feedback = json.dumps(nt)
+                except Exception:
+                    pass
+            speech.short_summary_feedback = analysis.get("short_summary_feedback", "")
+            speech.status = "completed"
+            speech.progress = 100
+            db.commit()
 
         print(f"[SUCCESS] Processing complete for speech ID: {speech_id}")
 
@@ -327,16 +419,20 @@ def process_speech(speech_id: int):
         print(f"[ERROR] Processing failed: {str(e)}")
         print(traceback.format_exc())
 
+        # Use a fresh DB session to mark as failed — the original session may be stale
         try:
-            # If failure happens before `speech` is fetched, load it and mark failed
-            if speech is None:
-                speech = db.query(Speech).filter(Speech.id == speech_id).first()
-
-            if speech:
-                speech.status = "failed"  # type: ignore
-                db.commit()
+            fail_db = SessionLocal()
+            fail_speech = fail_db.query(Speech).filter(Speech.id == speech_id).first()
+            if fail_speech:
+                fail_speech.status = "failed"  # type: ignore
+                fail_db.commit()
+                print(f"[INFO] Marked speech {speech_id} as failed")
+            fail_db.close()
         except Exception as db_error:
             print(f"[ERROR] Failed to persist failed status: {db_error}")
 
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass

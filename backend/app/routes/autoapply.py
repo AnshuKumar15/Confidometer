@@ -102,11 +102,11 @@ def complete_onboarding(
 
 # ── PROFILE & PREFERENCES ──
 
-@router.get("/profile", response_model=CandidateProfileResponse)
+@router.get("/profile")
 def get_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == current_user.id).first()
     if not profile:
-        raise HTTPException(status_code=404, detail="Candidate profile not found. Please complete onboarding.")
+        return None
     return profile
 
 @router.put("/profile", response_model=CandidateProfileResponse)
@@ -126,11 +126,11 @@ def update_profile(
     db.refresh(profile)
     return profile
 
-@router.get("/preferences", response_model=UserPreferencesResponse)
+@router.get("/preferences")
 def get_preferences(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     prefs = db.query(UserPreferences).filter(UserPreferences.user_id == current_user.id).first()
     if not prefs:
-        raise HTTPException(status_code=404, detail="Preferences not found")
+        return None
     return prefs
 
 @router.put("/preferences", response_model=UserPreferencesResponse)

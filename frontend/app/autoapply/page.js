@@ -20,6 +20,8 @@ export default function AutoApplyHub() {
           setOnboarded(true);
           const data = await getDashboardStats();
           setStats(data);
+        } else {
+          setOnboarded(false);
         }
       } catch (err) {
         setOnboarded(false);
