@@ -3052,6 +3052,8 @@ body.light-theme-bg .button.subtle:hover {
 .sub-score-bar-fill {
   height: 100%;
   border-radius: 99px;
+  transition: width 0.8s ease-out;
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.25);
 }
 
 /* Strengths & Focus Areas */
@@ -3519,6 +3521,7 @@ body.light-theme-bg .button.subtle:hover {
 .nt-bar-fill {
   height: 100%;
   border-radius: 99px;
+  transition: width 0.8s ease-out;
 }
 
 .nt-metric-feedback {
@@ -3656,6 +3659,9 @@ body.light-theme-bg .button.subtle:hover {
   top: calc(100% + 10px);
   right: 0;
   width: 260px;
+  max-height: min(85vh, 580px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--radius-md);
   padding: 8px 0;
   z-index: 100;
@@ -3663,6 +3669,25 @@ body.light-theme-bg .button.subtle:hover {
   background: rgba(6, 17, 31, 0.98) !important;
   border: 1px solid var(--line);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.profile-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+
+.profile-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.profile-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.profile-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 @keyframes dropdown-in {
@@ -5553,10 +5578,15 @@ body.interview-active .app-shell {
 /* ===== Custom Profile Dropdown Layout ===== */
 .custom-profile-dropdown {
   width: 290px !important;
+  max-height: min(82vh, 560px) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
   padding: 16px !important;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .profile-dropdown-header {
@@ -9082,6 +9112,16 @@ body.light-theme-bg .aa-gradient-text {
 }
 
 /* ── Upload Zone ── */
+.aa-top-upload-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  background: rgba(45, 212, 191, 0.25) !important;
+  border-color: var(--teal) !important;
+}
+
+.aa-top-upload-btn:active {
+  transform: scale(0.96);
+}
+
 .aa-upload-zone {
   border: 2px dashed var(--line);
   border-radius: 20px;
@@ -9095,6 +9135,12 @@ body.light-theme-bg .aa-gradient-text {
 .aa-upload-zone:hover {
   border-color: var(--teal);
   background: rgba(45, 212, 191, 0.06);
+}
+
+.aa-upload-zone.dragging {
+  border-color: var(--teal) !important;
+  background: rgba(45, 212, 191, 0.12) !important;
+  transform: scale(1.01);
 }
 
 /* ── Stat Metric Cards ── */

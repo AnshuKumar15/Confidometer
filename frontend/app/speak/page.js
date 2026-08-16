@@ -430,6 +430,15 @@ export default function SpeakPage() {
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
 
+  // Lock body scroll while on the Speak page
+  useEffect(() => {
+    const origOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = origOverflow;
+    };
+  }, []);
+
   // Initialize slot ribbon topics
   useEffect(() => {
     // Collect all topics to populate default list

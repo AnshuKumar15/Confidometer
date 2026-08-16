@@ -221,6 +221,27 @@ def _build_system_prompt_dsa(user_name, role, company_name, experience_level, re
     return base
 
 
+def _build_system_prompt_peer(user_name, role, company_name, experience_level, resume_text, job_description, interview_type="technical"):
+    company_info = f"Target Company: {company_name}\n" if company_name else ""
+    exp_info = f"Candidate Experience Level: {experience_level}\n" if experience_level else ""
+    jd_info = f"Target Job Description:\n{job_description}\n" if job_description else ""
+    resume_info = f"Candidate Resume:\n{resume_text}\n" if resume_text else ""
+
+    return (
+        f"You are an expert AI interview guide assisting a HUMAN INTERVIEWER who is conducting a live mock interview with candidate '{user_name}' for the '{role}' role.\n"
+        f"{company_info}"
+        f"{exp_info}"
+        f"{resume_info}"
+        f"{jd_info}"
+        "\nCRITICAL RULES & INSTRUCTIONS FOR PEER INTERVIEW MODE:\n"
+        "1. NEVER introduce yourself as 'Liza' or refer to yourself as an AI, bot, or virtual agent.\n"
+        "2. The question must be written from the perspective of the HUMAN INTERVIEWER speaking directly to the candidate '{user_name}' (e.g. 'In your recent project at...', 'Could you explain how you designed...', 'How did you handle...').\n"
+        "3. Focus heavily on technical depth, architecture, trade-offs, algorithms, or real-world problem solving based on the candidate's resume and their latest response.\n"
+        "4. Ask exactly ONE clear, concise question at a time (1-3 sentences).\n"
+        "5. Output ONLY the question text for the interviewer to read aloud. Do NOT include markdown quotes, pleasantries like 'Sure!', or meta-commentary."
+    )
+
+
 # ──────────────────────────────────────────────────────────────
 # MAIN QUESTION GENERATION
 # ──────────────────────────────────────────────────────────────
@@ -239,7 +260,13 @@ def generate_interview_question(
     role_lower = role.lower() if role else ""
     api_key = os.environ.get("GEMINI_API_KEY")
 
-    # Short-circuit greeting (Turn 1) to avoid API call latency and save quota
+    # ── Peer-to-Peer Question 1 (Turn 1): Initial opening question for human interviewer ──
+    if is_peer and not conversation_history:
+        greeting_company = f" at {company_name}" if company_name else ""
+        role_part = f" for the {role} position" if role else ""
+        return f"Hi {user_name}, could you tell me a bit about yourself, your background, and walk me through some of the key projects you've worked on recently{role_part}{greeting_company}?"
+
+    # Short-circuit AI Liza greeting (Turn 1 for solo AI interview mode)
     if not conversation_history and interview_type != "dsa" and not is_peer:
         greeting_role = role if role else "specified"
         company_part = f" at {company_name}" if company_name else ""
@@ -252,6 +279,20 @@ def generate_interview_question(
         return f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?"
 
     def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False):
+        if is_peer:
+            peer_questions = [
+                f"Hi {name}, could you tell me about yourself, your background, and the key projects you have worked on?",
+                f"Looking at your resume, {name}, what was the most technically complex project you built and what architecture decisions did you make?",
+                f"How did you approach database design, caching, and performance optimization in that project?",
+                f"Can you describe a challenging production bug or bottleneck you encountered and how you diagnosed and resolved it?",
+                f"Could you explain the key trade-offs between SQL and NoSQL databases, and when you would choose one over the other for this architecture?",
+                f"That covers my main technical questions. Do you have any questions for me about the team, tech stack, or role?"
+            ]
+            answered_turns = sum(1 for m in history if m.get("role") == "user")
+            if answered_turns < len(peer_questions):
+                return peer_questions[answered_turns]
+            return f"Thank you for sharing your experience, {name}. Do you have any questions for me?"
+
         # 1. Count how many of the user turns were NOT questions/clarification requests
         answered_turns = 0
         for msg in history:
@@ -270,23 +311,19 @@ def generate_interview_question(
         # 2. Check if the very last message in the history is a user question/clarification
         last_msg = history[-1] if history else None
         if last_msg and last_msg.get("role") == "user" and is_user_asking_question(last_msg.get("text", "")):
-            # Find the last question asked by the model to repeat it
             last_model_question = ""
             for msg in reversed(history):
                 if msg.get("role") == "model":
-                    # Filter out helper comments/answers
                     if "get back to my question" not in msg.get("text", "").lower() and "shall we continue" not in msg.get("text", "").lower():
                         last_model_question = msg.get("text", "")
                         break
             
-            # If no pure model question was found, just use the last model turn
             if not last_model_question:
                 for msg in reversed(history):
                     if msg.get("role") == "model":
                         last_model_question = msg.get("text", "")
                         break
 
-            # Explanations dictionary mapping keywords in model questions to simple explanations
             EXPLANATIONS = {
                 "challenging coding project": (
                     "I want to know about a project where you faced difficult technical hurdles, "
@@ -365,8 +402,12 @@ def generate_interview_question(
 
     # 2. Use Gemini API
     try:
-        # Build system prompt based on interview type
-        if interview_type == "dsa":
+        # Build system prompt based on interview type or peer mode
+        if is_peer:
+            system_instruction = _build_system_prompt_peer(
+                user_name, role, company_name, experience_level, resume_text, job_description, interview_type
+            )
+        elif interview_type == "dsa":
             system_instruction = _build_system_prompt_dsa(
                 user_name, role, company_name, experience_level, resume_text, dsa_context
             )
@@ -390,24 +431,15 @@ def generate_interview_question(
         # Dynamic adjustments to system instructions based on elapsed time
         if is_time_up:
             system_instruction += "\n\nCRITICAL INSTRUCTION: The interview time limit is up. You must politely conclude the interview in this turn. Thank the candidate, state that the interview is complete, and wish them a great day. Do NOT ask any new questions."
-        else:
-            # Reinforce clarifying question instructions
+        elif not is_peer:
+            # Reinforce clarifying question instructions for solo AI mode
             system_instruction += (
                 "\n\nCRITICAL REMINDER ON CLARIFICATIONS: If the candidate asks you to explain, repeat, or clarify a question, "
                 "you must explain that question in simple, helpful, and warm terms rather than repeating it verbatim. "
                 "Once explained, repeat/re-ask the current question so they can answer it."
             )
 
-        if is_peer:
-            system_instruction += (
-                "\n\nCRITICAL PEER INTERVIEW MODE:\n"
-                "You are generating questions for a HUMAN interviewer to read aloud to the candidate.\n"
-                "1. Do NOT include any introductions or self-identifying statements (e.g. do NOT say 'I'm Liza', 'Welcome', or 'Hi {name}').\n"
-                "2. Ask the interview question directly. The very first character should be the beginning of the question.\n"
-                "3. Do not include candidate name greetings (e.g., do not say 'Anshu, welcome'). Start directly with the technical context or the question itself."
-            )
-
-        # Reinforce number formatting rules: write as numeric digits, but they will be spoken correctly via TTS
+        # Reinforce number formatting rules
         system_instruction += (
             "\n\nCRITICAL OFFER WRITING RULE: When discussing salaries, packages, compensation, and money, "
             "you must ALWAYS write them in numeric digit representations using standard comma grouping (e.g., write '18,00,000 rupees' or '18,00,000 INR' "
@@ -415,7 +447,6 @@ def generate_interview_question(
             "Do NOT write out monetary numbers in words, but ALWAYS format them as numbers in digits so they display clean and professional "
             "on screen. The text-to-speech engine will automatically convert these numbers to natural spoken words."
         )
-
 
         model = genai.GenerativeModel(
             model_name="gemini-3.1-flash-lite",
@@ -425,12 +456,18 @@ def generate_interview_question(
         # Build contents structure
         contents = []
         
-        # Prepend hidden user prompt at the very beginning of the history to trigger the greeting/intro instruction
-        # and to satisfy Gemini's requirement that the conversation starts with a user turn.
-        contents.append({
-            "role": "user",
-            "parts": ["Introduce yourself and start the interview by asking how I am feeling today."]
-        })
+        if is_peer:
+            # For peer mode, instruct Gemini to generate the next question for the human interviewer
+            contents.append({
+                "role": "user",
+                "parts": [f"Generate a technical interview question for me (the interviewer) to ask candidate {user_name} based on their resume, the {role} position, and their previous answers. Do not say you are Liza or introduce yourself as an AI."]
+            })
+        else:
+            # Prepend hidden user prompt at the very beginning of the history to trigger the solo greeting/intro instruction
+            contents.append({
+                "role": "user",
+                "parts": ["Introduce yourself and start the interview by asking how I am feeling today."]
+            })
         
         for msg in conversation_history:
             g_role = "user" if msg.get("role") == "user" else "model"
@@ -444,7 +481,13 @@ def generate_interview_question(
             })
 
         response = model.generate_content(contents)
-        return response.text.strip()
+        result_text = response.text.strip()
+        # Clean any accidental quotes or Liza references in peer mode
+        if is_peer:
+            result_text = re.sub(r"^(Hello|Hi|Hey),?\s*I am Liza[^.]*\.\s*", "", result_text, flags=re.IGNORECASE)
+            result_text = re.sub(r"^I'm Liza[^.]*\.\s*", "", result_text, flags=re.IGNORECASE)
+            result_text = result_text.strip().strip('"').strip("'")
+        return result_text
     except Exception as e:
         print(f"[LLM ERROR] Gemini API call failed: {e}. Falling back to mock questions.")
         return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer)

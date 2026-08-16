@@ -88,14 +88,16 @@ export default function OnboardingWizard() {
     min_match_score: 85,
     daily_limit: 20,
     search_frequency_minutes: 60,
-    cover_letter_style: "professional"
+    enable_cover_letter: true,
+    require_approval: true
   });
 
   // Pre-fill existing profile & preferences if re-running setup
   useEffect(() => {
     async function loadExisting() {
       try {
-        const [existingProf, existingPref] = await Promise.all([getProfile(), getPreferences()]);
+        const existingProf = await getProfile();
+        const existingPref = await getPreferences();
         if (existingProf) {
           setProfile((prev) => ({ ...prev, ...existingProf }));
         }
@@ -110,7 +112,7 @@ export default function OnboardingWizard() {
   }, []);
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target?.files?.[0] || e.dataTransfer?.files?.[0] || (e instanceof File ? e : null);
     if (!file) return;
 
     setParsing(true);
@@ -198,26 +200,45 @@ export default function OnboardingWizard() {
 
       {/* STEP 0: Upload Resume */}
       {currentStep === 0 && (
-        <div className="aa-card" style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 18, background: "rgba(45, 212, 191, 0.15)", color: "var(--teal)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
-            <Upload size={32} />
-          </div>
+        <div className="aa-card" style={{ textAlign: "center", padding: "60px 40px" }}>
+          {/* Top Primary Upload Button as Label */}
+          <label
+            className="aa-top-upload-btn"
+            title="Click to upload resume"
+            style={{ 
+              width: 88, 
+              height: 88, 
+              borderRadius: 24, 
+              background: "rgba(45, 212, 191, 0.15)", 
+              color: "var(--teal)", 
+              display: "flex", 
+              alignItems: "center", 
+              justifyContent: "center", 
+              margin: "0 auto 24px",
+              border: "2px solid rgba(45, 212, 191, 0.4)",
+              cursor: parsing ? "wait" : "pointer",
+              transition: "all 0.25s ease",
+              boxShadow: "0 8px 24px rgba(45, 212, 191, 0.2)"
+            }}
+          >
+            <input 
+              type="file" 
+              accept=".pdf,.txt" 
+              onChange={handleFileUpload} 
+              disabled={parsing}
+              style={{ display: "none" }} 
+            />
+            <Upload size={40} />
+          </label>
 
-          <h2 style={{ fontSize: "1.8rem", fontWeight: 900, margin: "0 0 8px 0" }}>Upload Your Resume</h2>
-          <p className="aa-subtitle" style={{ maxWidth: 480, margin: "0 auto 28px" }}>
+          <h2 style={{ fontSize: "2rem", fontWeight: 900, margin: "0 0 10px 0" }}>Upload Your Resume</h2>
+          <p className="aa-subtitle" style={{ maxWidth: 480, margin: "0 auto 16px" }}>
             Our Gemini AI engine will parse your resume into a structured candidate profile in seconds.
           </p>
 
-          <label className="aa-upload-zone">
-            <input type="file" accept=".pdf,.txt" onChange={handleFileUpload} style={{ display: "none" }} />
-            <Sparkles size={32} color="var(--teal)" style={{ margin: "0 auto 12px", display: "block" }} />
-            <span style={{ display: "block", fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>
-              {parsing ? "Parsing resume with AI..." : "Click to select or drag PDF / TXT resume"}
-            </span>
-            <span style={{ display: "block", fontSize: "0.8rem", color: "var(--muted)", marginTop: 4 }}>
-              Supports PDF and TXT (Max 10MB)
-            </span>
-          </label>
+          <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text)", margin: 0, opacity: 0.9 }}>
+            {parsing ? "Parsing resume with AI, please wait..." : "Click the arrow above to select your PDF or TXT resume (Max 10MB)"}
+          </p>
         </div>
       )}
 

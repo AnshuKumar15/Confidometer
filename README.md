@@ -1,12 +1,25 @@
-# Confidometer 📊🤖
+# Confidometer 📊🤖🚀
 
-An advanced, AI-powered mock interview preparation platform designed to help candidates master both their technical and non-verbal communication skills. By combining real-time conversation models, computer vision, speech transcription, and peer-to-peer video rooms, **Confidometer** simulates real-world hiring environments and delivers thorough, multi-dimensional feedback.
+An advanced, AI-powered career acceleration and mock interview platform designed to help candidates land their dream jobs and master both their technical and non-verbal communication skills. Combining real-time conversation models, computer vision, speech transcription, peer-to-peer WebRTC video rooms, and an autonomous AI job application agent (**AutoApply**), **Confidometer** simulates real-world hiring environments and delivers thorough, multi-dimensional feedback.
 
 ---
 
 ## 🌟 Key Features
 
-### 1. Multi-Format Interview Practice
+### 1. AutoApply — Autonomous AI Job Application Agent 🚀
+- **Multi-Board Job Discovery**: Scrapes and aggregates live job postings from diverse remote and global boards (RemoteOK, Himalayas, Jobicy, Arbeitnow, Adzuna, Reed, etc.) based on your target roles, skills, and locations.
+- **AI Semantic Match Engine**: Uses Google Gemini to score job descriptions against your candidate profile (0–100% Match Score), highlighting matching qualifications, missing keywords, and role fit.
+- **AI Resume & Profile Extraction**: Automatically parses PDF and DOCX resumes into structured candidate profiles including experience, education, tech stack, and portfolio links.
+- **Context-Aware Cover Letter Generator**: Dynamically crafts tailored, role-specific cover letters aligned with the company's culture and exact job requirements.
+- **Automated Form Filler & Headless Bot**: Automates job application submission with human-like delays, anti-bot safeguards, and dynamic response generation for custom screening questions.
+- **Safety Limits & Daily Scheduling**: Configurable daily application limits (e.g. 5–25/day), cool-down intervals, and scheduled application windows.
+- **Interactive AutoApply Dashboard**:
+  - Application funnel tracking (Queued, Applied, Under Review, Interview, Rejected, Offer).
+  - Role tag input with custom priority weightings.
+  - Interactive salary range slider (min/max target compensation).
+  - Detailed submission history and automation audit logs.
+
+### 2. Multi-Format Interview Practice 🎯
 - **Technical Round**: Resume-based technical questions guided by **Liza**, the AI interviewer, tailored to the target role, company, and experience level.
 - **HR Round**: Warm, conversational HR interview covering motivation, teamwork, culture fit, salary expectations, and career goals.
 - **Behavioural Round**: STAR-method situational and leadership questions with deep follow-up probing (e.g., *"What was the result?"*, *"What would you do differently?"*).
@@ -18,73 +31,57 @@ An advanced, AI-powered mock interview preparation platform designed to help can
   - **30-Minute Countdown Timer**: Auto-concludes the round when time expires.
 - **Salary & Offer Negotiation Simulator** 💰: Practice negotiating salary, equity, and sign-on bonuses with Liza acting as a recruiter. She presents a realistic initial offer, pushes back on counter-offers using real-world recruiter tactics, and concludes with a final agreed package summary.
 
-### 2. Stress Interview Mode ⚡
+### 3. Stress Interview Mode ⚡
 - Optional **Stress Mode** toggle available across Technical, HR, and Behavioural rounds.
 - Liza interrupts the candidate mid-explanation ~20% of the time with sharp, challenging follow-ups to test composure.
 - Additional stress-specific telemetry captured: **Fidgeting Index**, **Speech Pace Variance**, and **Stress Composure Score**.
 
-### 3. Peer-to-Peer Mock Interviews 👥
-- **WebRTC-Powered Video Rooms**: Real-time peer-to-peer video/audio interview sessions using WebRTC with STUN/ICE connectivity.
-- **Match Lobby & Scheduling System**: Post interview requests with your target role, company, resume, and optional job description. Other users browse and accept requests instantly or schedule them for a future time.
+### 4. Peer-to-Peer Mock Interviews 👥
+- **WebRTC-Powered Video Rooms**: Real-time peer-to-peer video/audio interview sessions using WebRTC with STUN/ICE connectivity and buffered candidate queueing to prevent dropped handshakes.
+- **Stream-Synchronized Video Elements**: Callback refs and stream synchronizers ensure local and remote video feeds attach instantly and reliably without black-screen states.
+- **Dynamic Track Hotplugging**: Camera/microphone tracks attach and update live even if device permissions are granted after room entry or retried mid-session.
+- **Device Permission Interceptor**: Detects camera lockouts (`NotReadableError` / `PermissionDeniedError`) and presents an interactive one-click "Enable Camera" recovery prompt.
+- **Smart Mirroring & Overlays**: Mirrors the candidate's local camera while maintaining a natural unmirrored perspective for the remote peer, with custom camera-off indicators.
+- **Match Lobby & Scheduling System**: Post interview requests with your target role, company, resume, and job description. Other candidates browse and accept requests instantly or schedule them for a future date/time.
 - **Role Assignment**: One peer is the **Interviewer**, the other is the **Interviewee**. The interviewer receives the candidate's details, resume download link, and AI-generated questions.
-- **AI-Guided Questions**: The interviewer gets dynamically generated, context-aware questions with a "Generate Follow-up Question" button. Questions adapt based on the candidate's resume, target role, and live transcription.
+- **AI-Guided Questions**: The interviewer gets dynamically generated, context-aware questions with a "Generate Follow-up Question" button that adapts based on resume text and live transcriptions.
 - **Live Speech-to-Text Transcription**: Interviewee audio is streamed in real-time to the server for Whisper-based transcription, displayed live to both peers.
 - **Warmup → Interview → Feedback Phases**: Structured session flow with natural warmup conversation before transitioning to formal AI-assisted questions, ending with a mutual verbal feedback discussion.
-- **Auto-Upload & Diagnostics**: Interviewee's webcam recording is auto-uploaded at session end for background computer vision and speech analysis (eye contact, gesture, fluency diagnostics).
+- **Auto-Upload & Diagnostics**: Interviewee's webcam recording is auto-uploaded at session end for background computer vision and speech analysis.
 - **Custom DateTimePicker**: iOS/Android-style scrollable wheel picker for scheduling peer interviews with hour, minute, and AM/PM selection.
-- **Request Management**: View, accept, delete, and track status of meeting requests with real-time polling for instant match detection.
 
-### 4. Speak Practice Mode 🎙️
+### 5. Speak Practice Mode 🎙️
 - **Standalone Speaking Gym**: A dedicated practice mode for building verbal fluency without a full interview — perfect for quick warm-ups.
 - **Slot Machine Topic Spinner**: An animated, interactive slot machine with a pullable lever that spins through topics with mechanical click sounds and a game-show "ta-da" chime on reveal.
 - **11 Topic Categories**: General, Tech, Finance, Roast A Popular Thing, One-Minute Pitch, Defend The Worst Take, Explain It Like You're 5, Conspiracy Corner, Hot Takes, Millennial — each with Easy, Medium, and Hard difficulty tiers.
 - **Configurable Settings**: Language accent (US EN, UK EN, IN EN), difficulty level, category selection via custom dropdown menus.
 - **Live Webcam Preview**: Record yourself with real-time video feed and Web Audio API waveform visualization.
-- **Countdown Timer**: Configurable speaking timer with play/pause controls and automatic recording stop.
-- **Synthesized Sound Effects**: All audio feedback (click, chime, start signal) is generated dynamically using the Web Audio API — no external audio files needed.
+- **Synthesized Sound Effects**: All audio feedback (click, chime, start signal) is generated dynamically using the Web Audio API — zero external asset dependencies.
 
-### 5. Intelligent Behavioral & Speech Analysis
+### 6. Intelligent Behavioral & Speech Analysis 🧠
 - **Eye Contact Tracking**: Utilizes Google MediaPipe's Face Landmarker model to analyze gaze directions and score how effectively the candidate maintains eye contact.
 - **Gesture & Posture Analysis**: Utilizes MediaPipe Pose Landmarker models to monitor hand gestures, fidgeting, and overall body language.
-- **Fluency & Filler Word Detection**: Transcribes candidate voice responses using OpenAI Whisper, analyzing speaking speed, pause durations, and counting filler phrases (e.g., *um, uh, like, you know*).
-- **Smart Self-Correcting Transcription**: Custom `SmartTranscriber` engine that maintains a rolling history of transcribed segments, detects repeated/misheard phrases using phonetic similarity matching (SequenceMatcher) and Whisper confidence scores, and automatically corrects earlier segments when higher-confidence alternatives arrive.
-- **Speech Synthesis**: Responsive real-time audio generation powered by Edge TTS (`en-US-JennyNeural`) for life-like AI interviewer interaction, with an LRU cache to avoid redundant synthesis.
-- **Indian Number TTS Formatting**: Automatic conversion of Indian-style numbers (Lakhs, Crores) and comma-grouped formats into natural speech text for the TTS engine.
+- **Fluency & Filler Word Detection**: Transcribes voice responses and analyzes speaking speed, pause durations, and counts filler phrases (e.g., *um, uh, like, you know*).
+- **Smart Self-Correcting Transcription**: Custom `SmartTranscriber` engine that maintains a rolling history of transcribed segments, detects phonetic similarities, and automatically corrects earlier segments when higher-confidence text arrives.
+- **Hybrid STT Engine (Groq LPU Cloud Acceleration + Whisper)**:
+  - **Groq API Cloud STT**: Offloads inference to ultra-fast Groq LPUs (`groq.audio.transcriptions.create`), slashing backend RAM from >2GB to <200MB and accelerating transcription by 10x.
+  - **Local Whisper Fallback**: Automatically falls back to local OpenAI Whisper models when running offline or without cloud API keys.
+- **Speech Synthesis**: Responsive real-time audio generation powered by Edge TTS (`en-US-JennyNeural`) with LRU caching to avoid redundant synthesis.
+- **Indian Number TTS Formatting**: Automatic conversion of Indian-style numbers (Lakhs, Crores) and comma-grouped formats into natural speech text.
 
-### 6. Analytics Dashboard
-- **TTS-Powered Verbal Feedback**: Before unlocking the dashboard, Liza speaks a personalized summary of your performance — with a skip option if you prefer to jump straight to scores.
+### 7. Analytics Dashboard & Trends 📈
+- **TTS-Powered Verbal Feedback**: Liza speaks a personalized executive summary of your performance before unlocking the detailed breakdown.
 - **Overall Confidence Gauge**: Animated radial gauge chart with a 0–100 confidence score.
-- **Multi-Dimensional Sub-Scores**: Eye Contact, Technical Knowledge, Fluency, Use of Words, Filler Words, Explanation Quality — plus context-specific scores:
-  - **Negotiation Score** (for negotiation rounds)
-  - **Stress Composure** (when stress mode is active)
-  - **Code Quality, Optimization, Thinking Process, Communication** (for DSA/coding rounds)
-- **Tabbed Report Panels**: Switch between Technical Report (Q-by-Q accordion with verdict, your answer, AI feedback, and suggested answers), Non-Technical Report (body language & fluency bars), and Coding Review (code quality scores, time/space complexity badges, optimization suggestions, and your submitted code).
-- **Progress Over Time**: Multi-line Recharts graph tracking Confidence, Eye Contact, Fluency, Technical, and Filler Control scores across your last 20 sessions.
-- **Framer Motion Animations**: Smooth entrance animations, animated score bars, and tab transitions powered by Framer Motion.
+- **Multi-Dimensional Sub-Scores**: Eye Contact, Technical Knowledge, Fluency, Use of Words, Filler Words, Explanation Quality, Negotiation Score, and Stress Composure.
+- **Coding Review & Complexity Badges**: Code quality scores, time/space complexity badges, optimization suggestions, and syntax-highlighted submitted code.
+- **Progress Over Time**: Multi-line Recharts graph tracking Confidence, Eye Contact, Fluency, Technical, and Filler Control scores across historical sessions.
+- **Daily Streak Tracking & 10 Milestone Badges**: Consecutive practice streaks with badges like *First Steps*, *Eye Contact Master*, *Fluent Speaker*, *Confidence King*, *Master Negotiator*, and *Week Warrior*.
 
-### 7. Gamification & Trends System 🏆
-- **Daily Streak Tracking**: Consecutive daily practice streaks tracked server-side, with automatic reset on missed days.
-- **10 Achievement Badges**: Unlockable badges based on milestones:
-  - 🎯 First Steps (1st interview) · 🔥 Warming Up (5) · 🏆 Interview Veteran (10)
-  - 👁️ Eye Contact Master (80%+) · 🗣️ Fluent Speaker (80%+) · 👑 Confidence King (85%+)
-  - ⚡ 3-Day Streak · 💎 Week Warrior (7-day streak)
-  - 🌟 All-Rounder (all 4 interview types) · 💰 Master Negotiator (negotiation round)
-- **Trends API**: Historical performance data (last 20 sessions), interview type breakdown, and badge progress — all served from a dedicated `/trends/` endpoint.
-
-### 8. Smart Autocomplete Inputs
-- **Role Suggestions**: 50+ curated role titles across Software Engineering, Data/AI, Product, Design, Finance, Consulting, and more — with fuzzy-match autocomplete.
-- **Company Suggestions**: 90+ companies including Big Tech (Google, Meta, Amazon), Indian IT (Infosys, TCS, Wipro), startups (CRED, Zerodha, Meesho), and global firms (McKinsey, Goldman Sachs).
-- **Keyboard Navigation**: Full arrow-key navigation, Enter to select, and Escape to dismiss the suggestions dropdown.
-
-### 9. Authentication & Session Management
-- **JWT-Based Auth**: Secure user registration and login with hashed passwords and Bearer token authentication.
-- **Auto-Redirect**: Unauthorized API calls automatically clear the session and redirect to login with a `?next=` return URL.
-- **Protected Routes**: All interview, upload, dashboard, peer, and trends routes require authentication.
-
-### 10. Interactive UX Refinements
-- **Scroll-Hide Navbar**: The top header hides automatically on scroll-down to save screen space, sliding back into view on scroll-up/return-to-top.
-- **Active Focus Layout**: Once an interview starts, the navbar is hidden completely, and the workspace scales to full-width (`98vw`) to focus entirely on the session.
-- **Glassmorphism Dark Theme**: Premium dark mode with frosted-glass cards, vibrant gradients, and subtle transparency effects throughout the UI.
+### 8. Production-Grade Multi-Cloud Architecture ☁️
+- **Frontend on Vercel**: Next.js App Router deployed globally on Vercel Edge CDN with zero-downtime CI/CD.
+- **Backend on Render**: Asynchronous FastAPI service running MediaPipe vision pipelines and WebRTC/WebSocket signaling.
+- **Serverless PostgreSQL on Neon**: Managed connection pooling and auto-scaling database storage.
+- **Zero-Cold-Start Keep-Alive**: Automated heartbeat pings to `/health` with SQL connectivity auditing prevent container sleeping and provide instant uptime alerts.
 
 ---
 
@@ -93,27 +90,22 @@ An advanced, AI-powered mock interview preparation platform designed to help can
 ### Frontend
 - **Framework**: Next.js 14 (App Router, React)
 - **Styling**: Vanilla CSS (Premium Glassmorphism & High-Density Dark Mode)
-- **Code Editor**: Monaco Editor (Next.js wrappers) with multi-language support
-- **Charts**: Recharts (Line charts for progress tracking), custom Gauge & Bar chart components
-- **Animations**: Framer Motion (page transitions, animated score bars, reveal effects)
-- **Real-Time**: WebRTC (peer video/audio), WebSocket (live STT, peer signaling)
+- **Code Editor**: Monaco Editor with multi-language syntax highlighting
+- **Charts**: Recharts & custom SVG Radial Gauges
+- **Animations**: Framer Motion
+- **Real-Time**: WebRTC (video/audio streams), WebSocket (live STT, peer signaling)
 - **Icons**: Lucide React
 
-### Backend
+### Backend & AI Services
 - **Framework**: FastAPI (Python 3.13)
-- **Database**: SQLAlchemy ORM with automatic migration scripts (PostgreSQL for both development and deployment)
-- **Speech-to-Text**: OpenAI Whisper (`small` model for post-interview reports, `medium` model for live conversational STT) with custom `SmartTranscriber` self-correction engine
+- **Database**: PostgreSQL (Neon Serverless / Docker) with SQLAlchemy ORM
+- **LLM Core**: Google Gemini API (dynamic questions, code evaluation, job matching, cover letter generation)
+- **Speech-to-Text (STT)**: Groq Cloud API (Whisper on LPUs) + Local OpenAI Whisper fallback
+- **Text-to-Speech (TTS)**: Microsoft Edge TTS (`en-US-JennyNeural`) with LRU caching
 - **Computer Vision**: Google MediaPipe (Face & Pose Landmarker task architectures) & OpenCV
-- **Audio Extraction**: MoviePy & FFmpeg CLI integrations
-- **AI Core**: Google Gemini LLM API (dynamic dialogue generation, interview question generation, code validation, and per-question technical feedback with suggested answers)
-- **TTS Core**: Microsoft Edge TTS (`en-US-JennyNeural`) with LRU caching and Indian number formatting
-- **Resume Parsing**: Multi-format resume text extraction (PDF, DOCX)
-- **WebSocket Services**: Real-time STT streaming, peer-to-peer signaling server with room management
-
-### DevOps & Deployment
-- **Docker Compose**: Full containerized stack with PostgreSQL, FastAPI backend, Next.js frontend, and Nginx reverse proxy
-- **Nginx**: Reverse proxy with WebSocket support and 100MB upload size limit
-- **Environment Configuration**: `.env`-based secrets management for API keys and database URLs
+- **Audio Extraction**: MoviePy & FFmpeg CLI
+- **Resume Parsing**: `pdfplumber`, `python-docx`
+- **Automation / Scraping**: Playwright / Selenium headless browser automation, HTTP multi-board discovery
 
 ---
 
@@ -122,63 +114,67 @@ An advanced, AI-powered mock interview preparation platform designed to help can
 ### Prerequisites
 - Python 3.13+
 - Node.js 18+
+- PostgreSQL (or Neon DB connection string)
+- API Keys:
+  - Google Gemini API Key
+  - Groq API Key *(Optional, recommended for high-speed low-memory STT)*
 
-### Backend Setup
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Create and activate a Python virtual environment:
-   ```bash
-   python -m venv venv
-   # On Windows:
-   .\venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Create a `.env` file inside the `backend` folder:
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   SECRET_KEY=your_jwt_secret_key_here
-   ```
-5. Pre-download task models:
-   ```bash
-   python -m app.utils.download_models
-   ```
-6. Run the FastAPI development server:
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+### 1. Backend Setup
+```bash
+cd backend
 
-### Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd ../frontend
-   ```
-2. Install npm packages:
-   ```bash
-   npm install
-   ```
-3. Launch the Next.js development server:
-   ```bash
-   npm run dev
-   ```
-4. Access the web app at `http://localhost:3000`.
+# Create and activate virtual environment
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
 
-### Docker Deployment (Production)
-1. Set your Gemini API key:
-   ```bash
-   export GEMINI_API_KEY=your_gemini_api_key_here
-   ```
-2. Build and start all services:
-   ```bash
-   docker-compose up --build -d
-   ```
-3. Access the app at `http://localhost` (Nginx proxies to frontend and backend).
+# Install dependencies
+pip install -r requirements.txt
+
+# Pre-download vision models
+python -m app.utils.download_models
+```
+
+Create a `.env` file in `backend/`:
+```env
+DATABASE_URL=postgresql://user:password@localhost:5432/confidometer
+SECRET_KEY=your_jwt_secret_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
+FRONTEND_URL=http://localhost:3000
+```
+
+Start the FastAPI server:
+```bash
+uvicorn app.main:app --reload
+```
+
+### 2. Frontend Setup
+```bash
+cd ../frontend
+
+# Install packages
+npm install
+```
+
+Create a `.env.local` file in `frontend/`:
+```env
+NEXT_PUBLIC_API_BASE=http://localhost:8000
+NEXT_PUBLIC_WS_BASE=ws://localhost:8000
+```
+
+Start the development server:
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### 3. Docker Compose (All-in-One Deployment)
+```bash
+docker-compose up --build -d
+```
 
 ---
 
@@ -188,56 +184,67 @@ An advanced, AI-powered mock interview preparation platform designed to help can
 Confidometer/
 ├── backend/
 │   ├── app/
-│   │   ├── models/           # SQLAlchemy models (User, Speech, PeerInterviewRequest)
-│   │   ├── resources/        # Face/Pose Landmarker models
-│   │   ├── routes/           # FastAPI endpoints
-│   │   │   ├── auth.py       # JWT registration & login
-│   │   │   ├── upload.py     # Video upload & processing
-│   │   │   ├── analysis.py   # Speech analysis results & history
-│   │   │   ├── agent.py      # AI interview agent, TTS, DSA code runner, STT WebSocket
-│   │   │   ├── meeting.py    # Peer-to-peer lobby, match, WebSocket signaling
-│   │   │   └── trends.py     # Gamification streaks, badges, historical trends
-│   │   ├── services/         # Core processing engines
-│   │   │   ├── llm.py        # Gemini LLM interview question generation (5 interview types + peer mode)
-│   │   │   ├── stt.py        # Smart self-correcting Whisper transcriber
-│   │   │   ├── eye.py        # Eye contact scoring via MediaPipe Face Landmarker
-│   │   │   ├── gesture.py    # Gesture & posture analysis via MediaPipe Pose Landmarker
-│   │   │   ├── filler.py     # Filler word detection & fluency scoring
-│   │   │   ├── voice.py      # Voice stability analysis
-│   │   │   ├── scoring.py    # Composite confidence score calculation
-│   │   │   └── processor.py  # Async pipeline orchestrator for all analysis services
-│   │   ├── schema/           # Pydantic response schemas
-│   │   └── utils/            # Audio/video processing, resume parsing, security
-│   ├── main.py               # Application entrypoint & automatic DB migrations
-│   └── requirements.txt      # Python requirements
+│   │   ├── models/
+│   │   │   ├── user.py                 # User account & authentication models
+│   │   │   ├── speech.py               # Speech analysis & interview result models
+│   │   │   ├── meeting_request.py      # Peer-to-peer interview requests & scheduling
+│   │   │   └── autoapply_models.py     # CandidateProfile, JobListing, ApplicationRecord
+│   │   ├── routes/
+│   │   │   ├── auth.py                 # JWT authentication & profile routes
+│   │   │   ├── upload.py               # Video upload & background analysis dispatch
+│   │   │   ├── analysis.py             # Diagnostic results, metrics & history
+│   │   │   ├── agent.py                # AI interviewer Liza, TTS, DSA runner, STT WebSocket
+│   │   │   ├── meeting.py              # Peer-to-peer lobby, match & WebRTC signaling
+│   │   │   ├── trends.py               # Gamification streaks, badges & trend metrics
+│   │   │   └── autoapply.py            # Job search, profile sync, cover letters & automation
+│   │   ├── services/
+│   │   │   ├── llm.py                  # Gemini AI dialogue & question engine (5 round types)
+│   │   │   ├── stt.py                  # Hybrid Groq/Whisper self-correcting transcriber
+│   │   │   ├── eye.py                  # Gaze & eye contact scoring via MediaPipe Face
+│   │   │   ├── gesture.py              # Posture & fidgeting analysis via MediaPipe Pose
+│   │   │   ├── filler.py               # Filler word detection & speech rate analysis
+│   │   │   ├── voice.py                # Voice pitch & acoustic stability analysis
+│   │   │   ├── scoring.py              # Composite confidence score calculation
+│   │   │   ├── processor.py            # Asynchronous multi-service analysis orchestrator
+│   │   │   ├── job_discovery.py        # Multi-board remote & global job scraper
+│   │   │   ├── job_matcher.py          # AI semantic resume-to-job matching engine
+│   │   │   ├── resume_parser.py        # PDF/DOCX resume text & structure extraction
+│   │   │   ├── cover_letter_generator.py # Tailored cover letter synthesizer
+│   │   │   ├── form_filler.py          # Headless browser form automation & submission
+│   │   │   └── scheduler.py            # Application rate limiter & daily queue scheduler
+│   │   ├── schema/                     # Pydantic schemas & response models
+│   │   └── utils/                      # Model downloaders, audio/video tools, security
+│   ├── main.py                         # FastAPI initialization, CORS, DB auto-migrations
+│   └── requirements.txt                # Python backend dependencies
 ├── frontend/
 │   ├── app/
-│   │   ├── page.js           # Landing page with hero section
-│   │   ├── login/            # Login page
-│   │   ├── register/         # Registration page
-│   │   ├── upload/           # AI Interview setup & live interview workspace (all 5 types)
-│   │   ├── speak/            # Standalone speaking practice gym with slot machine topic spinner
-│   │   ├── peer/             # Peer-to-peer interview lobby, scheduling, and WebRTC room
-│   │   ├── processing/       # Post-interview analysis progress page
-│   │   ├── dashboard/        # Full analytics dashboard with charts & reports
-│   │   └── history/          # Recent sessions list
+│   │   ├── page.js                     # Landing page with hero & feature highlights
+│   │   ├── login/ & register/          # Authentication flows
+│   │   ├── upload/                     # AI interview setup & live workspace (all 5 types)
+│   │   ├── speak/                      # Standalone speaking gym with slot machine topic spinner
+│   │   ├── peer/                       # Peer-to-peer lobby, scheduling & WebRTC room
+│   │   ├── autoapply/                  # AutoApply dashboard, jobs list & applications tracker
+│   │   ├── processing/                 # Real-time background diagnostics status page
+│   │   ├── dashboard/                  # Multi-tab analytics dashboard with charts & reports
+│   │   └── history/                    # Historical interview archive
 │   ├── components/
-│   │   ├── Navbar.js         # Scroll-hide navigation bar
-│   │   ├── PeerRoom.js       # WebRTC peer interview room component
-│   │   ├── AutocompleteInput.js  # Fuzzy-match autocomplete (roles & companies)
-│   │   ├── DateTimePicker.js # iOS-style scrollable wheel date/time picker
-│   │   ├── GaugeChart.js     # Radial gauge chart for confidence scores
-│   │   ├── BarChart.js       # Bar chart component
-│   │   ├── MetricCard.js     # Metric display card
-│   │   └── Loader.js         # Loading spinner
+│   │   ├── Navbar.js                   # Responsive scroll-hide navigation bar
+│   │   ├── PeerRoom.js                 # WebRTC peer room with stream sync & live AI guides
+│   │   ├── AutocompleteInput.js        # Fuzzy-match autocomplete for roles & companies
+│   │   ├── DateTimePicker.js           # iOS-style scrollable wheel date/time picker
+│   │   ├── GaugeChart.js               # Animated confidence score radial gauge
+│   │   ├── BarChart.js & MetricCard.js # Modular metric visualization components
+│   │   └── autoapply/                  # JobCard, MatchScoreBadge, RoleTagInput, SalarySlider
 │   ├── utils/
-│   │   ├── api.js            # API client (REST + WebSocket helpers)
-│   │   └── auth.js           # JWT token & session management
-│   ├── styles/               # Global and layout CSS
-│   └── package.json          # React dependencies
+│   │   ├── api.js                      # REST client & WebSocket connectors
+│   │   ├── autoapply_api.js            # AutoApply endpoints & job management client
+│   │   └── auth.js                     # JWT storage & route protection helpers
+│   ├── styles/                         # Glassmorphism design system & dark mode CSS
+│   └── package.json                    # Node dependencies
 ├── nginx/
-│   └── nginx.conf            # Reverse proxy configuration
-├── docker-compose.yml        # Full-stack container orchestration
+│   └── nginx.conf                      # Reverse proxy with WebSocket support
+├── deployment_guide.md                 # Multi-cloud production architecture & interview guide
+├── docker-compose.yml                  # Containerized deployment stack
 └── README.md
 ```
 
@@ -245,4 +252,4 @@ Confidometer/
 
 ## 📄 License
 
-This project is for educational and portfolio demonstration purposes.
+This project is open source and intended for educational, portfolio, and career preparation purposes.

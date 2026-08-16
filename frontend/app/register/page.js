@@ -114,7 +114,7 @@ export default function RegisterPage() {
     <div className="auth-wrap">
       <form className="auth-card glass" onSubmit={handleSubmit}>
         <h1>Create your account</h1>
-        <p>Sign up to run confidence analysis on your interview recordings.</p>
+        <p>Sign up to start your interview preparation and AI confidence analysis.</p>
 
         <label>
           What should we call you?
@@ -199,15 +199,28 @@ export default function RegisterPage() {
           )}
         </label>
 
-        <label>
+        <label style={{ position: "relative" }}>
           Confirm Password
-          <input
-            type={showPassword ? "text" : "password"}
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            required
-            placeholder="Repeat password"
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+              placeholder="Repeat password"
+            />
+            <div className="password-controls-right">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
         </label>
 
         {error ? <p className="error-text">{error}</p> : null}

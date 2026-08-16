@@ -431,9 +431,9 @@ export default function DashboardClient() {
                       <motion.div
                         className="sub-score-bar-fill"
                         initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(100, s.value)}%` }}
+                        animate={{ width: `${Math.min(100, Math.max(0, s.value))}%` }}
                         transition={{ duration: 0.8, delay: 0.2 }}
-                        style={{ background: `linear-gradient(90deg, ${color}, ${color}cc)` }}
+                        style={{ backgroundColor: color, background: color }}
                       />
                     </div>
                   </div>
@@ -616,9 +616,9 @@ export default function DashboardClient() {
                           <motion.div
                             className="nt-bar-fill"
                             initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, val)}%` }}
+                            animate={{ width: `${Math.min(100, Math.max(0, val))}%` }}
                             transition={{ duration: 0.7, delay: 0.1 }}
-                            style={{ background: `linear-gradient(90deg, ${color}, ${color}88)` }}
+                            style={{ backgroundColor: color, background: color }}
                           />
                         </div>
                         {metric.feedback && (
@@ -666,9 +666,9 @@ export default function DashboardClient() {
                         <motion.div
                           className="nt-bar-fill"
                           initial={{ width: 0 }}
-                          animate={{ width: `${Math.min(100, s.value)}%` }}
+                          animate={{ width: `${Math.min(100, Math.max(0, s.value))}%` }}
                           transition={{ duration: 0.7, delay: 0.1 }}
-                          style={{ background: `linear-gradient(90deg, ${color}, ${color}88)` }}
+                          style={{ backgroundColor: color, background: color }}
                         />
                       </div>
                     </div>

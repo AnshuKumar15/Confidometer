@@ -368,12 +368,13 @@ async def peer_signaling(
                             user_name=room["interviewee"]["name"],
                             company_name=room.get("company_name", "Peer Mock Interview"),
                             experience_level="Mid Level",
+                            job_description=room.get("job_description", ""),
                             interview_type=room.get("interview_type", "technical"),
                             is_peer=True
                         )
                     except Exception as e:
                         print(f"[MEETING] Fallback on question 1 generation: {e}")
-                        q1 = "To begin, can you describe your experience with some of the primary technologies listed on your resume, and explain how you've applied them in your projects?"
+                        q1 = f"Hi {room['interviewee']['name']}, could you please tell me about yourself, your background, and walk me through some of the key projects you've worked on recently?"
 
                     room["phase"] = "interview"
                     room["history"].append({"role": "model", "text": q1})
@@ -416,12 +417,13 @@ async def peer_signaling(
                             user_name=interviewee_name,
                             company_name=room.get("company_name", "Peer Mock Interview"),
                             experience_level="Mid Level",
+                            job_description=room.get("job_description", ""),
                             interview_type=room.get("interview_type", "technical"),
                             is_peer=True
                         )
                     except Exception as e:
                         print(f"[MEETING] Fallback on question generation: {e}")
-                        next_q = "Could you talk about another key system architectural or technical concept you are familiar with from your work?"
+                        next_q = f"Looking at your experience, {interviewee_name}, could you explain how you approached system architecture and scalability in that project?"
 
                     # Update history
                     room["history"].append({"role": "model", "text": next_q})
