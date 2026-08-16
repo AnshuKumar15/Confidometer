@@ -251,6 +251,7 @@ export default function PeerInterviewPage() {
     return (
       <div className="peer-workspace-wrapper">
         <PeerRoom
+          key={`${activeRoomId}_${activeRole}`}
           role={activeRequestRoleName}
           userName={userName}
           roomId={activeRoomId}

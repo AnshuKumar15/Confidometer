@@ -33,13 +33,16 @@ export default function PeerRoom({
 
   // Media & WebRTC Readiness
   const [mediaReady, setMediaReady] = useState(false);
+  const [mediaError, setMediaError] = useState("");
 
   // Media
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
   const pcRef = useRef(null);
   const wsRef = useRef(null);
+  const iceCandidatesQueue = useRef([]);
 
   // Chat/Audio toggles
   const [isMuted, setIsMuted] = useState(false);
@@ -59,55 +62,122 @@ export default function PeerRoom({
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  // ── Setup local media ──
-  useEffect(() => {
-    let cancelled = false;
-
-    async function setupMedia() {
-      // Guard: skip if stream is already acquired (React Strict Mode double-mount)
-      if (localStreamRef.current) {
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStreamRef.current;
+  const addTracksToPeerConnection = (stream, pc) => {
+    if (!stream || !pc) return;
+    try {
+      const senders = pc.getSenders();
+      stream.getTracks().forEach((track) => {
+        const existingSender = senders.find((s) => s.track && s.track.kind === track.kind);
+        if (existingSender) {
+          existingSender.replaceTrack(track).catch(() => {});
+        } else {
+          pc.addTrack(track, stream);
         }
-        setMediaReady(true);
-        return;
-      }
+      });
+    } catch (e) {
+      console.warn("[WebRTC] Error adding tracks to active connection:", e);
+    }
+  };
 
+  // ── Setup local media ──
+  const setupMedia = async () => {
+    setMediaError("");
+    // Guard: skip if stream is already active and acquired
+    if (localStreamRef.current && localStreamRef.current.active) {
+      if (localVideoRef.current && localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+      setMediaReady(true);
+      return;
+    }
+
+    try {
+      let stream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480 },
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
           audio: true,
         });
-
-        if (cancelled) {
-          // Component unmounted before getUserMedia resolved — release the stream
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        localStreamRef.current = stream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-        }
-        setMediaReady(true);
-      } catch (err) {
-        console.error("Failed to access camera/mic:", err);
-        if (!cancelled) {
-          // Set ready even on error so they can join the lobby (e.g. no webcam scenario)
-          setMediaReady(true);
-        }
+      } catch (constraintErr) {
+        console.warn("[Media] Retrying with basic constraints:", constraintErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
       }
+
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      // If peer connection is already established, attach newly acquired tracks
+      if (pcRef.current) {
+        addTracksToPeerConnection(stream, pcRef.current);
+      }
+
+      setMediaReady(true);
+      setMediaError("");
+    } catch (err) {
+      console.error("Failed to access camera/mic:", err);
+      let msg = "Camera/Mic access failed.";
+      if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        msg = "Camera is in use by another application or browser tab.";
+      } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        msg = "Camera permission was denied in browser settings.";
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        msg = "No webcam or microphone found.";
+      }
+      setMediaError(msg);
+      setMediaReady(true);
     }
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
     setupMedia();
 
     return () => {
-      cancelled = true;
+      isCancelled = true;
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
       }
+      remoteStreamRef.current = null;
     };
   }, []);
+
+  // ── Synchronize stream attachment when video elements mount or status changes ──
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) {
+      if (localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [status, mediaReady, isCameraOff]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
+      remoteVideoRef.current.play().catch(() => {});
+    }
+  }, [status, mediaReady, peerName]);
+
+  const drainIceCandidates = async (pc) => {
+    while (iceCandidatesQueue.current.length > 0) {
+      const candidate = iceCandidatesQueue.current.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("[WebRTC] Error adding buffered ICE candidate:", err);
+      }
+    }
+  };
 
   // ── WebSocket + WebRTC setup ──
   useEffect(() => {
@@ -192,29 +262,43 @@ export default function PeerRoom({
 
         case "offer":
           if (pcRef.current) {
-            await pcRef.current.setRemoteDescription(
-              new RTCSessionDescription({ type: "offer", sdp: data.sdp })
-            );
-            const answer = await pcRef.current.createAnswer();
-            await pcRef.current.setLocalDescription(answer);
-            ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
+            try {
+              await pcRef.current.setRemoteDescription(
+                new RTCSessionDescription({ type: "offer", sdp: data.sdp })
+              );
+              await drainIceCandidates(pcRef.current);
+              const answer = await pcRef.current.createAnswer();
+              await pcRef.current.setLocalDescription(answer);
+              ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
+            } catch (e) {
+              console.error("[WebRTC] Offer handling error:", e);
+            }
           }
           break;
 
         case "answer":
           if (pcRef.current) {
-            await pcRef.current.setRemoteDescription(
-              new RTCSessionDescription({ type: "answer", sdp: data.sdp })
-            );
+            try {
+              await pcRef.current.setRemoteDescription(
+                new RTCSessionDescription({ type: "answer", sdp: data.sdp })
+              );
+              await drainIceCandidates(pcRef.current);
+            } catch (e) {
+              console.error("[WebRTC] Answer handling error:", e);
+            }
           }
           break;
 
         case "ice_candidate":
-          if (pcRef.current && data.candidate) {
-            try {
-              await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-            } catch (e) {
-              console.warn("ICE candidate error:", e);
+          if (data.candidate) {
+            if (pcRef.current && pcRef.current.remoteDescription && pcRef.current.remoteDescription.type) {
+              try {
+                await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+              } catch (e) {
+                console.warn("[WebRTC] ICE candidate error:", e);
+              }
+            } else {
+              iceCandidatesQueue.current.push(data.candidate);
             }
           }
           break;
@@ -297,8 +381,19 @@ export default function PeerRoom({
   }, [status, myRole, roomId]);
 
   async function setupPeerConnection(isInitiator) {
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch (e) {}
+      pcRef.current = null;
+    }
+    iceCandidatesQueue.current = [];
+
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
     });
     pcRef.current = pc;
 
@@ -311,8 +406,11 @@ export default function PeerRoom({
 
     // Handle remote stream
     pc.ontrack = (event) => {
-      if (remoteVideoRef.current && event.streams[0]) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+      const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+      remoteStreamRef.current = stream;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(() => {});
       }
     };
 
@@ -435,11 +533,62 @@ export default function PeerRoom({
       {/* Video Grid */}
       <div className="peer-video-grid">
         <div className="peer-video-container">
-          <video ref={localVideoRef} autoPlay playsInline muted className="peer-video" />
+          <video 
+            ref={(el) => {
+              localVideoRef.current = el;
+              if (el && localStreamRef.current && el.srcObject !== localStreamRef.current) {
+                el.srcObject = localStreamRef.current;
+                el.play().catch(() => {});
+              }
+            }} 
+            autoPlay 
+            playsInline 
+            muted 
+            className="peer-video peer-video-local" 
+          />
+          {mediaError && (
+            <div className="peer-video-off-overlay">
+              <CameraOff size={36} style={{ color: "#f87171" }} />
+              <span style={{ fontSize: "0.85rem", color: "#fca5a5", textAlign: "center", padding: "0 14px", lineHeight: "1.4" }}>
+                {mediaError}
+              </span>
+              <button 
+                type="button" 
+                className="button primary" 
+                style={{ fontSize: "0.8rem", padding: "6px 14px", marginTop: "6px" }}
+                onClick={() => setupMedia()}
+              >
+                Enable Camera
+              </button>
+            </div>
+          )}
+          {isCameraOff && !mediaError && (
+            <div className="peer-video-off-overlay">
+              <CameraOff size={36} style={{ opacity: 0.6 }} />
+              <span>Camera Off</span>
+            </div>
+          )}
           <span className="peer-video-label">You ({userName})</span>
         </div>
         <div className="peer-video-container">
-          <video ref={remoteVideoRef} autoPlay playsInline className="peer-video" />
+          <video 
+            ref={(el) => {
+              remoteVideoRef.current = el;
+              if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
+                el.srcObject = remoteStreamRef.current;
+                el.play().catch(() => {});
+              }
+            }} 
+            autoPlay 
+            playsInline 
+            className="peer-video peer-video-remote" 
+          />
+          {!remoteStreamRef.current && (
+            <div className="peer-video-off-overlay" style={{ background: "rgba(10, 15, 29, 0.75)" }}>
+              <div className="peer-lobby-spinner" style={{ width: "32px", height: "32px", borderWidth: "2px" }} />
+              <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Connecting to {peerName || "peer"}...</span>
+            </div>
+          )}
           <span className="peer-video-label">{peerName || "Waiting for Peer Video..."}</span>
         </div>
       </div>
