@@ -855,6 +855,8 @@ export default function LandingPage() {
               <Link href="/dashboard">Dashboard</Link>
               <span className="lp-footer-pipe">|</span>
               <Link href="/history">History</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/privacy-policy">Privacy Policy</Link>
             </div>
           </div>
         </footer>

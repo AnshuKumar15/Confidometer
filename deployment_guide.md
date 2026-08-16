@@ -133,3 +133,55 @@ Use either **[Better Stack](https://betterstack.com/)** or **[UptimeRobot](https
 ### Step 3: What This Achieves
 * **Prevents Cold Starts**: Pinging `/health` every 5–10 minutes ensures Render's free tier never spins down.
 * **Database & API Health Auditing**: Because `/health` runs `SELECT 1` on Neon PostgreSQL, if the database fails, CPU maxes out, or credentials expire, the monitor detects it immediately and emails you the exact root cause traceback.
+
+---
+
+## 8. Custom Domain & DNS Architecture (GoDaddy ➔ Vercel & Render)
+
+Having a custom domain like **`https://confidometer.online`** transforms the project from a student demo into a production-grade SaaS product.
+
+### 1. High-Level Summary for Interviews
+> *"I purchased a custom top-level domain (`confidometer.online`) on GoDaddy and configured global Anycast DNS routing through Vercel's edge network. The apex domain (`confidometer.online`) routes to Vercel's Anycast IP, which enforces automated 308 canonical redirection to `www.confidometer.online`. Automated Let's Encrypt SSL/TLS certificates ensure end-to-end encryption with zero manual certificate rotation. Furthermore, our FastAPI backend implements dynamic origin regex CORS matching to securely handle authenticated sessions and WebSockets across all domains."*
+
+---
+
+### 2. The Production DNS Table (GoDaddy Configuration)
+
+To connect your custom domain to your multi-cloud architecture, the following DNS records are configured in GoDaddy DNS Management:
+
+| Type | Name (Host) | Data / Points To | Purpose |
+| :--- | :--- | :--- | :--- |
+| **A** | `@` | `216.198.79.1` (or `76.76.21.21`) | Points the root domain (`confidometer.online`) directly to Vercel's Anycast Edge Network. |
+| **CNAME** | `www` | `d3b9fe5c17284e06.vercel-dns-017.com` (or `cname.vercel-dns.com`) | Routes `www.confidometer.online` to Vercel's global CDN distribution. |
+| **CNAME** | `api` *(Optional)* | `confidometer-backend.onrender.com` | Routes `api.confidometer.online` directly to the FastAPI container on Render. |
+
+---
+
+### 3. Step-by-Step Setup Guide
+
+#### Step 1: Add the Domain in Vercel
+1. In your **Vercel Project** $\to$ **Settings** $\to$ **Domains** (under *Networking*).
+2. Click **Add Existing** $\to$ enter `confidometer.online`.
+3. Select **Redirect apex domains to www (recommended)** and click **Add Domain**.
+4. Vercel automatically generates the required `A` and `CNAME` records and handles SSL provisioning.
+
+#### Step 2: Configure Records in GoDaddy
+1. Log in to [GoDaddy](https://account.godaddy.com/products) $\to$ click **`confidometer.online`** $\to$ **DNS Records**.
+2. **Edit the `A` record** (Name: `@`) $\to$ Set Data to `216.198.79.1` (TTL: 1/2 Hour).
+3. **Edit the `CNAME` record** (Name: `www`) $\to$ Set Data to `d3b9fe5c17284e06.vercel-dns-017.com` (TTL: 1/2 Hour).
+4. Click **Save**.
+
+#### Step 3: Verify Propagation & SSL
+1. Go back to Vercel and click **Refresh**.
+2. Both records will turn **Valid Configuration (Blue/Green checkmark)**.
+3. Vercel automatically creates and provisions a valid SSL/TLS certificate within 60 seconds.
+
+---
+
+### 4. Technical Concepts to Explain in an Interview
+
+* **Anycast IP Routing:** Unlike a single server IP, Vercel's Anycast IP (`216.198.79.1`) announces the same IP address from hundreds of edge data centers worldwide. DNS automatically routes a user in Mumbai to Mumbai's edge node, and a user in New York to New York's edge node for single-digit millisecond latency.
+* **Canonical 308 Redirection:** Redirecting `confidometer.online` $\to$ `www.confidometer.online` prevents search engines from treating the two URLs as duplicate content, consolidating all SEO domain authority into one canonical address.
+* **Automated SSL/TLS Rotation:** Vercel automatically handles 90-day Let's Encrypt certificate renewal cycles and HTTP-to-HTTPS upgrade headers without server downtime.
+* **CORS Dynamic Echo:** In `backend/app/main.py`, FastAPI uses `allow_origin_regex=r"https?://.*"` to securely allow credentialed requests (cookies/JWTs) from `confidometer.online`, `www.confidometer.online`, and local development environments simultaneously.
+
