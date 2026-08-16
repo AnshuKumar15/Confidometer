@@ -57,25 +57,53 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
     new_jobs_count = 0
     matched_count = 0
 
-    for job_data in discovered_jobs:
-        # Check if job already exists in DB
-        db_job = db.query(DiscoveredJob).filter(DiscoveredJob.fingerprint == job_data["fingerprint"]).first()
-        if not db_job:
-            db_job = DiscoveredJob(**job_data)
-            db.add(db_job)
-            db.commit()
-            db.refresh(db_job)
-            new_jobs_count += 1
+    all_fps = [j["fingerprint"] for j in discovered_jobs if j.get("fingerprint")]
+    if not all_fps:
+        return
 
-        # Check if already matched
-        existing_match = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.job_id == db_job.id).first()
-        if existing_match:
+    # 2. Batch lookup: Find all existing jobs in one query
+    existing_jobs = db.query(DiscoveredJob).filter(DiscoveredJob.fingerprint.in_(all_fps)).all()
+    existing_jobs_by_fp = {job.fingerprint: job for job in existing_jobs}
+
+    # 3. Bulk insert new jobs in batches of 50
+    new_job_instances = []
+    seen_fps_in_batch = set()
+    for job_data in discovered_jobs:
+        fp = job_data["fingerprint"]
+        if fp not in existing_jobs_by_fp and fp not in seen_fps_in_batch:
+            seen_fps_in_batch.add(fp)
+            new_job_instances.append(DiscoveredJob(**job_data))
+
+    if new_job_instances:
+        for i in range(0, len(new_job_instances), 50):
+            chunk = new_job_instances[i:i+50]
+            db.add_all(chunk)
+            db.commit()
+            for j in chunk:
+                existing_jobs_by_fp[j.fingerprint] = j
+        new_jobs_count = len(new_job_instances)
+
+    # 4. Batch lookup: Find all existing matches for this user in one query
+    all_job_ids = [job.id for job in existing_jobs_by_fp.values() if job.id]
+    existing_matched_job_ids = set()
+    if all_job_ids:
+        existing_matches = db.query(JobMatch.job_id).filter(
+            JobMatch.user_id == user_id,
+            JobMatch.job_id.in_(all_job_ids)
+        ).all()
+        existing_matched_job_ids = {r[0] for r in existing_matches}
+
+    # 5. Evaluate matches in-memory and batch insert
+    new_match_instances = []
+    for job_data in discovered_jobs:
+        fp = job_data["fingerprint"]
+        db_job = existing_jobs_by_fp.get(fp)
+        if not db_job or db_job.id in existing_matched_job_ids:
             continue
 
-        # Evaluate match score
-        match_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_data)
+        existing_matched_job_ids.add(db_job.id)
 
-        # Force status to matched if overall_score > 0
+        match_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_data)
         if match_res["overall_score"] > 0:
             match_res["status"] = "matched"
             match_res["skip_reason"] = None
@@ -94,13 +122,14 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
             status=match_res["status"],
             skip_reason=match_res["skip_reason"]
         )
-        db.add(job_match)
-        db.commit()
-        db.refresh(job_match)
+        new_match_instances.append(job_match)
         if match_res["status"] == "matched":
             matched_count += 1
 
-    db.commit()
+    if new_match_instances:
+        for i in range(0, len(new_match_instances), 50):
+            db.add_all(new_match_instances[i:i+50])
+            db.commit()
 
     if matched_count > 0 or new_jobs_count > 0:
         log = ActivityLog(

@@ -167,6 +167,9 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+from starlette.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
 @app.api_route("/", methods=["GET", "HEAD"])

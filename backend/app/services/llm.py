@@ -3,6 +3,7 @@ import json
 import re
 import google.generativeai as genai
 from dotenv import load_dotenv
+from app.utils.circuit_breaker import gemini_circuit_breaker
 
 # Load environment variables from .env file
 load_dotenv()
@@ -480,7 +481,7 @@ def generate_interview_question(
                 "parts": [text]
             })
 
-        response = model.generate_content(contents)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, contents, timeout=15.0)
         result_text = response.text.strip()
         # Clean any accidental quotes or Liza references in peer mode
         if is_peer:
@@ -605,7 +606,7 @@ IMPORTANT RULES:
 4. Return ONLY valid JSON. No markdown fences, no explanation, no extra text."""
 
         model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
-        response = model.generate_content(prompt)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
         raw = response.text.strip()
 
         result = _extract_json_from_text(raw)
@@ -831,7 +832,7 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
 IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, no extra text. Just the JSON object."""
 
         model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
-        response = model.generate_content(prompt)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=20.0)
         raw = response.text.strip()
 
         result = _extract_json_from_text(raw)
@@ -901,7 +902,7 @@ TASK:
 IMPORTANT: Return ONLY valid JSON. No markdown wrappers, no explanations, no text before or after the JSON."""
 
         model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
-        response = model.generate_content(prompt)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
         raw = response.text.strip()
 
         result = _extract_json_from_text(raw)

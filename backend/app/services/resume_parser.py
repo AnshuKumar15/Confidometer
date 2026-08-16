@@ -3,6 +3,7 @@ import json
 import re
 import google.generativeai as genai
 from app.config import settings
+from app.utils.circuit_breaker import gemini_circuit_breaker
 from app.utils.resume import extract_text_from_resume
 
 COMMON_TECH_SKILLS = [
@@ -148,7 +149,7 @@ RESUME TEXT:
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
+                response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
                 if response and response.text:
                     raw_output = response.text.strip()
                     break

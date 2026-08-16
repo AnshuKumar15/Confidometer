@@ -103,7 +103,7 @@ async def _run_prefetch_tts(text: str):
 
     async def task_impl():
         VOICE = "en-US-JennyNeural"
-        try:
+        async def fetch_stream():
             communicate = edge_tts.Communicate(
                 text,
                 VOICE,
@@ -114,8 +114,10 @@ async def _run_prefetch_tts(text: str):
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     audio_data.extend(chunk["data"])
-            
-            completed_bytes = bytes(audio_data)
+            return bytes(audio_data)
+
+        try:
+            completed_bytes = await asyncio.wait_for(fetch_stream(), timeout=10.0)
             async with _tts_cache_lock:
                 _tts_cache[text] = completed_bytes
             return completed_bytes

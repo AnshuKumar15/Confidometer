@@ -2,6 +2,7 @@ import os
 import json
 import google.generativeai as genai
 from app.config import settings
+from app.utils.circuit_breaker import gemini_circuit_breaker
 
 def get_gemini_api_key():
     return settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API")
@@ -66,7 +67,7 @@ Description Snippet: {job_description[:1500] if job_description else 'N/A'}
 Write the tailored cover letter now:
 """
 
-        response = model.generate_content(prompt)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
         return response.text.strip()
     except Exception as e:
         print(f"[ERROR] Cover letter generation failed: {e}")

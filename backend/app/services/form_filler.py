@@ -3,6 +3,7 @@ import json
 import re
 import google.generativeai as genai
 from app.config import settings
+from app.utils.circuit_breaker import gemini_circuit_breaker
 
 def get_gemini_api_key():
     return settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API")
@@ -81,7 +82,7 @@ Question: "{q}"
 
 Answer the question succinctly and accurately on behalf of the candidate. If the answer cannot be determined with confidence, reply with "UNANSWERABLE".
 Answer:"""
-                resp = model.generate_content(prompt)
+                resp = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=12.0)
                 ai_ans = resp.text.strip()
                 if "UNANSWERABLE" in ai_ans.upper():
                     unanswered.append(q)
