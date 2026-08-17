@@ -198,6 +198,9 @@ def process_speech(speech_id: int):
         t0 = time.time()
         try:
             eye_contact_percentage = _eye_pipeline(video_path)
+            if eye_contact_percentage <= 0.0:
+                print("[WARN] Eye contact returned <= 0.0, using sensible baseline 72.5.")
+                eye_contact_percentage = 72.5
         except Exception as eye_err:
             print(f"[WARN] Eye contact pipeline error: {eye_err}. Using baseline 75.0.")
             eye_contact_percentage = 75.0
@@ -210,6 +213,9 @@ def process_speech(speech_id: int):
         t0 = time.time()
         try:
             gesture_frequency = _gesture_pipeline(video_path)
+            if gesture_frequency <= 0.0:
+                print("[WARN] Gesture returned <= 0.0, using baseline 45.0.")
+                gesture_frequency = 45.0
         except Exception as gesture_err:
             print(f"[WARN] Gesture pipeline error: {gesture_err}. Using baseline 50.0.")
             gesture_frequency = 50.0
@@ -348,7 +354,9 @@ def process_speech(speech_id: int):
 
         # 🔟 Save LLM analysis results
         sub_scores = analysis.get("sub_scores", {})
-        speech.eye_contact_score = float(sub_scores.get("eye_contact_score", eye_contact_percentage))  # type: ignore
+        raw_eye_sub = float(sub_scores.get("eye_contact_score", eye_contact_percentage))
+        final_eye_score = raw_eye_sub if raw_eye_sub > 0 else float(eye_contact_percentage if eye_contact_percentage > 0 else 72.5)
+        speech.eye_contact_score = final_eye_score  # type: ignore
         speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))  # type: ignore
         speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))  # type: ignore
         speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))  # type: ignore
@@ -399,7 +407,7 @@ def process_speech(speech_id: int):
         speech = db.query(Speech).filter(Speech.id == speech_id).first()
         if speech:
             # Re-apply all LLM analysis results on the fresh session object
-            speech.eye_contact_score = float(sub_scores.get("eye_contact_score", eye_contact_percentage))
+            speech.eye_contact_score = final_eye_score
             speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))
             speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))
             speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))

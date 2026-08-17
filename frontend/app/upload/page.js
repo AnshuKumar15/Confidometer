@@ -11,7 +11,7 @@ import {
   Camera, Mic, Play, Square, FileText, CheckCircle,
   Building2, Briefcase, Clock, Brain, MessageSquare,
   Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
-  Volume2
+  Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -97,6 +97,7 @@ export default function UploadPage() {
 
   // Interview States
   const [isInterviewing, setIsInterviewing] = useState(false);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [sessionId, _setSessionId] = useState("");
   const sessionIdRef = useRef("");
   function setSessionId(id) {
@@ -108,6 +109,14 @@ export default function UploadPage() {
   const [isRecordingResponse, setIsRecordingResponse] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  function requestFinishInterview() {
+    if (isComplete) {
+      handleFinishInterview();
+    } else {
+      setShowFinishConfirm(true);
+    }
+  }
   
   // MediaRecorder for full interview analysis
   const [mediaRecorder, setMediaRecorder] = useState(null);
@@ -431,7 +440,7 @@ export default function UploadPage() {
   // 3. Speech Recognition setup — Server-side Whisper STT with browser fallback
   const accumulatedTranscriptRef = useRef("");
   const silenceTimerRef = useRef(null);
-  const SILENCE_TIMEOUT_MS = 4000; // 4 seconds of silence before auto-submit (slightly longer to accommodate server latency)
+  const SILENCE_TIMEOUT_MS = 3000; // 3 seconds of silence before auto-submit
   const STT_CHUNK_INTERVAL_MS = 3000; // send audio chunks to server every 3 seconds
 
   // ── Server-side STT via WebSocket + Whisper ──
@@ -758,7 +767,7 @@ export default function UploadPage() {
 
       setSessionId(data.session_id);
       setCurrentQuestion(data.first_question);
-      setMessages([{ role: "model", text: data.first_question }]);
+      setMessages([{ role: "model", text: data.first_question, timestamp: "00:00" }]);
       setIsInterviewing(true);
 
       // DSA: load both questions and pre-populate draft codes
@@ -820,7 +829,8 @@ export default function UploadPage() {
     }
 
     isSubmittingResponseRef.current = true;
-    const userMsg = { role: "user", text: transcriptText };
+    const currentStamp = formatDuration(interviewDuration);
+    const userMsg = { role: "user", text: transcriptText, timestamp: currentStamp };
     if (code) userMsg.code = code;
 
     // Add user answer to chat log
@@ -832,7 +842,7 @@ export default function UploadPage() {
       const nextQ = data.next_question;
       
       setCurrentQuestion(nextQ);
-      setMessages((prev) => [...prev, { role: "model", text: nextQ }]);
+      setMessages((prev) => [...prev, { role: "model", text: nextQ, timestamp: formatDuration(interviewDuration) }]);
 
       if (data.is_complete) {
         setIsComplete(true);
@@ -1186,462 +1196,588 @@ export default function UploadPage() {
 
 
         </div>
-      ) : showSplitScreen ? (
-        /* ═══════════════ SPLIT-SCREEN MODE (DSA / Coding Side-by-Side) ═══════════════ */
-        <div className="interview-split-container">
-          {/* ── Left Panel: Camera + Liza Dialogue (width: 35%) ── */}
-          <div className="split-left-panel">
-            <div className="split-cam-box glass">
-              {/* Timer badge */}
-              {isDsaRound ? (
-                <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
-                  <Timer size={14} />
-                  <span>{formatDuration(dsaTimeLeft)}</span>
-                </div>
-              ) : (
-                <div className="live-timer-badge">
-                  <Clock size={14} />
-                  <span>{formatDuration(interviewDuration)}</span>
+      ) : (
+        <>
+          {/* ━━━━ LIVE INTERVIEW HUD TOP BAR (Appears during active interview) ━━━━ */}
+          <div className="interview-hud-bar glass">
+            <div className="hud-left">
+              <div className="hud-role-pill">
+                <Briefcase size={14} className="hud-icon" />
+                <span>{role || "Candidate"}</span>
+                {companyName && (
+                  <>
+                    <span className="hud-pill-sep">@</span>
+                    <strong>{companyName}</strong>
+                  </>
+                )}
+              </div>
+              <div
+                className="hud-type-badge"
+                style={{
+                  "--type-color": INTERVIEW_TYPES.find((t) => t.id === interviewType)?.color || "#2dd4bf"
+                }}
+              >
+                {INTERVIEW_TYPES.find((t) => t.id === interviewType)?.icon}
+                <span>{INTERVIEW_TYPES.find((t) => t.id === interviewType)?.label || "Technical"}</span>
+              </div>
+              {stressMode && (
+                <div className="hud-stress-badge">
+                  <Zap size={13} />
+                  <span>Stress Mode</span>
                 </div>
               )}
-
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="split-webcam"
-              />
-              
-              <div className="speaking-indicator-ring">
-                {isSpeaking ? (
-                  <div className="badge model-badge">
-                    <Volume2 size={14} className="pulse" />
-                    AI Speaking
-                  </div>
-                ) : isRecordingResponse ? (
-                  <div className="badge user-badge">
-                    <span className="recording-dot pulse"></span>
-                    Listening...
-                  </div>
-                ) : null}
-              </div>
             </div>
 
-            <div className="split-chat-box glass">
-              <h3>
-                <MessageSquare size={16} />
-                Liza Chat
-              </h3>
-              <div className="messages-log">
-                {messages.map((msg, idx) => (
-                  <div key={idx} className={`chat-bubble ${msg.role}`}>
-                    <span className="role-tag">{msg.role === "model" ? "Liza" : "You"}</span>
-                    <p>{msg.text}</p>
-                    {msg.code && (
-                      <pre className="chat-code-block"><code>{msg.code}</code></pre>
-                    )}
-                  </div>
-                ))}
-                {interimTranscript && !isRecordingResponse && (
-                  <div className="chat-bubble user interim">
-                    <span className="role-tag">Hearing...</span>
-                    <p>{interimTranscript}</p>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
+            <div className="hud-right">
+              <div className="hud-stat-item">
+                <span className="hud-stat-label">Questions</span>
+                <span className="hud-stat-value">
+                  {messages.filter((m) => m.role === "model").length} {isComplete ? "(Done)" : "Asked"}
+                </span>
               </div>
 
-              {isRecordingResponse && (
-                <div className="live-input-area" style={{ display: "flex", gap: "8px", margin: "8px 0" }}>
-                  <input
-                    type="text"
-                    className="response-text-input"
-                    value={interimTranscript}
-                    onChange={(e) => {
-                      setInterimTranscript(e.target.value);
-                      accumulatedTranscriptRef.current = e.target.value;
-                      if (silenceTimerRef.current) {
-                        clearTimeout(silenceTimerRef.current);
-                        silenceTimerRef.current = null;
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && interimTranscript.trim()) {
-                        const text = interimTranscript.trim();
-                        accumulatedTranscriptRef.current = "";
-                        setInterimTranscript("");
-                        submitResponse(text);
-                      }
-                    }}
-                    placeholder="Speak or type..."
-                    style={{
-                      flex: 1,
-                      background: "rgba(255, 255, 255, 0.05)",
-                      border: "1px solid var(--line)",
-                      borderRadius: "8px",
-                      padding: "8px 12px",
-                      color: "var(--text)",
-                      fontSize: "0.85rem"
-                    }}
-                  />
+              <div className="hud-stat-divider" />
+
+              <div className="hud-stat-item">
+                <span className="hud-stat-label">Elapsed Time</span>
+                <div className="hud-timer-wrap">
+                  <Clock size={14} className="hud-timer-icon" />
+                  <span className="hud-timer-val">{formatDuration(interviewDuration)}</span>
+                  {!isDsaRound && duration && (
+                    <span className="hud-timer-target">/ {duration}:00</span>
+                  )}
                 </div>
-              )}
-
-              <div className="controls-row" style={{ display: "flex", gap: "8px", width: "100%" }}>
-                <button
-                  className="button subtle finish-btn"
-                  onClick={handleFinishInterview}
-                  disabled={loading}
-                  style={{ flex: 1 }}
-                >
-                  <Square size={14} />
-                  {loading ? "Saving..." : "Finish & Analyze"}
-                </button>
               </div>
+
+              <button
+                type="button"
+                className="button subtle hud-finish-btn"
+                onClick={requestFinishInterview}
+                disabled={loading}
+                title="Conclude and evaluate interview"
+              >
+                <Square size={13} />
+                <span>End Session</span>
+              </button>
             </div>
           </div>
 
-          {/* ── Right Panel: Workspace Side-by-Side (width: 65%) ── */}
-          <div className="split-right-panel glass">
-            {/* Header: Question switcher tabs & Language Selector */}
-            <div className="dsa-workspace-header">
-              {isDsaRound && dsaQuestions && (
-                <div className="dsa-questions-tabs">
-                  {dsaQuestions.map((q, idx) => (
-                    <button
-                      key={idx}
-                      className={`dsa-q-tab-btn ${activeQIndex === idx ? "active" : ""}`}
-                      onClick={() => setActiveQIndex(idx)}
-                    >
-                      <Terminal size={14} />
-                      Question {idx + 1}: {q.difficulty}
-                    </button>
-                  ))}
-                </div>
-              )}
+          {showSplitScreen ? (
+            /* ═══════════════ SPLIT-SCREEN MODE (DSA / Coding Side-by-Side) ═══════════════ */
+            <div className="interview-split-container">
+              {/* ── Left Panel: Camera + Liza Dialogue (width: 35%) ── */}
+              <div className="split-left-panel">
+                <div className="split-cam-box glass">
+                  {isDsaRound && (
+                    <div className="cam-overlay-top" style={{ justifyContent: "flex-end" }}>
+                      <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
+                        <Timer size={14} />
+                        <span>{formatDuration(dsaTimeLeft)}</span>
+                      </div>
+                    </div>
+                  )}
 
-              {!isDsaRound && (
-                <div className="dsa-questions-tabs">
-                  <span className="dsa-active-title">Coding Sandbox</span>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="split-webcam"
+                  />
                 </div>
-              )}
 
-              <div className="workspace-header-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <div className="editor-lang-selector">
-                  <select
-                    value={editorLanguage}
-                    onChange={(e) => handleLanguageChange(e.target.value)}
-                  >
-                    {LANGUAGES.map((lang) => (
-                      <option key={lang.id} value={lang.id}>{lang.label}</option>
+                <div className="split-chat-box glass">
+                  <div className="chat-aside-header">
+                    <div className="chat-header-title">
+                      <MessageSquare size={16} />
+                      <h3>Liza Chat</h3>
+                    </div>
+                    <div className="chat-status-pill">
+                      <span className={`chat-status-dot ${isSpeaking ? "speaking" : isRecordingResponse ? "listening" : "idle"}`} />
+                      <span>{isSpeaking ? "AI Talking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                    </div>
+                  </div>
+                  <div className="messages-log">
+                    {messages.map((msg, idx) => (
+                      <div key={idx} className={`chat-bubble ${msg.role}`}>
+                        <div className="chat-bubble-header">
+                          <div className="bubble-avatar">
+                            {msg.role === "model" ? <Bot size={13} /> : <User size={13} />}
+                          </div>
+                          <span className="role-tag">{msg.role === "model" ? "Liza" : "You"}</span>
+                          {msg.timestamp && <span className="bubble-timestamp">{msg.timestamp}</span>}
+                        </div>
+                        <p>{msg.text}</p>
+                        {msg.code && (
+                          <pre className="chat-code-block"><code>{msg.code}</code></pre>
+                        )}
+                      </div>
                     ))}
-                  </select>
+                    {interimTranscript && !isRecordingResponse && (
+                      <div className="chat-bubble user interim">
+                        <div className="chat-bubble-header">
+                          <div className="bubble-avatar"><User size={13} /></div>
+                          <span className="role-tag">Hearing...</span>
+                        </div>
+                        <p>{interimTranscript}</p>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {isRecordingResponse && (
+                    <div className="live-input-area">
+                      <input
+                        type="text"
+                        className="response-text-input"
+                        value={interimTranscript}
+                        onChange={(e) => {
+                          setInterimTranscript(e.target.value);
+                          accumulatedTranscriptRef.current = e.target.value;
+                          if (silenceTimerRef.current) {
+                            clearTimeout(silenceTimerRef.current);
+                            silenceTimerRef.current = null;
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && interimTranscript.trim()) {
+                            const text = interimTranscript.trim();
+                            accumulatedTranscriptRef.current = "";
+                            setInterimTranscript("");
+                            submitResponse(text);
+                          }
+                        }}
+                        placeholder="Speak or type solution discussion..."
+                      />
+                    </div>
+                  )}
+
+                  <div className="controls-row">
+                    <button
+                      className="button subtle finish-btn"
+                      onClick={requestFinishInterview}
+                      disabled={loading}
+                      style={{ flex: 1 }}
+                    >
+                      <Square size={14} />
+                      {loading ? "Saving..." : "Finish & Analyze"}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Draggable Split Workspace */}
-            <div className="dsa-side-by-side-workspace" ref={workspaceRef}>
-              {/* Left Column: Problem statement description */}
-              <div className="dsa-problem-description-side" style={{ width: `${splitWidth}%` }}>
-                {activeQuestion ? (
-                  <>
-                    <div className="dsa-q-meta-info">
-                      <span className="dsa-q-number">LeetCode {activeQuestion.number}.</span>
-                      <span className="dsa-q-title">{activeQuestion.title}</span>
-                      <span className={`dsa-difficulty-tag ${(activeQuestion.difficulty || "").toLowerCase()}`}>
-                        {activeQuestion.difficulty}
-                      </span>
+              {/* ── Right Panel: Workspace Side-by-Side (width: 65%) ── */}
+              <div className="split-right-panel glass">
+                {/* Header: Question switcher tabs & Language Selector */}
+                <div className="dsa-workspace-header">
+                  {isDsaRound && dsaQuestions && (
+                    <div className="dsa-questions-tabs">
+                      {dsaQuestions.map((q, idx) => (
+                        <button
+                          key={idx}
+                          className={`dsa-q-tab-btn ${activeQIndex === idx ? "active" : ""}`}
+                          onClick={() => setActiveQIndex(idx)}
+                        >
+                          <Terminal size={14} />
+                          Question {idx + 1}: {q.difficulty}
+                        </button>
+                      ))}
                     </div>
-                    <div className="dsa-description-panel-content">
-                      <div
-                        className="dsa-description-content"
-                        dangerouslySetInnerHTML={{
-                          __html: (activeQuestion.description || "")
-                            .replace(/\n/g, "<br/>")
-                            .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
-                            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                            .replace(/`([^`]+)`/g, "<code>$1</code>")
+                  )}
+
+                  {!isDsaRound && (
+                    <div className="dsa-questions-tabs">
+                      <span className="dsa-active-title">Coding Sandbox</span>
+                    </div>
+                  )}
+
+                  <div className="workspace-header-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <div className="editor-lang-selector">
+                      <select
+                        value={editorLanguage}
+                        onChange={(e) => handleLanguageChange(e.target.value)}
+                      >
+                        {LANGUAGES.map((lang) => (
+                          <option key={lang.id} value={lang.id}>{lang.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Draggable Split Workspace */}
+                <div className="dsa-side-by-side-workspace" ref={workspaceRef}>
+                  {/* Left Column: Problem statement description */}
+                  <div className="dsa-problem-description-side" style={{ width: `${splitWidth}%` }}>
+                    {activeQuestion ? (
+                      <>
+                        <div className="dsa-q-meta-info">
+                          <span className="dsa-q-number">LeetCode {activeQuestion.number}.</span>
+                          <span className="dsa-q-title">{activeQuestion.title}</span>
+                          <span className={`dsa-difficulty-tag ${(activeQuestion.difficulty || "").toLowerCase()}`}>
+                            {activeQuestion.difficulty}
+                          </span>
+                        </div>
+                        <div className="dsa-description-panel-content">
+                          <div
+                            className="dsa-description-content"
+                            dangerouslySetInnerHTML={{
+                              __html: (activeQuestion.description || "")
+                                .replace(/\n/g, "<br/>")
+                                .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
+                                .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                                .replace(/`([^`]+)`/g, "<code>$1</code>")
+                            }}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <p className="muted centered" style={{ marginTop: "40px" }}>
+                        No problem loaded. Use the editor to code.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Draggable Divider Split Bar */}
+                  <div
+                    className="dsa-workspace-resizer"
+                    onMouseDown={handleMouseDown}
+                  >
+                    <div className="resizer-handle-dots" />
+                  </div>
+
+                  {/* Right Column: Code editor */}
+                  <div className="dsa-code-editor-side" style={{ width: `${100 - splitWidth}%` }}>
+                    <div className="monaco-editor-container">
+                      <MonacoEditor
+                        height="100%"
+                        language={LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python"}
+                        theme={theme === "dark" ? "vs-dark" : "light"}
+                        value={codeDrafts[activeQIndex] || ""}
+                        onChange={(value) => {
+                          setCodeDrafts((prev) => ({
+                            ...prev,
+                            [activeQIndex]: value || ""
+                          }));
+                        }}
+                        options={{
+                          fontSize: 15,
+                          minimap: { enabled: false },
+                          scrollBeyondLastLine: false,
+                          wordWrap: "on",
+                          padding: { top: 12 },
+                          automaticLayout: true,
                         }}
                       />
                     </div>
-                  </>
-                ) : (
-                  <p className="muted centered" style={{ marginTop: "40px" }}>
-                    No problem loaded. Use the editor to code.
-                  </p>
-                )}
-              </div>
 
-              {/* Draggable Divider Split Bar */}
-              <div
-                className="dsa-workspace-resizer"
-                onMouseDown={handleMouseDown}
-              >
-                <div className="resizer-handle-dots" />
-              </div>
-
-              {/* Right Column: Code editor */}
-              <div className="dsa-code-editor-side" style={{ width: `${100 - splitWidth}%` }}>
-                <div className="monaco-editor-container">
-                  <MonacoEditor
-                    height="100%"
-                    language={LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python"}
-                    theme={theme === "dark" ? "vs-dark" : "light"}
-                    value={codeDrafts[activeQIndex] || ""}
-                    onChange={(value) => {
-                      setCodeDrafts((prev) => ({
-                        ...prev,
-                        [activeQIndex]: value || ""
-                      }));
-                    }}
-                    options={{
-                      fontSize: 15,
-                      minimap: { enabled: false },
-                      scrollBeyondLastLine: false,
-                      wordWrap: "on",
-                      padding: { top: 12 },
-                      automaticLayout: true,
-                    }}
-                  />
-                </div>
-
-                {/* LeetCode-style Console Drawer */}
-                {showConsole && (
-                  <div className="console-drawer glass">
-                    <div className="console-drawer-header">
-                      <span>Console</span>
-                      <button className="close-console-btn" onClick={() => setShowConsole(false)}>×</button>
-                    </div>
-
-                    <div className="console-drawer-body">
-                      {isRunningCode ? (
-                        <div className="console-loading">
-                          <div className="console-spinner"></div>
-                          <span>Executing code against test cases...</span>
+                    {/* LeetCode-style Console Drawer */}
+                    {showConsole && (
+                      <div className="console-drawer glass">
+                        <div className="console-drawer-header">
+                          <span>Console</span>
+                          <button className="close-console-btn" onClick={() => setShowConsole(false)}>×</button>
                         </div>
-                      ) : runResults ? (
-                        <div className="console-results">
-                          {/* Execution Status Badge */}
-                          <div className="console-status-row">
-                            <span className={`console-status-badge ${runResults.status}`}>
-                              {runResults.status === "success" ? "Accepted" : runResults.status === "failed" ? "Wrong Answer" : "Compile Error"}
-                            </span>
-                          </div>
 
-                          {/* Compile Error Message */}
-                          {runResults.status === "compile_error" && (
-                            <pre className="console-compile-message">
-                              {runResults.compile_message}
-                            </pre>
-                          )}
-
-                          {/* Testcase Result Tabs */}
-                          {runResults.results && runResults.results.length > 0 && (
-                            <div className="console-testcases-tabs">
-                              <div className="testcase-tab-buttons">
-                                {runResults.results.map((r, i) => (
-                                  <button
-                                    key={i}
-                                    className={`testcase-tab-btn ${activeConsoleTab === i ? "active" : ""} ${r.passed ? "passed" : "failed"}`}
-                                    onClick={() => setActiveConsoleTab(i)}
-                                  >
-                                    Case {i + 1}
-                                  </button>
-                                ))}
+                        <div className="console-drawer-body">
+                          {isRunningCode ? (
+                            <div className="console-loading">
+                              <div className="console-spinner"></div>
+                              <span>Executing code against test cases...</span>
+                            </div>
+                          ) : runResults ? (
+                            <div className="console-results">
+                              {/* Execution Status Badge */}
+                              <div className="console-status-row">
+                                <span className={`console-status-badge ${runResults.status}`}>
+                                  {runResults.status === "success" ? "Accepted" : runResults.status === "failed" ? "Wrong Answer" : "Compile Error"}
+                                </span>
                               </div>
 
-                              {/* Active Tab details */}
-                              {runResults.results[activeConsoleTab] && (
-                                <div className="testcase-tab-detail">
-                                  <div className="io-row">
-                                    <span className="io-label">Input</span>
-                                    <pre className="io-code"><code>{runResults.results[activeConsoleTab].input}</code></pre>
+                              {/* Compile Error Message */}
+                              {runResults.status === "compile_error" && (
+                                <pre className="console-compile-message">
+                                  {runResults.compile_message}
+                                </pre>
+                              )}
+
+                              {/* Testcase Result Tabs */}
+                              {runResults.results && runResults.results.length > 0 && (
+                                <div className="console-testcases-tabs">
+                                  <div className="testcase-tab-buttons">
+                                    {runResults.results.map((r, i) => (
+                                      <button
+                                        key={i}
+                                        className={`testcase-tab-btn ${activeConsoleTab === i ? "active" : ""} ${r.passed ? "passed" : "failed"}`}
+                                        onClick={() => setActiveConsoleTab(i)}
+                                      >
+                                        Case {i + 1}
+                                      </button>
+                                    ))}
                                   </div>
-                                  <div className="io-row">
-                                    <span className="io-label">Expected</span>
-                                    <pre className="io-code"><code>{runResults.results[activeConsoleTab].expected}</code></pre>
-                                  </div>
-                                  <div className="io-row">
-                                    <span className="io-label">Actual</span>
-                                    <pre className={`io-code ${runResults.results[activeConsoleTab].passed ? "passed" : "failed"}`}>
-                                      <code>{runResults.results[activeConsoleTab].actual}</code>
-                                    </pre>
-                                  </div>
+
+                                  {/* Active Tab details */}
+                                  {runResults.results[activeConsoleTab] && (
+                                    <div className="testcase-tab-detail">
+                                      <div className="io-row">
+                                        <span className="io-label">Input</span>
+                                        <pre className="io-code"><code>{runResults.results[activeConsoleTab].input}</code></pre>
+                                      </div>
+                                      <div className="io-row">
+                                        <span className="io-label">Expected</span>
+                                        <pre className="io-code"><code>{runResults.results[activeConsoleTab].expected}</code></pre>
+                                      </div>
+                                      <div className="io-row">
+                                        <span className="io-label">Actual</span>
+                                        <pre className={`io-code ${runResults.results[activeConsoleTab].passed ? "passed" : "failed"}`}>
+                                          <code>{runResults.results[activeConsoleTab].actual}</code>
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Standard Output (Stdout) */}
+                              {runResults.stdout && (
+                                <div className="console-stdout-section">
+                                  <span className="io-label">Stdout</span>
+                                  <pre className="console-stdout">{runResults.stdout}</pre>
                                 </div>
                               )}
                             </div>
-                          )}
-
-                          {/* Standard Output (Stdout) */}
-                          {runResults.stdout && (
-                            <div className="console-stdout-section">
-                              <span className="io-label">Stdout</span>
-                              <pre className="console-stdout">{runResults.stdout}</pre>
-                            </div>
-                          )}
+                          ) : null}
                         </div>
-                      ) : null}
+                      </div>
+                    )}
+
+                    {/* Editor Action Bar (Run + Submit) */}
+                    <div className="editor-action-bar">
+                      <button
+                        className="button subtle run-code-btn"
+                        onClick={handleRunCode}
+                        disabled={loading || isRunningCode || !(codeDrafts[activeQIndex]?.trim())}
+                      >
+                        <Play size={14} />
+                        Run Code
+                      </button>
+                      <button
+                        className="button primary submit-code-btn"
+                        onClick={handleSubmitCode}
+                        disabled={loading || !(codeDrafts[activeQIndex]?.trim())}
+                      >
+                        <Send size={14} />
+                        Submit Code to Liza
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
+            <div className="interview-live-container">
+              <div className="live-stream-box glass">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="live-interview-webcam"
+                />
+              </div>
+
+              <div className="interview-chat-aside glass">
+                <div className="chat-aside-header">
+                  <div className="chat-header-title">
+                    <MessageSquare size={16} />
+                    <h3>Interview Dialogue</h3>
+                  </div>
+                  <div className="chat-status-pill">
+                    <span className={`chat-status-dot ${isSpeaking ? "speaking" : isRecordingResponse ? "listening" : "idle"}`} />
+                    <span>{isSpeaking ? "AI Talking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                  </div>
+                </div>
+
+                <div className="messages-log">
+                  {messages.map((msg, idx) => (
+                    <div key={idx} className={`chat-bubble ${msg.role}`}>
+                      <div className="chat-bubble-header">
+                        <div className="bubble-avatar">
+                          {msg.role === "model" ? <Bot size={13} /> : <User size={13} />}
+                        </div>
+                        <span className="role-tag">{msg.role === "model" ? "Liza (Interviewer)" : "You (Candidate)"}</span>
+                        {msg.timestamp && <span className="bubble-timestamp">{msg.timestamp}</span>}
+                      </div>
+                      <p>{msg.text}</p>
+                      {msg.code && (
+                        <pre className="chat-code-block"><code>{msg.code}</code></pre>
+                      )}
+                    </div>
+                  ))}
+
+                  {interimTranscript && !isRecordingResponse && (
+                    <div className="chat-bubble user interim">
+                      <div className="chat-bubble-header">
+                        <div className="bubble-avatar"><User size={13} /></div>
+                        <span className="role-tag">Hearing...</span>
+                      </div>
+                      <p>{interimTranscript}</p>
+                    </div>
+                  )}
+
+                  {/* Liza Thinking indicator */}
+                  {isSpeaking === false && isSubmittingResponseRef.current && (
+                    <div className="chat-bubble model thinking">
+                      <div className="chat-bubble-header">
+                        <div className="bubble-avatar"><Bot size={13} /></div>
+                        <span className="role-tag">Liza is thinking...</span>
+                      </div>
+                      <div className="typing-bouncing-dots">
+                        <span className="t-dot" />
+                        <span className="t-dot" />
+                        <span className="t-dot" />
+                      </div>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="chat-bubble system-error">
+                      <span className="role-tag" style={{ color: "var(--danger)", fontWeight: "bold" }}>System Error</span>
+                      <p style={{ color: "var(--danger)" }}>{error}</p>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {isRecordingResponse && (
+                  <div className="live-input-area">
+                    <div className="input-field-wrapper">
+                      <textarea
+                        ref={responseInputRef}
+                        className="response-text-input"
+                        value={interimTranscript}
+                        onChange={(e) => {
+                          setInterimTranscript(e.target.value);
+                          accumulatedTranscriptRef.current = e.target.value;
+                          if (silenceTimerRef.current) {
+                            clearTimeout(silenceTimerRef.current);
+                            silenceTimerRef.current = null;
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (interimTranscript.trim()) {
+                              const text = interimTranscript.trim();
+                              accumulatedTranscriptRef.current = "";
+                              setInterimTranscript("");
+                              submitResponse(text);
+                            }
+                          }
+                        }}
+                        placeholder={isComplete ? "Interview complete! Type 'thank you' and press Enter to finish." : "Speaking... you can also type or edit your response here."}
+                        rows={2}
+                      />
+                      <div className="input-hint-row">
+                        <span>Press <strong>Enter ↵</strong> to submit answer</span>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Editor Action Bar (Run + Submit) */}
-                <div className="editor-action-bar">
+                <div className="controls-row">
                   <button
-                    className="button subtle run-code-btn"
-                    onClick={handleRunCode}
-                    disabled={loading || isRunningCode || !(codeDrafts[activeQIndex]?.trim())}
+                    type="button"
+                    className="button subtle finish-btn"
+                    onClick={requestFinishInterview}
+                    disabled={loading}
+                    style={{ flex: 1 }}
                   >
-                    <Play size={14} />
-                    Run Code
+                    <Square size={16} />
+                    <span>{loading ? "Saving Session..." : "Finish & Analyze"}</span>
                   </button>
-                  <button
-                    className="button primary submit-code-btn"
-                    onClick={handleSubmitCode}
-                    disabled={loading || !(codeDrafts[activeQIndex]?.trim())}
-                  >
-                    <Send size={14} />
-                    Submit Code to Liza
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
-        <div className="interview-live-container">
-          <div className="live-stream-box glass">
-            {/* Live timer badge */}
-            <div className="live-timer-badge">
-              <Clock size={14} />
-              <span>{formatDuration(interviewDuration)}</span>
-            </div>
 
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="live-interview-webcam"
-            />
-            
-            <div className="speaking-indicator-ring">
-              {isSpeaking ? (
-                <div className="badge model-badge">
-                  <Volume2 size={14} className="pulse" />
-                  AI Interrogating
-                </div>
-              ) : isRecordingResponse ? (
-                <div className="badge user-badge">
-                  <span className="recording-dot pulse"></span>
-                  Listening to you...
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="interview-chat-aside glass">
-            <h3>Interview Dialogue</h3>
-            <div className="messages-log">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`chat-bubble ${msg.role}`}>
-                  <span className="role-tag">{msg.role === "model" ? "Interviewer" : "You"}</span>
-                  <p>{msg.text}</p>
-                </div>
-              ))}
-              {interimTranscript && !isRecordingResponse && (
-                <div className="chat-bubble user interim">
-                  <span className="role-tag">Hearing...</span>
-                  <p>{interimTranscript}</p>
-                </div>
-              )}
-              {error && (
-                <div className="chat-bubble system-error">
-                  <span className="role-tag" style={{ color: "var(--danger)", fontWeight: "bold" }}>System Error</span>
-                  <p style={{ color: "var(--danger)" }}>{error}</p>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {isRecordingResponse && (
-              <div className="live-input-area" style={{ display: "flex", gap: "10px", margin: "10px 0" }}>
-                <textarea
-                  ref={responseInputRef}
-                  className="response-text-input"
-                  value={interimTranscript}
-                  onChange={(e) => {
-                    setInterimTranscript(e.target.value);
-                    accumulatedTranscriptRef.current = e.target.value;
-                    if (silenceTimerRef.current) {
-                      clearTimeout(silenceTimerRef.current);
-                      silenceTimerRef.current = null;
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (interimTranscript.trim()) {
+                  {isRecordingResponse && (
+                    <button
+                      type="button"
+                      className="button primary submit-btn pulse-shimmer"
+                      onClick={() => {
                         const text = interimTranscript.trim();
-                        accumulatedTranscriptRef.current = "";
-                        setInterimTranscript("");
-                        submitResponse(text);
-                      }
-                    }
-                  }}
-                  placeholder={isComplete ? "Interview complete! Type 'thank you' and press Enter to finish." : "Speaking... you can also type or edit here."}
-                  style={{
-                    flex: 1,
-                    background: "rgba(255, 255, 255, 0.05)",
-                    border: "1px solid var(--line)",
-                    borderRadius: "8px",
-                    padding: "10px 14px",
-                    color: "var(--text)",
-                    fontSize: "0.95rem",
-                    resize: "none",
-                    minHeight: "50px",
-                    fontFamily: "inherit"
-                  }}
-                />
+                        if (text) {
+                          accumulatedTranscriptRef.current = "";
+                          setInterimTranscript("");
+                          submitResponse(text);
+                        }
+                      }}
+                      disabled={loading}
+                      style={{ flex: 1 }}
+                    >
+                      <Send size={16} />
+                      <span>{isComplete ? "Conclude & Analyze" : "Submit Answer"}</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-
-            <div className="controls-row" style={{ display: "flex", gap: "12px", width: "100%" }}>
-              <button
-                className="button subtle finish-btn"
-                onClick={handleFinishInterview}
-                disabled={loading}
-                style={{ flex: 1 }}
-              >
-                <Square size={16} />
-                {loading ? "Saving Session..." : "Finish & Analyze"}
-              </button>
-
-
-              {isRecordingResponse && (
-                <button
-                  className="button primary submit-btn"
-                  onClick={() => {
-                    const text = interimTranscript.trim();
-                    if (text) {
-                      accumulatedTranscriptRef.current = "";
-                      setInterimTranscript("");
-                      submitResponse(text);
-                    }
-                  }}
-                  disabled={loading}
-                  style={{ flex: 1 }}
-                >
-                  <CheckCircle size={16} />
-                  {isComplete ? "Conclude & Analyze" : "Submit Answer"}
-                </button>
-              )}
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* ━━━━ CONFIRMATION MODAL BEFORE FINISHING ━━━━ */}
+          {showFinishConfirm && (
+            <div className="modal-backdrop glass-blur" onClick={() => setShowFinishConfirm(false)}>
+              <div className="modal-content glass" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <div className="modal-icon-wrap warning">
+                    <AlertTriangle size={24} />
+                  </div>
+                  <div className="modal-text-group">
+                    <h3>End Interview Session?</h3>
+                    <p className="muted">
+                      Are you sure you want to finish now? Your interview recording and answers will be saved and sent for comprehensive confidence and telemetry evaluation.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="modal-stats-preview">
+                  <div className="preview-stat">
+                    <span className="stat-label">Elapsed Time</span>
+                    <span className="stat-val">{formatDuration(interviewDuration)}</span>
+                  </div>
+                  <div className="preview-stat">
+                    <span className="stat-label">Questions Completed</span>
+                    <span className="stat-val">{messages.filter((m) => m.role === "model").length}</span>
+                  </div>
+                  <div className="preview-stat">
+                    <span className="stat-label">Interview Track</span>
+                    <span className="stat-val">{role || "Candidate"} ({INTERVIEW_TYPES.find((t) => t.id === interviewType)?.label})</span>
+                  </div>
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="button subtle modal-cancel-btn"
+                    onClick={() => setShowFinishConfirm(false)}
+                  >
+                    Resume Interview
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary danger-glow modal-confirm-btn"
+                    onClick={() => {
+                      setShowFinishConfirm(false);
+                      handleFinishInterview();
+                    }}
+                    disabled={loading}
+                  >
+                    <Square size={15} />
+                    <span>{loading ? "Finalizing..." : "Yes, Finish & Analyze"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

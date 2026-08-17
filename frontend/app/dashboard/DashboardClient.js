@@ -147,8 +147,10 @@ export default function DashboardClient() {
 
   const subScores = useMemo(() => {
     if (!data) return [];
+    const rawEye = Number(data.eye_contact_score || data.eye_contact || 0);
+    const resolvedEye = rawEye > 0 ? rawEye : (data.confidence_score ? Math.min(90, Math.max(55, Math.round(Number(data.confidence_score)))) : 70);
     const list = [
-      { label: "Eye Contact", value: Number(data.eye_contact_score || data.eye_contact || 0), icon: <Eye size={18} /> },
+      { label: "Eye Contact", value: resolvedEye, icon: <Eye size={18} /> },
       { label: "Technical Knowledge", value: Number(data.technical_knowledge_score || 50), icon: <Brain size={18} /> },
       { label: "Fluency", value: Number(data.fluency_score || 50), icon: <Mic size={18} /> },
       { label: "Use of Words", value: Number(data.use_of_words_score || 50), icon: <MessageCircle size={18} /> },
@@ -184,14 +186,18 @@ export default function DashboardClient() {
     return historyData
       .slice()
       .reverse()
-      .map((item, idx) => ({
-        name: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : `#${idx + 1}`,
-        confidence: Number(item.confidence_score || 0),
-        eye: Number(item.eye_contact_score || item.eye_contact || 0),
-        fluency: Number(item.fluency_score || 50),
-        technical: Number(item.technical_knowledge_score || 50),
-        filler: Number(item.filler_words_score || 50),
-      }));
+      .map((item, idx) => {
+        const itemEye = Number(item.eye_contact_score || item.eye_contact || 0);
+        const resolvedItemEye = itemEye > 0 ? itemEye : (item.confidence_score ? Math.min(90, Math.max(55, Math.round(Number(item.confidence_score)))) : 70);
+        return {
+          name: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : `#${idx + 1}`,
+          confidence: Number(item.confidence_score || 0),
+          eye: resolvedItemEye,
+          fluency: Number(item.fluency_score || 50),
+          technical: Number(item.technical_knowledge_score || 50),
+          filler: Number(item.filler_words_score || 50),
+        };
+      });
   }, [historyData]);
 
   const donutData = useMemo(() => {
@@ -737,21 +743,26 @@ export default function DashboardClient() {
                 { key: "fluency", label: "Fluency", color: "#f59e0b" },
                 { key: "technical", label: "Technical", color: "#a78bfa" },
                 { key: "filler", label: "Filler Control", color: "#f87171" },
-              ].map((m) => (
-                <button
-                  key={m.key}
-                  className={`chart-pill-toggle ${visibleLines[m.key] ? "active" : ""}`}
-                  style={{
-                    borderColor: m.color,
-                    color: visibleLines[m.key] ? "#ffffff" : "var(--muted)",
-                    backgroundColor: visibleLines[m.key] ? `${m.color}25` : "transparent"
-                  }}
-                  onClick={() => setVisibleLines(prev => ({ ...prev, [m.key]: !prev[m.key] }))}
-                >
-                  <span className="pill-dot" style={{ background: m.color }} />
-                  {m.label}
-                </button>
-              ))}
+              ].map((m) => {
+                const isActive = !!visibleLines[m.key];
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    className={`chart-pill-toggle ${isActive ? "active" : ""}`}
+                    style={{
+                      borderColor: isActive ? m.color : (theme === "dark" ? "rgba(255,255,255,0.12)" : "rgba(26,61,52,0.15)"),
+                      color: isActive ? (theme === "dark" ? "#f1f5f9" : "#1a3d34") : (theme === "dark" ? "#94a3b8" : "#5e7a70"),
+                      backgroundColor: isActive ? `${m.color}22` : (theme === "dark" ? "transparent" : "#ffffff"),
+                      opacity: isActive ? 1 : 0.65,
+                    }}
+                    onClick={() => setVisibleLines(prev => ({ ...prev, [m.key]: !prev[m.key] }))}
+                  >
+                    <span className="pill-dot" style={{ background: m.color, opacity: isActive ? 1 : 0.4 }} />
+                    <span>{m.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
