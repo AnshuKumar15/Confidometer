@@ -630,27 +630,37 @@ IMPORTANT RULES:
 
 
 def _extract_json_from_text(text: str) -> dict:
-    """Attempt to extract JSON from model output that may include markdown fences."""
-    # Try direct parse first
+    """Safely attempt to extract JSON from model output with ReDoS protection."""
+    if not text or not isinstance(text, str):
+        return {}
+
+    # Bound input length to protect against ReDoS / memory exhaustion
+    bounded_text = text[:100000].strip()
+
+    # 1. Try direct parse first
     try:
-        return json.loads(text)
+        return json.loads(bounded_text)
     except json.JSONDecodeError:
         pass
 
-    # Try to find JSON block between ```json ... ``` or ``` ... ```
-    patterns = [
-        r"```json\s*([\s\S]*?)```",
-        r"```\s*([\s\S]*?)```",
-        r"\{[\s\S]*\}",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            candidate = match.group(1) if match.lastindex else match.group(0)
-            try:
-                return json.loads(candidate.strip())
-            except json.JSONDecodeError:
-                continue
+    # 2. Try to find JSON block inside markdown code fences
+    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", bounded_text)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Safe index-based brace slice extraction (O(N) search with zero regex backtracking risk)
+    first_brace = bounded_text.find("{")
+    last_brace = bounded_text.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        candidate = bounded_text[first_brace:last_brace + 1].strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
 
     return {}
 

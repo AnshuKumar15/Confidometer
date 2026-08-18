@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
 from app.models.meeting_request import PeerInterviewRequest
+from app.models.user import User
 from app.schema.meeting_schema import MeetingRequestResponse
-from app.utils.security import get_current_user
+from app.utils.security import get_current_user, decode_access_token
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question
 from app.utils.audio import transcribe_chunk
@@ -176,11 +177,29 @@ async def peer_signaling(
     websocket: WebSocket,
     room_id: str = Query(...),
     role: str = Query(...),
-    user_name: str = Query("Anonymous")
+    user_name: str = Query("Anonymous"),
+    token: Optional[str] = Query(None)
 ):
-    """WebSocket signaling endpoint grouping peers by room_id with predefined roles."""
+    """WebSocket signaling endpoint grouping peers by room_id with authenticated user sessions."""
+    # Reject unauthenticated WebSocket connections to prevent eavesdropping and replay attacks
+    auth_user = None
+    if token:
+        payload = decode_access_token(token)
+        if payload and payload.get("sub"):
+            db_auth = SessionLocal()
+            try:
+                auth_user = db_auth.query(User).filter(User.email == payload.get("sub")).first()
+            finally:
+                db_auth.close()
+
+    if not auth_user:
+        await websocket.accept()
+        await websocket.close(code=1008, reason="Authentication failed: Valid JWT token required.")
+        return
+
     await websocket.accept()
     ws_id = id(websocket)
+    effective_user_name = auth_user.name or user_name
 
     # Initialize room state if not exists
     if room_id not in active_rooms:
@@ -231,15 +250,15 @@ async def peer_signaling(
 
     # Assign socket based on the specified role
     if role == "interviewer":
-        room["interviewer"] = {"ws": websocket, "name": user_name, "ws_id": ws_id}
+        room["interviewer"] = {"ws": websocket, "name": effective_user_name, "ws_id": ws_id}
     elif role == "interviewee":
-        room["interviewee"] = {"ws": websocket, "name": user_name, "ws_id": ws_id}
+        room["interviewee"] = {"ws": websocket, "name": effective_user_name, "ws_id": ws_id}
     else:
         await websocket.close(code=1008, reason="Invalid role parameter")
         return
 
     ws_to_room[ws_id] = room_id
-    print(f"[MEETING] User {user_name} joined room {room_id} as {role}")
+    print(f"[MEETING] Authenticated user {effective_user_name} ({auth_user.email}) joined room {room_id} as {role}")
 
     try:
         # Check if both peers are now present

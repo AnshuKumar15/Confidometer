@@ -18,6 +18,12 @@ export default function LoginPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+
+    if (email.length > 254 || password.length > 128) {
+      setError("Email or password exceeds maximum allowed length.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -44,6 +50,7 @@ export default function LoginPage() {
             value={email} 
             onChange={(event) => setEmail(event.target.value)} 
             required 
+            maxLength={254}
             placeholder="name@example.com"
           />
         </label>
@@ -56,6 +63,7 @@ export default function LoginPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
+              maxLength={128}
               placeholder="Enter your password"
             />
             <div className="password-controls-right">

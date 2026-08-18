@@ -35,7 +35,7 @@ export default function RegisterPage() {
     const passLower = password.toLowerCase();
 
     const newRules = {
-      length: password.length >= 8,
+      length: password.length >= 8 && password.length <= 128,
       uppercase: /[A-Z]/.test(password),
       lowercase: /[a-z]/.test(password),
       number: /[0-9]/.test(password),
@@ -73,6 +73,16 @@ export default function RegisterPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+
+    if (email.length > 254) {
+      setError("Email cannot exceed 254 characters.");
+      return;
+    }
+
+    if (name && name.length > 100) {
+      setError("Name cannot exceed 100 characters.");
+      return;
+    }
 
     // Verify all password guidelines are met
     const allRulesMet = Object.values(rules).every((val) => val === true);
@@ -123,6 +133,7 @@ export default function RegisterPage() {
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
+            maxLength={100}
             placeholder="Your name"
           />
         </label>
@@ -134,6 +145,7 @@ export default function RegisterPage() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             required
+            maxLength={254}
             placeholder="name@example.com"
           />
         </label>
@@ -147,6 +159,7 @@ export default function RegisterPage() {
               onChange={(event) => setPassword(event.target.value)}
               onFocus={() => setShowGuidelines(true)}
               required
+              maxLength={128}
               placeholder="Enter secure password"
             />
             <div className="password-controls-right">
@@ -174,7 +187,7 @@ export default function RegisterPage() {
               <h4>Password Guidelines</h4>
               <ul>
                 <li className={rules.length ? "valid" : "invalid"}>
-                  <span className="bullet">{rules.length ? "✓" : "•"}</span> Minimum 8 characters long
+                  <span className="bullet">{rules.length ? "✓" : "•"}</span> 8 to 128 characters long
                 </li>
                 <li className={rules.uppercase ? "valid" : "invalid"}>
                   <span className="bullet">{rules.uppercase ? "✓" : "•"}</span> One uppercase letter
@@ -207,6 +220,7 @@ export default function RegisterPage() {
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               required
+              maxLength={128}
               placeholder="Repeat password"
             />
             <div className="password-controls-right">

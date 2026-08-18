@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Camera, CameraOff, Mic, MicOff, PhoneOff, MessageSquare, Clock, FileText, Check } from "lucide-react";
 import { getApiBase, getWsBase, uploadVideo } from "@/utils/api";
+import { getToken } from "@/utils/auth";
 
 /**
  * PeerRoom — WebRTC-powered peer-to-peer mock interview room with dynamic AI interview guides.
@@ -184,8 +185,9 @@ export default function PeerRoom({
     if (!mediaReady) return;
 
     const wsBase = getWsBase();
+    const token = getToken() || "";
     const ws = new WebSocket(
-      `${wsBase}/meeting/ws?room_id=${encodeURIComponent(roomId || initialRoomId)}&role=${encodeURIComponent(myRoleProp)}&user_name=${encodeURIComponent(userName)}`
+      `${wsBase}/meeting/ws?room_id=${encodeURIComponent(roomId || initialRoomId)}&role=${encodeURIComponent(myRoleProp)}&user_name=${encodeURIComponent(userName)}&token=${encodeURIComponent(token)}`
     );
     wsRef.current = ws;
 

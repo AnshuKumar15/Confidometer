@@ -1423,10 +1423,15 @@ export default function UploadPage() {
                             className="dsa-description-content"
                             dangerouslySetInnerHTML={{
                               __html: (activeQuestion.description || "")
-                                .replace(/\n/g, "<br/>")
+                                .replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;")
+                                .replace(/"/g, "&quot;")
+                                .replace(/'/g, "&#039;")
                                 .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
                                 .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                                 .replace(/`([^`]+)`/g, "<code>$1</code>")
+                                .replace(/\n/g, "<br/>")
                             }}
                           />
                         </div>

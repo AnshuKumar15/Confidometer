@@ -44,6 +44,9 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 # LOGIN (OAuth2 compatible)
 # -------------------------
 
+MAX_EMAIL_LENGTH = 254
+MAX_PASSWORD_LENGTH = 128
+
 @router.post("/login")
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -54,6 +57,12 @@ def login(
     # OAuth2PasswordRequestForm uses:
     # username -> we use it as email
     # password -> password
+
+    if len(form_data.username) > MAX_EMAIL_LENGTH or len(form_data.password) > MAX_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email or password exceeds maximum allowed length"
+        )
 
     db_user = db.query(User).filter(User.email == form_data.username).first()
 
