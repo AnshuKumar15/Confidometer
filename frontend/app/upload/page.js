@@ -109,6 +109,7 @@ export default function UploadPage() {
   const [isRecordingResponse, setIsRecordingResponse] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isAiThinking, setIsAiThinking] = useState(false);
 
   function requestFinishInterview() {
     if (isComplete) {
@@ -223,6 +224,17 @@ export default function UploadPage() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
+
+  const interviewStartTimeRef = useRef(null);
+
+  function getElapsedSeconds() {
+    if (!interviewStartTimeRef.current) return interviewDuration || 0;
+    return Math.max(0, Math.floor((Date.now() - interviewStartTimeRef.current) / 1000));
+  }
+
+  function getElapsedTimestamp() {
+    return formatDuration(getElapsedSeconds());
   }
 
   // DOM Refs
@@ -765,9 +777,10 @@ export default function UploadPage() {
       setIsComplete(false);
       isCompleteRef.current = false;
 
+      interviewStartTimeRef.current = Date.now();
       setSessionId(data.session_id);
       setCurrentQuestion(data.first_question);
-      setMessages([{ role: "model", text: data.first_question, timestamp: "00:00" }]);
+      setMessages([{ role: "model", text: data.first_question, timestamp: getElapsedTimestamp() }]);
       setIsInterviewing(true);
 
       // DSA: load both questions and pre-populate draft codes
@@ -829,7 +842,8 @@ export default function UploadPage() {
     }
 
     isSubmittingResponseRef.current = true;
-    const currentStamp = formatDuration(interviewDuration);
+    setIsAiThinking(true);
+    const currentStamp = getElapsedTimestamp();
     const userMsg = { role: "user", text: transcriptText, timestamp: currentStamp };
     if (code) userMsg.code = code;
 
@@ -838,11 +852,12 @@ export default function UploadPage() {
     stopListening();
 
     try {
-      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx, interviewDuration);
+      const elapsedSecs = getElapsedSeconds();
+      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx, elapsedSecs);
       const nextQ = data.next_question;
       
       setCurrentQuestion(nextQ);
-      setMessages((prev) => [...prev, { role: "model", text: nextQ, timestamp: formatDuration(interviewDuration) }]);
+      setMessages((prev) => [...prev, { role: "model", text: nextQ, timestamp: getElapsedTimestamp() }]);
 
       if (data.is_complete) {
         setIsComplete(true);
@@ -863,6 +878,7 @@ export default function UploadPage() {
       setError("Failed to reach interview agent: " + err.message);
     } finally {
       isSubmittingResponseRef.current = false;
+      setIsAiThinking(false);
     }
   }
 
@@ -991,15 +1007,15 @@ export default function UploadPage() {
   const timerUrgency = dsaTimeLeft <= 120 ? "timer-critical" : dsaTimeLeft <= 300 ? "timer-warning" : "";
 
   return (
-    <div className="upload-page">
-      <section className="section-head">
-        <h1>{isInterviewing ? "Live AI Interview Agent (Liza)" : "Confidometer AI Interview Agent"}</h1>
-        <p>
-          {isInterviewing
-            ? "Look directly into the camera. Talk naturally as Liza conducts the interview."
-            : "Upload your resume, specify your target role, and get interviewed live by Liza. Speak naturally while we analyze your gestures, eye contact, and confidence."}
-        </p>
-      </section>
+    <div className={`upload-page ${isInterviewing ? "interview-active-mode" : ""}`}>
+      {!isInterviewing && (
+        <section className="section-head">
+          <h1>Confidometer AI Interview Agent</h1>
+          <p>
+            Upload your resume, specify your target role, and get interviewed live by Liza. Speak naturally while we analyze your gestures, eye contact, and confidence.
+          </p>
+        </section>
+      )}
 
       {error && <p className="error-text centered">{error}</p>}
 
@@ -1293,8 +1309,8 @@ export default function UploadPage() {
                       <h3>Liza Chat</h3>
                     </div>
                     <div className="chat-status-pill">
-                      <span className={`chat-status-dot ${isSpeaking ? "speaking" : isRecordingResponse ? "listening" : "idle"}`} />
-                      <span>{isSpeaking ? "AI Talking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                      <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? "listening" : "idle"}`} />
+                      <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? "Listening" : "Ready"}</span>
                     </div>
                   </div>
                   <div className="messages-log">
@@ -1325,7 +1341,7 @@ export default function UploadPage() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {isRecordingResponse && (
+                  {!isSpeaking && !isAiThinking && !isComplete && (
                     <div className="live-input-area">
                       <input
                         type="text"
@@ -1347,7 +1363,7 @@ export default function UploadPage() {
                             submitResponse(text);
                           }
                         }}
-                        placeholder="Speak or type solution discussion..."
+                        placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : "Listening paused. Click 'Speak' or type here..."}
                       />
                     </div>
                   )}
@@ -1362,6 +1378,39 @@ export default function UploadPage() {
                       <Square size={14} />
                       {loading ? "Saving..." : "Finish & Analyze"}
                     </button>
+
+                    {!isSpeaking && !isAiThinking && !isComplete && !isRecordingResponse && (
+                      <button
+                        type="button"
+                        className="button primary start-listening-btn pulse-shimmer"
+                        onClick={startListening}
+                        disabled={loading}
+                        style={{ flex: 1 }}
+                      >
+                        <Mic size={14} />
+                        <span>Speak</span>
+                      </button>
+                    )}
+
+                    {!isSpeaking && !isAiThinking && !isComplete && (isRecordingResponse || interimTranscript.trim()) && (
+                      <button
+                        type="button"
+                        className="button primary submit-btn pulse-shimmer"
+                        onClick={() => {
+                          const text = interimTranscript.trim();
+                          if (text) {
+                            accumulatedTranscriptRef.current = "";
+                            setInterimTranscript("");
+                            submitResponse(text);
+                          }
+                        }}
+                        disabled={loading || !interimTranscript.trim()}
+                        style={{ flex: 1 }}
+                      >
+                        <Send size={14} />
+                        <span>Submit Answer</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1599,8 +1648,8 @@ export default function UploadPage() {
                     <h3>Interview Dialogue</h3>
                   </div>
                   <div className="chat-status-pill">
-                    <span className={`chat-status-dot ${isSpeaking ? "speaking" : isRecordingResponse ? "listening" : "idle"}`} />
-                    <span>{isSpeaking ? "AI Talking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                    <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? "listening" : "idle"}`} />
+                    <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? "Listening" : "Ready"}</span>
                   </div>
                 </div>
 
@@ -1655,7 +1704,7 @@ export default function UploadPage() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {isRecordingResponse && (
+                {!isSpeaking && !isAiThinking && !isComplete && (
                   <div className="live-input-area">
                     <div className="input-field-wrapper">
                       <textarea
@@ -1681,7 +1730,11 @@ export default function UploadPage() {
                             }
                           }
                         }}
-                        placeholder={isComplete ? "Interview complete! Type 'thank you' and press Enter to finish." : "Speaking... you can also type or edit your response here."}
+                        placeholder={
+                          isRecordingResponse 
+                            ? "Listening... Speak or type your response here." 
+                            : "Listening paused. Click 'Speak' or type your response here..."
+                        }
                         rows={2}
                       />
                       <div className="input-hint-row">
@@ -1703,7 +1756,20 @@ export default function UploadPage() {
                     <span>{loading ? "Saving Session..." : "Finish & Analyze"}</span>
                   </button>
 
-                  {isRecordingResponse && (
+                  {!isSpeaking && !isAiThinking && !isComplete && !isRecordingResponse && (
+                    <button
+                      type="button"
+                      className="button primary start-listening-btn pulse-shimmer"
+                      onClick={startListening}
+                      disabled={loading}
+                      style={{ flex: 1 }}
+                    >
+                      <Mic size={16} />
+                      <span>Speak</span>
+                    </button>
+                  )}
+
+                  {!isSpeaking && !isAiThinking && !isComplete && (isRecordingResponse || interimTranscript.trim()) && (
                     <button
                       type="button"
                       className="button primary submit-btn pulse-shimmer"
@@ -1715,11 +1781,11 @@ export default function UploadPage() {
                           submitResponse(text);
                         }
                       }}
-                      disabled={loading}
+                      disabled={loading || !interimTranscript.trim()}
                       style={{ flex: 1 }}
                     >
                       <Send size={16} />
-                      <span>{isComplete ? "Conclude & Analyze" : "Submit Answer"}</span>
+                      <span>Submit Answer</span>
                     </button>
                   )}
                 </div>

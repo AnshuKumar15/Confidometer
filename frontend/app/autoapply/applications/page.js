@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { getApplications, updateApplicationStatus } from "@/utils/autoapply_api";
 import { CheckCircle, ExternalLink, FileText } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 export default function ApplicationsTrackerPage() {
+  const toast = useToast();
   const [applications, setApplications] = useState([]);
   const [selectedApp, setSelectedApp] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,8 +31,9 @@ export default function ApplicationsTrackerPage() {
       const updated = await updateApplicationStatus(appId, newStatus);
       setApplications(prev => prev.map(a => a.id === appId ? updated : a));
       if (selectedApp?.id === appId) setSelectedApp(updated);
+      toast.success(`Application status updated to ${newStatus}`);
     } catch (err) {
-      alert("Status update failed: " + err.message);
+      toast.error("Status update failed: " + (err.message || "Unknown error"));
     }
   };
 

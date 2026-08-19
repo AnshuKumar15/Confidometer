@@ -857,6 +857,8 @@ export default function LandingPage() {
               <Link href="/history">History</Link>
               <span className="lp-footer-pipe">|</span>
               <Link href="/privacy-policy">Privacy Policy</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/terms-of-use">Terms Of use</Link>
             </div>
           </div>
         </footer>

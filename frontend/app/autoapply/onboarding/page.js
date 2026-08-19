@@ -6,6 +6,7 @@ import { parseResume, completeOnboarding, getProfile, getPreferences } from "@/u
 import { Upload, Check, ArrowRight, ArrowLeft, Sparkles, Building2, ShieldAlert, Sliders, Briefcase, GraduationCap, MapPin, Target, X, Plus } from "lucide-react";
 import RoleTagInput from "@/components/autoapply/RoleTagInput";
 import SalaryRangeSlider from "@/components/autoapply/SalaryRangeSlider";
+import { useToast } from "@/components/Toast";
 
 const STEPS = [
   "Upload Resume",
@@ -18,11 +19,10 @@ const STEPS = [
 ];
 
 const GOAL_OPTIONS = [
-  { id: "Urgent income for my basic needs", label: "Urgent income for my basic needs" },
-  { id: "First full-time job for career start", label: "First full-time job for career start" },
-  { id: "Extra source of income", label: "Extra source of income" },
-  { id: "Better work-life balance", label: "Better work-life balance" },
-  { id: "Secure, long-term job in my field", label: "Secure, long-term job in my field" }
+  { id: "new_job", label: "Land a new job", desc: "Actively looking for full-time employment" },
+  { id: "salary_bump", label: "Higher Compensation", desc: "Looking for top-tier market rate opportunities" },
+  { id: "career_pivot", label: "Career Pivot", desc: "Transitioning into a new role or industry" },
+  { id: "remote_only", label: "Go Fully Remote", desc: "Seeking 100% remote-first positions" }
 ];
 
 const WORK_MODE_OPTIONS = ["Fully remote", "Hybrid", "In-office"];
@@ -133,9 +133,10 @@ export default function OnboardingWizard() {
         portfolio: data.portfolio || "",
         career_goals: data.career_goals || ""
       }));
+      toast.success("Resume parsed successfully!");
       setCurrentStep(1);
     } catch (err) {
-      alert("Failed to parse resume: " + err.message);
+      toast.error("Failed to parse resume: " + (err.message || "Unknown error"));
     } finally {
       setParsing(false);
     }
@@ -171,9 +172,10 @@ export default function OnboardingWizard() {
     setSubmitting(true);
     try {
       await completeOnboarding({ profile, preferences, config });
+      toast.success("Setup complete! Your AI career agent is ready.");
       router.push("/autoapply");
     } catch (err) {
-      alert("Error completing onboarding: " + err.message);
+      toast.error("Error completing onboarding: " + (err.message || "Unknown error"));
     } finally {
       setSubmitting(false);
     }
@@ -607,7 +609,7 @@ export default function OnboardingWizard() {
           <div className="aa-flex-between" style={{ maxWidth: 400, margin: "0 auto" }}>
             <button onClick={() => setCurrentStep(5)} className="aa-btn aa-btn-secondary"><ArrowLeft size={16} /> Back</button>
             <button onClick={handleComplete} disabled={submitting} className="aa-btn aa-btn-primary" style={{ padding: "12px 28px", fontSize: "1rem" }}>
-              {submitting ? "Launching Engine..." : "Launch AutoApply Engine 🚀"}
+              {submitting ? "Launching Engine..." : "Launch ApplyBuddy Engine"}
             </button>
           </div>
         </div>

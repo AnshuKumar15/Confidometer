@@ -50,7 +50,7 @@ export default function AutoApplyHub() {
       <div style={{ display: "flex", minHeight: "50vh", alignItems: "center", justifyContent: "center" }}>
         <div style={{ textAlign: "center" }}>
           <div className="loader-spinner" style={{ margin: "0 auto 12px" }} />
-          <p style={{ color: "var(--muted)", fontWeight: 600 }}>Loading AutoApply Control Hub...</p>
+          <p style={{ color: "var(--muted)", fontWeight: 600 }}>Loading ApplyBuddy Control Hub...</p>
         </div>
       </div>
     );
@@ -107,7 +107,7 @@ export default function AutoApplyHub() {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#2dd4bf", boxShadow: "0 0 10px #2dd4bf" }} />
-            <h1 style={{ fontSize: "1.6rem", fontWeight: 900, margin: 0, color: "var(--text)" }}>AI AutoApply Control Hub</h1>
+            <h1 style={{ fontSize: "1.6rem", fontWeight: 900, margin: 0, color: "var(--text)" }}>AI ApplyBuddy Control Hub</h1>
           </div>
           <p style={{ margin: "4px 0 0 0", fontSize: "0.88rem", color: "var(--muted)" }}>
             Your AI career agent is continuously monitoring job boards in the background.

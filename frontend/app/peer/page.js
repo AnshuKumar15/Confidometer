@@ -4,10 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { Users, Briefcase, User, Play, ArrowLeft, PlusCircle, Calendar, Check, AlertCircle, Clock, FileText, CheckCircle, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isAuthed } from "@/utils/auth";
+import { isAuthed, getUser } from "@/utils/auth";
 import PeerRoom from "@/components/PeerRoom";
 import DateTimePicker from "@/components/DateTimePicker";
 import AutocompleteInput, { ROLE_SUGGESTIONS, COMPANY_SUGGESTIONS } from "@/components/AutocompleteInput";
+import { useToast } from "@/components/Toast";
 import { 
   createMeetingRequest, 
   getPendingMeetingRequests, 
@@ -19,6 +20,7 @@ import {
 
 export default function PeerInterviewPage() {
   const router = useRouter();
+  const toast = useToast();
 
   // Auth check on mount
   useEffect(() => {
@@ -32,6 +34,7 @@ export default function PeerInterviewPage() {
   const [activeRole, setActiveRole] = useState("");
   const [activeRequestRoleName, setActiveRequestRoleName] = useState("");
   const [userName, setUserName] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
   const [isNameSet, setIsNameSet] = useState(false);
 
   // Tabs: "lobby" | "post" | "my-schedule"
@@ -57,13 +60,21 @@ export default function PeerInterviewPage() {
   // Polling reference for immediate matching
   const pollingIntervalsRef = useRef({});
 
-  // Retrieve user name
+  // Retrieve current user
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedName = localStorage.getItem("confidometer_user_name") || "";
-      if (savedName.trim()) {
-        setUserName(savedName);
+      const user = getUser();
+      if (user) {
+        setCurrentUser(user);
+        const name = user.name || localStorage.getItem("confidometer_user_name") || user.email?.split("@")[0] || "Candidate";
+        setUserName(name);
         setIsNameSet(true);
+      } else {
+        const savedName = localStorage.getItem("confidometer_user_name") || "";
+        if (savedName.trim()) {
+          setUserName(savedName);
+          setIsNameSet(true);
+        }
       }
     }
   }, []);
@@ -74,10 +85,12 @@ export default function PeerInterviewPage() {
     setLoading(true);
     setError("");
     try {
-      const pending = await getPendingMeetingRequests();
-      const my = await getMyMeetingRequests();
-      setPendingRequests(pending);
-      setMyRequests(my);
+      const [pending, my] = await Promise.all([
+        getPendingMeetingRequests(),
+        getMyMeetingRequests()
+      ]);
+      setPendingRequests(pending || []);
+      setMyRequests(my || []);
     } catch (err) {
       setError(err.message || "Failed to load lobby data.");
     } finally {
@@ -204,44 +217,44 @@ export default function PeerInterviewPage() {
         setInRoom(true);
       } else {
         // Scheduled request accepted
-        setSuccessMsg(`Mock Interview request accepted successfully! Details added to your schedule.`);
+        toast.success("Mock Interview request accepted! Added to your schedule.");
+        setSuccessMsg("Mock Interview request accepted successfully! Details added to your schedule.");
         setActiveTab("my-schedule");
         fetchData();
       }
     } catch (err) {
-      setError(err.message || "Failed to accept interview request.");
+      const errorMsg = err.message || "Failed to accept interview request.";
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
-  const handleDeleteRequest = async (requestId) => {
-    if (!window.confirm("Are you sure you want to delete this interview request?")) {
+  const handleDeleteRequest = async (requestId, isPoster = true) => {
+    const confirmMsg = isPoster
+      ? "Are you sure you want to delete this interview request?"
+      : "Are you sure you want to cancel this match and return the request to the lobby?";
+    if (!window.confirm(confirmMsg)) {
       return;
     }
     setError("");
     setSuccessMsg("");
     try {
-      await deleteMeetingRequest(requestId);
-      setSuccessMsg("Interview request deleted successfully.");
+      const res = await deleteMeetingRequest(requestId);
+      const msg = res?.message || (isPoster ? "Interview request deleted successfully." : "Match cancelled.");
+      toast.success(msg);
+      setSuccessMsg(msg);
       fetchData();
     } catch (err) {
-      setError(err.message || "Failed to delete request.");
+      const errorMsg = err.message || "Failed to delete request.";
+      setError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
   const handleJoinPredefinedRoom = (req) => {
     if (!req.room_id) return;
     setActiveRoomId(req.room_id);
-    const roleForUser = req.user_id === req.user?.id ? "interviewee" : "interviewer";
-    // wait, actually req.user_id is the interviewee (poster)
-    // If the request was posted by current user (whose name or ID matches), they are interviewee.
-    // Since we returned user detail, let's verify if req.user_id is the interviewee.
-    // If the logged in user created it, they are interviewee, else interviewer.
-    // We can check if req.interviewer_id is the user. Or since we know they clicked it,
-    // let's pass interviewee if current user is poster.
-    // We don't have user ID in state directly, but we can check if req.user?.name matches userName
-    // Or simpler: backend returns user object. We can check if req.user?.name === userName
-    // Let's pass the role to join.
-    const isPoster = req.user?.name === userName || req.interviewer?.name !== userName;
+    const isPoster = currentUser ? (req.user_id === currentUser.id || req.user?.email === currentUser.email) : false;
     setActiveRole(isPoster ? "interviewee" : "interviewer");
     setActiveRequestRoleName(req.role);
     setInRoom(true);
@@ -594,91 +607,113 @@ export default function PeerInterviewPage() {
       )}
 
       {/* TAB CONTENT: MY SCHEDULE */}
-      {activeTab === "my-schedule" && (
-        <section className="schedule-section">
-          {loading ? (
-            <ScheduleSkeleton />
-          ) : myRequests.length === 0 ? (
-            <div className="glass" style={{ textAlign: "center", padding: "60px 20px", borderRadius: "16px", border: "1px solid var(--line)" }}>
-              <Calendar size={48} style={{ color: "var(--muted)", marginBottom: "16px", opacity: 0.5 }} />
-              <h2 style={{ fontSize: "1.4rem", margin: "0 0 8px 0" }}>No Active Matches</h2>
-              <p style={{ color: "var(--muted)", margin: "0 0 24px 0", maxWidth: "450px", marginLeft: "auto", marginRight: "auto" }}>
-                You haven't posted any request slots or accepted any peer interviews yet.
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {myRequests.map((req) => {
-                const isMyPost = req.user_id === req.user?.id || req.user?.name === userName;
-                const roleInInterview = isMyPost ? "Interviewee (Candidate)" : "Interviewer (Evaluator)";
-                const matchedUser = isMyPost ? req.interviewer?.name : req.user?.name;
+      {activeTab === "my-schedule" && (() => {
+        // Filter strictly for requests involving the current user
+        const scheduleRequests = myRequests.filter((req) => {
+          if (!currentUser) return true;
+          const matchesPoster = (currentUser.id && req.user_id === currentUser.id) || (currentUser.email && req.user?.email === currentUser.email);
+          const matchesInterviewer = (currentUser.id && req.interviewer_id === currentUser.id) || (currentUser.email && req.interviewer?.email === currentUser.email);
+          return matchesPoster || matchesInterviewer;
+        });
 
-                return (
-                  <div key={req.id} className="schedule-item glass" style={{ padding: "20px 24px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(255,255,255,0.01)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "20px" }}>
-                    <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "10px 14px", borderRadius: "8px", background: "rgba(0,184,148,0.08)", border: "1px solid rgba(0,184,148,0.15)", minWidth: "110px" }}>
-                        <span style={{ fontSize: "0.72rem", color: "var(--teal)", fontWeight: "600", textTransform: "uppercase" }}>Role</span>
-                        <strong style={{ fontSize: "0.95rem", color: "var(--text)" }}>{isMyPost ? "Candidate" : "Interviewer"}</strong>
-                      </div>
+        return (
+          <section className="schedule-section">
+            {loading ? (
+              <ScheduleSkeleton />
+            ) : scheduleRequests.length === 0 ? (
+              <div className="glass" style={{ textAlign: "center", padding: "60px 20px", borderRadius: "16px", border: "1px solid var(--line)" }}>
+                <Calendar size={48} style={{ color: "var(--muted)", marginBottom: "16px", opacity: 0.5 }} />
+                <h2 style={{ fontSize: "1.4rem", margin: "0 0 8px 0" }}>No Scheduled Matches</h2>
+                <p style={{ color: "var(--muted)", margin: "0 0 24px 0", maxWidth: "450px", marginLeft: "auto", marginRight: "auto" }}>
+                  You haven&apos;t posted any request slots or accepted any peer interviews yet.
+                </p>
+                <button className="button primary" onClick={() => setActiveTab("post")}>
+                  Post a Request
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {scheduleRequests.map((req) => {
+                  const isPoster = currentUser
+                    ? (Boolean(currentUser.id && req.user_id === currentUser.id) || Boolean(currentUser.email && req.user?.email === currentUser.email))
+                    : true;
+                  const partnerName = isPoster ? req.interviewer?.name : req.user?.name;
 
-                      <div>
-                        <h3 style={{ fontSize: "1.15rem", margin: "0 0 4px 0" }}>
-                          {req.role.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
-                        </h3>
-                        <div style={{ display: "flex", gap: "16px", color: "var(--muted)", fontSize: "0.88rem", flexWrap: "wrap" }}>
-                          <span>Company: <strong style={{ color: "var(--text)" }}>{req.company_name}</strong></span>
-                          <span>Type: <strong style={{ color: "var(--text)" }}>{req.interview_type ? req.interview_type.charAt(0).toUpperCase() + req.interview_type.slice(1) : ""}</strong></span>
-                          {req.scheduled_at && (
-                            <span>Date: <strong style={{ color: "var(--cyan)" }}>{new Date(req.scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></span>
-                          )}
+                  return (
+                    <div key={req.id} className="schedule-item glass" style={{ padding: "20px 24px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(255,255,255,0.01)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "20px" }}>
+                      <div style={{ display: "flex", gap: "20px", alignItems: "center" }}>
+                        <div style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          padding: "10px 14px",
+                          borderRadius: "8px",
+                          background: isPoster ? "rgba(0,184,148,0.08)" : "rgba(2,132,199,0.08)",
+                          border: isPoster ? "1px solid rgba(0,184,148,0.15)" : "1px solid rgba(2,132,199,0.15)",
+                          minWidth: "110px"
+                        }}>
+                          <span style={{ fontSize: "0.72rem", color: isPoster ? "var(--teal)" : "var(--cyan)", fontWeight: "600", textTransform: "uppercase" }}>Role</span>
+                          <strong style={{ fontSize: "0.95rem", color: "var(--text)" }}>{isPoster ? "Candidate" : "Interviewer"}</strong>
+                        </div>
+
+                        <div>
+                          <h3 style={{ fontSize: "1.15rem", margin: "0 0 4px 0" }}>
+                            {req.role.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+                          </h3>
+                          <div style={{ display: "flex", gap: "16px", color: "var(--muted)", fontSize: "0.88rem", flexWrap: "wrap" }}>
+                            <span>Company: <strong style={{ color: "var(--text)" }}>{req.company_name}</strong></span>
+                            <span>Type: <strong style={{ color: "var(--text)" }}>{req.interview_type ? req.interview_type.charAt(0).toUpperCase() + req.interview_type.slice(1) : ""}</strong></span>
+                            {req.scheduled_at && (
+                              <span>Date: <strong style={{ color: "var(--cyan)" }}>{new Date(req.scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</strong></span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                      {/* Status / Matching Info */}
-                      {req.status === "pending" ? (
-                        req.scheduled_at === null ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 14px", borderRadius: "8px", background: "rgba(253,203,110,0.08)", border: "1px solid rgba(253,203,110,0.15)" }}>
-                            <div className="peer-lobby-spinner" style={{ width: "14px", height: "14px", borderWidth: "2px" }} />
-                            <span style={{ fontSize: "0.88rem", color: "#fdcb6e", fontWeight: "600" }}>Searching for match...</span>
-                          </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                        {/* Status / Matching Info */}
+                        {req.status === "pending" ? (
+                          req.scheduled_at === null ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 14px", borderRadius: "8px", background: "rgba(253,203,110,0.08)", border: "1px solid rgba(253,203,110,0.15)" }}>
+                              <div className="peer-lobby-spinner" style={{ width: "14px", height: "14px", borderWidth: "2px" }} />
+                              <span style={{ fontSize: "0.88rem", color: "#fdcb6e", fontWeight: "600" }}>Searching for match...</span>
+                            </div>
+                          ) : (
+                            <div style={{ padding: "6px 12px", borderRadius: "6px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--line)" }}>
+                              <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Awaiting match acceptance</span>
+                            </div>
+                          )
                         ) : (
-                          <div style={{ padding: "6px 12px", borderRadius: "6px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--line)" }}>
-                            <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Awaiting match acceptance</span>
-                          </div>
-                        )
-                      ) : (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                          <span style={{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: "4px" }}>
-                            Matched with: <strong style={{ color: "var(--text)" }}>{matchedUser || "Anonymous"}</strong>
-                          </span>
-                          
-                          {/* Join room button for immediate matched requests */}
-                          {req.scheduled_at === null && req.room_id && (
-                            <button 
-                              onClick={() => handleJoinPredefinedRoom(req)}
-                              className="button primary" 
-                              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.88rem" }}
-                            >
-                              <Play size={14} />
-                              Join Room
-                            </button>
-                          )}
-
-                          {/* Scheduled Match Info */}
-                          {req.scheduled_at !== null && (
-                            <span style={{ fontSize: "0.82rem", color: "var(--teal)", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <CheckCircle size={14} /> Match Active
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                            <span style={{ fontSize: "0.82rem", color: "var(--muted)", marginBottom: "4px" }}>
+                              {isPoster ? "Matched with Interviewer: " : "Conducting for Candidate: "}
+                              <strong style={{ color: "var(--text)" }}>{partnerName || "Anonymous"}</strong>
                             </span>
-                          )}
-                        </div>
-                      )}
+                            
+                            {/* Join room button for immediate matched requests */}
+                            {req.scheduled_at === null && req.room_id && (
+                              <button 
+                                onClick={() => handleJoinPredefinedRoom(req)}
+                                className="button primary" 
+                                style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", fontSize: "0.88rem" }}
+                              >
+                                <Play size={14} />
+                                Join Room
+                              </button>
+                            )}
 
-                      {/* Delete button for candidate's own request */}
-                      {isMyPost && (
+                            {/* Scheduled Match Info */}
+                            {req.scheduled_at !== null && (
+                              <span style={{ fontSize: "0.82rem", color: "var(--teal)", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}>
+                                <CheckCircle size={14} /> Match Active
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Action: Delete request (if poster) or Cancel match (if interviewer) */}
                         <button
-                          onClick={() => handleDeleteRequest(req.id)}
+                          onClick={() => handleDeleteRequest(req.id, isPoster)}
                           style={{
                             background: "rgba(248, 113, 113, 0.08)",
                             border: "1px solid rgba(248, 113, 113, 0.25)",
@@ -692,19 +727,19 @@ export default function PeerInterviewPage() {
                             transition: "all 0.2s"
                           }}
                           className="delete-req-btn"
-                          title="Delete Request"
+                          title={isPoster ? "Delete Request" : "Cancel Match (Return to Lobby)"}
                         >
                           <Trash2 size={16} />
                         </button>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       <style jsx global>{`
         .delete-req-btn:hover {

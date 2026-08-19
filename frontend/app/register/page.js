@@ -6,9 +6,11 @@ import Link from "next/link";
 import { Eye, EyeOff, Info } from "lucide-react";
 import { saveSession } from "@/utils/auth";
 import { register, login } from "@/utils/api";
+import { useToast } from "@/components/Toast";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -112,10 +114,13 @@ export default function RegisterPage() {
         user: { email, name }
       });
 
+      toast.success("Account created successfully!");
       router.push("/upload");
       router.refresh();
     } catch (err) {
-      setError(err.message || "Registration failed");
+      const errorMsg = err.message || "Registration failed";
+      setError(errorMsg);
+      toast.error(errorMsg);
       setLoading(false);
     }
   }

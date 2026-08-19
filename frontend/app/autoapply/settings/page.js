@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { getAutoApplyConfig, updateAutoApplyConfig, getPreferences, updatePreferences } from "@/utils/autoapply_api";
 import { Sliders, Key, Save } from "lucide-react";
+import { useToast } from "@/components/Toast";
 
 export default function AutoApplySettingsPage() {
+  const toast = useToast();
   const [config, setConfig] = useState({
     enabled: true,
     min_match_score: 85,
@@ -43,9 +45,9 @@ export default function AutoApplySettingsPage() {
         updateAutoApplyConfig(config),
         updatePreferences({ api_keys: apiKeys })
       ]);
-      alert("Settings updated successfully!");
+      toast.success("Settings updated successfully!");
     } catch (err) {
-      alert("Failed to save settings: " + err.message);
+      toast.error("Failed to save settings: " + (err.message || "Unknown error"));
     } finally {
       setSaving(false);
     }
@@ -62,7 +64,7 @@ export default function AutoApplySettingsPage() {
   return (
     <div className="aa-container" style={{ maxWidth: 780, display: "flex", flexDirection: "column", gap: 24 }}>
       <div>
-        <h1 className="aa-title" style={{ fontSize: "2rem" }}>AutoApply Automation Settings</h1>
+        <h1 className="aa-title" style={{ fontSize: "2rem" }}>ApplyBuddy Automation Settings</h1>
         <p className="aa-subtitle">Configure matching thresholds, daily application limits, and API keys.</p>
       </div>
 
@@ -74,7 +76,7 @@ export default function AutoApplySettingsPage() {
 
         <div style={{ display: "flex", alignItems: "center", justifyBetween: "space-between", paddingBottom: 16, borderBottom: "1px solid var(--line)", marginBottom: 16 }}>
           <div>
-            <span style={{ fontSize: "0.92rem", fontWeight: 800, color: "var(--text)" }}>Enable AutoApply Engine</span>
+            <span style={{ fontSize: "0.92rem", fontWeight: 800, color: "var(--text)" }}>Enable ApplyBuddy Engine</span>
             <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "2px 0 0 0" }}>Continuously search and prepare applications in background</p>
           </div>
           <input

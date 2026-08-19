@@ -155,16 +155,26 @@ def delete_meeting_request(
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete or cancel a pending interview request."""
+    """Delete a posted request, or cancel match if current user is the matched interviewer."""
     req = db.query(PeerInterviewRequest).filter(PeerInterviewRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You are not authorized to delete this request")
     
-    db.delete(req)
-    db.commit()
-    return {"message": "Request deleted successfully"}
+    # If the user is the original creator (candidate), delete the request entirely
+    if req.user_id == current_user.id:
+        db.delete(req)
+        db.commit()
+        return {"message": "Interview request deleted successfully"}
+    
+    # If the user is the matched interviewer, unmatch and release back to lobby
+    if req.interviewer_id == current_user.id:
+        req.interviewer_id = None
+        req.status = "pending"
+        req.room_id = None
+        db.commit()
+        return {"message": "Match cancelled. Request returned to lobby."}
+    
+    raise HTTPException(status_code=403, detail="You are not authorized to modify this request")
 
 
 

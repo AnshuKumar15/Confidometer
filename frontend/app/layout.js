@@ -2,6 +2,7 @@ import { Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
 import "@/styles/globals.css";
 import Navbar from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { ToastProvider } from "@/components/Toast";
 
 const headingFont = Space_Grotesk({
   subsets: ["latin"],
@@ -33,9 +34,11 @@ export default function RootLayout({ children }) {
     <html lang="en" className={`${headingFont.variable} ${bodyFont.variable}`}>
       <body className="light-theme-bg">
         <ThemeProvider>
-          <div className="page-bg" />
-          <Navbar />
-          <main className="app-shell">{children}</main>
+          <ToastProvider>
+            <div className="page-bg" />
+            <Navbar />
+            <main className="app-shell">{children}</main>
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

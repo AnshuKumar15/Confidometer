@@ -39,7 +39,7 @@ export default function AutoApplyDashboard() {
   return (
     <div className="aa-container" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <div>
-        <h1 className="aa-title" style={{ fontSize: "2rem" }}>AutoApply Performance Dashboard</h1>
+        <h1 className="aa-title" style={{ fontSize: "2rem" }}>ApplyBuddy Performance Dashboard</h1>
         <p className="aa-subtitle">Detailed analytics, conversion metrics, and system activity.</p>
       </div>
 

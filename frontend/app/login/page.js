@@ -6,9 +6,11 @@ import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
 import { saveSession } from "@/utils/auth";
 import { login } from "@/utils/api";
+import { useToast } from "@/components/Toast";
 
 export default function LoginPage() {
   const router = useRouter();
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -29,9 +31,12 @@ export default function LoginPage() {
     try {
       const data = await login({ email, password });
       saveSession({ accessToken: data.access_token, user: data.user || { email } });
+      toast.success("Welcome back!");
       router.push("/upload");
     } catch (err) {
-      setError(err.message || "Login failed");
+      const errorMsg = err.message || "Login failed";
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

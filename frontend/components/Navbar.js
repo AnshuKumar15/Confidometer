@@ -21,19 +21,26 @@ import {
   MonitorPlay,
   Sun,
   Moon,
-  X
+  X,
+  Menu,
+  Home,
+  Mic,
+  Bot,
+  Video,
+  History,
+  Zap
 } from "lucide-react";
 import { getTrends } from "@/utils/api";
 import { useTheme } from "@/components/ThemeProvider";
 
 const links = [
-  { href: "/", label: "Home" },
-  { href: "/autoapply", label: "AutoApply 🚀" },
-  { href: "/upload", label: "AI Interview" },
-  { href: "/speak", label: "Get Set Speak" },
-  { href: "/peer", label: "Peer-to-Peer" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/history", label: "History" }
+  { href: "/", label: "Home", icon: Home },
+  { href: "/autoapply", label: "ApplyBuddy", icon: Zap },
+  { href: "/upload", label: "AI Interview", icon: Bot },
+  { href: "/speak", label: "Get Set Speak", icon: Mic },
+  { href: "/peer", label: "Peer-to-Peer", icon: Video },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/history", label: "History", icon: History }
 ];
 
 export default function Navbar() {
@@ -43,6 +50,7 @@ export default function Navbar() {
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navVisible, setNavVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const dropdownRef = useRef(null);
@@ -51,11 +59,24 @@ export default function Navbar() {
   const [showBadgesModal, setShowBadgesModal] = useState(false);
   const [trendsData, setTrendsData] = useState(null);
 
-  // Load user data on pathname change
+  // Load user data on pathname change and close mobile menu
   useEffect(() => {
     setAuthed(isAuthed());
     setUser(getUser());
+    setMobileMenuOpen(false);
   }, [pathname]);
+
+  // Lock body scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileMenuOpen]);
 
   const handleOpenBadges = async () => {
     setDropdownOpen(false);
@@ -276,8 +297,152 @@ export default function Navbar() {
               )}
             </div>
           )}
+
+          {/* Mobile Hamburger Menu Toggle Button */}
+          <button
+            type="button"
+            className="mobile-menu-toggle"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
         </div>
       </nav>
+
+      {/* ── Mobile Menu Slide-Over Drawer ── */}
+      {mobileMenuOpen && (
+        <div className="mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}>
+          <div
+            className="mobile-menu-drawer glass-premium"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mobile-menu-header">
+              <Link href="/" className="brand" onClick={() => setMobileMenuOpen(false)}>
+                <span className="brand-dot" />
+                Confidometer
+              </Link>
+              <button
+                type="button"
+                className="mobile-menu-close"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close menu"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* User Profile Card (if logged in) */}
+            {authed && user && (
+              <div className="mobile-user-card glass">
+                <span className="profile-avatar-lg">{getInitials()}</span>
+                <div className="mobile-user-info">
+                  <span className="mobile-user-name">{user?.name || "User"}</span>
+                  <span className="mobile-user-email">{user?.email || "Pro Candidate"}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Navigation Links */}
+            <div className="mobile-nav-links">
+              {links.map((link) => {
+                const active = pathname === link.href;
+                const IconComponent = link.icon;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`mobile-nav-link ${active ? "active" : ""}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <div className="mobile-link-left">
+                      {IconComponent && <IconComponent size={18} className="mobile-link-icon" />}
+                      <span>{link.label}</span>
+                    </div>
+                    {active && <span className="mobile-active-indicator" />}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Badges / Achievements Shortcut (if logged in) */}
+            {authed && (
+              <button
+                type="button"
+                className="mobile-badges-btn glass"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleOpenBadges();
+                }}
+              >
+                <Award size={18} className="text-amber-500" />
+                <span>View Badges & Achievements</span>
+              </button>
+            )}
+
+            {/* Theme Toggle in Mobile Menu */}
+            <div className="mobile-menu-theme">
+              <div className="mobile-theme-header">
+                {theme === "dark" ? <Moon size={16} /> : <Sun size={16} />}
+                <span>Appearance</span>
+              </div>
+              <div className="theme-segmented-control">
+                <button
+                  type="button"
+                  className={`theme-segment-btn ${theme === "light" ? "active" : ""}`}
+                  onClick={() => setTheme("light")}
+                >
+                  <Sun size={13} />
+                  <span>Light</span>
+                </button>
+                <button
+                  type="button"
+                  className={`theme-segment-btn ${theme === "dark" ? "active" : ""}`}
+                  onClick={() => setTheme("dark")}
+                >
+                  <Moon size={13} />
+                  <span>Dark</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Auth Actions (Login / Register or Logout) */}
+            <div className="mobile-menu-auth">
+              {!authed ? (
+                <div className="mobile-auth-grid">
+                  <Link
+                    href="/login"
+                    className="button subtle mobile-auth-btn"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="button primary mobile-auth-btn"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign up
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="mobile-logout-btn"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onLogout();
+                  }}
+                >
+                  <LogOut size={16} />
+                  <span>Log out</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Badges & Achievements Modal Overlay ── */}
       {showBadgesModal && (

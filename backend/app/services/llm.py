@@ -665,20 +665,64 @@ def _extract_json_from_text(text: str) -> dict:
     return {}
 
 
-def _build_mock_analysis(conversation_history: list, eye_contact: float, gesture: float, voice: float, filler_count: int, interview_type: str = "technical") -> dict:
-    """Generate a mock analysis result when the LLM is unavailable."""
-    questions = []
+def _extract_qa_pairs_from_history(conversation_history: list) -> list:
+    """Extract all interviewer questions and candidate responses from conversation history."""
+    qa_pairs = []
+    if not conversation_history or not isinstance(conversation_history, list):
+        return qa_pairs
+
     for i, msg in enumerate(conversation_history):
-        if msg.get("role") == "model" and i + 1 < len(conversation_history):
-            next_msg = conversation_history[i + 1]
-            if next_msg.get("role") == "user":
-                questions.append({
-                    "question": msg.get("text", ""),
-                    "answer": next_msg.get("text", ""),
-                    "verdict": "good",
-                    "feedback": "Your answer covers the key points. No changes needed.",
-                    "suggested_answer": None
-                })
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") == "model":
+            q_text = msg.get("text", "").strip()
+            if not q_text:
+                continue
+
+            # Skip pure closing messages with no actual question
+            is_pure_closing = (
+                "interview is complete" in q_text.lower() or 
+                "concludes our" in q_text.lower() or 
+                "conclude our" in q_text.lower()
+            ) and "?" not in q_text
+            if is_pure_closing:
+                continue
+
+            # Look forward for candidate's answer
+            a_text = ""
+            for j in range(i + 1, len(conversation_history)):
+                next_msg = conversation_history[j]
+                if isinstance(next_msg, dict):
+                    if next_msg.get("role") == "user":
+                        user_text = next_msg.get("text", "").strip()
+                        if next_msg.get("code"):
+                            user_text += f"\n[Code Submitted]:\n{next_msg.get('code')}"
+                        a_text = user_text
+                        break
+                    elif next_msg.get("role") == "model":
+                        break
+
+            qa_pairs.append({
+                "question": q_text,
+                "answer": a_text if a_text else "(No verbal response recorded)",
+            })
+
+    return qa_pairs
+
+
+def _build_mock_analysis(conversation_history: list, eye_contact: float, gesture: float, voice: float, filler_count: int, interview_type: str = "technical") -> dict:
+    """Generate a mock analysis result when the LLM is unavailable, guaranteeing all questions are present."""
+    qa_pairs = _extract_qa_pairs_from_history(conversation_history)
+    questions = []
+    for pair in qa_pairs:
+        has_ans = len(pair["answer"]) > 30 and pair["answer"] != "(No verbal response recorded)"
+        questions.append({
+            "question": pair["question"],
+            "answer": pair["answer"],
+            "verdict": "good" if has_ans else "needs_improvement",
+            "feedback": "Your answer covered the key points." if has_ans else "Try to provide more technical depth and specific examples in your answer.",
+            "suggested_answer": None if has_ans else "A strong answer should define the concept clearly, give a concrete example, and address trade-offs."
+        })
 
     # Calculate sub-scores from raw metrics
     filler_score = max(0, min(100, 100 - filler_count * 3))
@@ -744,24 +788,22 @@ def analyze_interview_with_llm(
 ) -> dict:
     """
     Send the full interview transcript to Gemini for detailed analysis.
-    Returns a dict with keys: technical_feedback, non_technical_feedback, sub_scores, short_summary_feedback
+    Guarantees every single question asked during the interview is evaluated.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
+    qa_pairs = _extract_qa_pairs_from_history(conversation_history)
 
     if not api_key:
         print("[LLM ANALYSIS] No API key. Using mock analysis.")
         return _build_mock_analysis(conversation_history, eye_contact, gesture, voice, filler_count, interview_type)
 
     try:
-        # Build a readable transcript
-        transcript_lines = []
-        for msg in conversation_history:
-            speaker = "Interviewer" if msg.get("role") == "model" else "Candidate"
-            line = f"{speaker}: {msg.get('text', '')}"
-            if msg.get("code"):
-                line += f"\n[Code Submitted]:\n```\n{msg['code']}\n```"
-            transcript_lines.append(line)
-        transcript_text = "\n".join(transcript_lines)
+        # Build numbered Q&A block for LLM prompt
+        qa_formatted = []
+        for idx, q_item in enumerate(qa_pairs):
+            qa_formatted.append(f"QUESTION {idx + 1}:\n{q_item['question']}\n\nCANDIDATE ANSWER {idx + 1}:\n{q_item['answer']}")
+        qa_text = "\n\n-------------------------\n\n".join(qa_formatted) if qa_formatted else "No questions recorded."
+        total_questions = len(qa_pairs)
 
         company_part = f" at {company_name}" if company_name else ""
         round_label = {
@@ -798,10 +840,9 @@ Also add a "coding_feedback" key to the result with:
 
         prompt = f"""You are an expert interview coach analyzing a mock {round_label} for the role of '{role}'{company_part}.
 
-Below is the full interview transcript, followed by the candidate's performance metrics.
+Below is the complete list of ALL {total_questions} questions asked by the interviewer and the candidate's answers:
 
-TRANSCRIPT:
-{transcript_text}
+{qa_text}
 
 PERFORMANCE METRICS:
 - Eye Contact: {eye_contact:.1f}%
@@ -812,12 +853,14 @@ PERFORMANCE METRICS:
 
 TASK: Produce a comprehensive analysis in **valid JSON** format with exactly these top-level keys:
 
-1. "technical_feedback" — An array of objects, one per interviewer question. Each object must have:
-   - "question": the interviewer's question text
+1. "technical_feedback" — An array of EXACTLY {total_questions} objects, corresponding ONE-BY-ONE to the {total_questions} questions above in the exact same order.
+   CRITICAL REQUIREMENT: You MUST evaluate EVERY SINGLE QUESTION (Q1 through Q{total_questions}). DO NOT OMIT, TRUNCATE, OR SKIP ANY QUESTION.
+   Each object must have:
+   - "question": the exact question text
    - "answer": the candidate's answer text
-   - "verdict": "good" if no changes needed, or "needs_improvement"
-   - "feedback": a short critique (1-3 sentences). If verdict is "good", say what was strong. If "needs_improvement", explain what to improve.
-   - "suggested_answer": null if verdict is "good", otherwise a model answer (3-5 sentences).
+   - "verdict": "good" if the answer is technically accurate and complete, or "needs_improvement"
+   - "feedback": a concise, specific critique (1-3 sentences). If "good", highlight what was strong. If "needs_improvement", explain missing aspects.
+   - "suggested_answer": null if verdict is "good", otherwise a concise model answer (2-4 sentences).
 
 2. "non_technical_feedback" — An object with these keys:
    - "eye_contact": {{ "score": <0-100>, "feedback": "<1-2 sentences>" }}
@@ -835,14 +878,14 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
    - "explanation_quality_score"
    {('- "code_quality_score"' + chr(10) + '   - "optimization_score"' + chr(10) + '   - "thinking_process_score"' + chr(10) + '   - "communication_score"') if interview_type in ("dsa", "technical") and dsa_code else ""}
 
-4. "short_summary_feedback" — A single string (3-5 sentences) summarizing the overall interview performance. This will be read aloud by a TTS agent, so write it naturally and conversationally.
+4. "short_summary_feedback" — A single string (3-5 sentences) summarizing the overall interview performance conversationally for text-to-speech.
 
 {"5. " + '"coding_feedback" — An object with: "code_review" (string), "time_complexity" (string), "space_complexity" (string), "optimization_suggestions" (string).' if interview_type in ("dsa", "technical") and dsa_code else ""}
 
-IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, no extra text. Just the JSON object."""
+IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=20.0)
+        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=30.0)
         raw = response.text.strip()
 
         result = _extract_json_from_text(raw)
@@ -853,6 +896,54 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanation, no extra text. J
             print(f"[LLM ANALYSIS] Missing keys in response. Got: {list(result.keys())}")
             return _build_mock_analysis(conversation_history, eye_contact, gesture, voice, filler_count, interview_type)
 
+        # ── GUARANTEE 100% OF ALL QUESTIONS ARE PRESENT IN TECHNICAL FEEDBACK ──
+        llm_feedback = result.get("technical_feedback", [])
+        if not isinstance(llm_feedback, list):
+            llm_feedback = []
+
+        final_feedback = []
+        for idx, raw_q in enumerate(qa_pairs):
+            matched_item = None
+            if idx < len(llm_feedback) and isinstance(llm_feedback[idx], dict):
+                matched_item = llm_feedback[idx]
+
+            if not matched_item:
+                # Try finding match by question text prefix
+                q_snippet = raw_q["question"].lower()[:40]
+                for item in llm_feedback:
+                    if isinstance(item, dict) and q_snippet in item.get("question", "").lower():
+                        matched_item = item
+                        break
+
+            if matched_item:
+                final_feedback.append({
+                    "question": raw_q["question"],
+                    "answer": matched_item.get("answer") or raw_q["answer"],
+                    "verdict": matched_item.get("verdict", "needs_improvement" if len(raw_q["answer"]) < 30 else "good"),
+                    "feedback": matched_item.get("feedback", "Good explanation covering the fundamental concepts."),
+                    "suggested_answer": matched_item.get("suggested_answer") if matched_item.get("verdict") == "needs_improvement" else None
+                })
+            else:
+                has_ans = len(raw_q["answer"]) > 40 and raw_q["answer"] != "(No verbal response recorded)"
+                verdict = "good" if has_ans else "needs_improvement"
+                feedback = (
+                    "Candidate provided a clear and relevant explanation addressing the question."
+                    if verdict == "good" else
+                    "The answer was brief or lacked technical depth. Focus on providing concrete examples, architectural details, and practical implementation trade-offs."
+                )
+                suggested = (
+                    None if verdict == "good" else
+                    f"A comprehensive answer for a {role} role should clearly explain the foundational mechanism, outline best practices, and mention edge cases or performance considerations."
+                )
+                final_feedback.append({
+                    "question": raw_q["question"],
+                    "answer": raw_q["answer"],
+                    "verdict": verdict,
+                    "feedback": feedback,
+                    "suggested_answer": suggested
+                })
+
+        result["technical_feedback"] = final_feedback
         return result
 
     except Exception as e:

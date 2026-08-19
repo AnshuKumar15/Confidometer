@@ -176,13 +176,25 @@ body:has(.speak-cream-band) {
   flex: 1;
 }
 
-/* Selectors header bar centered */
+/* Selectors header bar positioned at the top right below main navbar */
 .speak-selectors-header {
+  position: absolute;
+  top: 20px;
+  left: calc(60% + 50px);
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  width: 100%;
+  gap: 14px;
+  z-index: 40;
+}
+
+@media (max-width: 900px) {
+  .speak-selectors-header {
+    position: static;
+    transform: none;
+    margin-bottom: 12px;
+  }
 }
 
 .speak-selector-pill {
