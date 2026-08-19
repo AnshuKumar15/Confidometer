@@ -178,67 +178,112 @@ export default function AutocompleteInput({
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef(null);
+  const listRef = useRef(null);
+  const inputRef = useRef(null);
+  const justSelectedRef = useRef(false);
+  const isTypingRef = useRef(false);
 
   // Filter suggestions based on input value
   useEffect(() => {
-    if (!value || value.length < 1) {
+    // If this change was triggered by choosing an item, never re-open the dropdown
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      setIsOpen(false);
+      return;
+    }
+
+    if (!value || !value.trim()) {
       setFilteredSuggestions([]);
       setIsOpen(false);
       return;
     }
 
-    const query = value.toLowerCase();
+    const query = value.toLowerCase().trim();
     const filtered = suggestions
       .filter((s) => s.toLowerCase().includes(query))
       .slice(0, 8); // Limit to 8 visible suggestions
 
     setFilteredSuggestions(filtered);
-    setIsOpen(filtered.length > 0);
+
+    // Only open if the user is actively typing and suggestions are available
+    if (isTypingRef.current && filtered.length > 0) {
+      setIsOpen(true);
+    }
   }, [value, suggestions]);
 
-  // Reset active index when suggestions change
+  // Reset active index when suggestions list changes
   useEffect(() => {
     setActiveIndex(-1);
   }, [filteredSuggestions]);
+
+  // Scroll active item into view automatically when navigating with arrow keys
+  useEffect(() => {
+    if (listRef.current && activeIndex >= 0 && listRef.current.children[activeIndex]) {
+      listRef.current.children[activeIndex].scrollIntoView({ block: "nearest" });
+    }
+  }, [activeIndex]);
 
   // Close on outside click
   useEffect(() => {
     function handleClickOutside(e) {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setIsOpen(false);
+        setActiveIndex(-1);
+        isTypingRef.current = false;
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  function handleSelect(suggestion) {
+    justSelectedRef.current = true;
+    isTypingRef.current = false;
+    onChange(suggestion);
+    setIsOpen(false);
+    setActiveIndex(-1);
+  }
+
   function handleKeyDown(e) {
     if (e.key === "Escape") {
       setIsOpen(false);
+      setActiveIndex(-1);
+      isTypingRef.current = false;
     } else if (e.key === "ArrowDown") {
-      e.preventDefault(); // Prevent cursor moving in text input
-      if (!isOpen && filteredSuggestions.length > 0) {
-        setIsOpen(true);
-        setActiveIndex(0);
-      } else if (isOpen && filteredSuggestions.length > 0) {
+      e.preventDefault();
+      if (!isOpen) {
+        if (filteredSuggestions.length > 0) {
+          setIsOpen(true);
+          setActiveIndex(0);
+        }
+      } else if (filteredSuggestions.length > 0) {
         setActiveIndex((prev) => (prev + 1) % filteredSuggestions.length);
       }
     } else if (e.key === "ArrowUp") {
-      e.preventDefault(); // Prevent cursor moving in text input
+      e.preventDefault();
       if (isOpen && filteredSuggestions.length > 0) {
         setActiveIndex((prev) => (prev - 1 + filteredSuggestions.length) % filteredSuggestions.length);
       }
     } else if (e.key === "Enter") {
-      if (isOpen && activeIndex >= 0 && activeIndex < filteredSuggestions.length) {
-        e.preventDefault(); // Prevent form submission
-        handleSelect(filteredSuggestions[activeIndex]);
+      if (isOpen && filteredSuggestions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (activeIndex >= 0 && activeIndex < filteredSuggestions.length) {
+          handleSelect(filteredSuggestions[activeIndex]);
+        } else {
+          // If Enter is pressed while dropdown is open without arrowing down, select top match
+          handleSelect(filteredSuggestions[0]);
+        }
+      }
+    } else if (e.key === "Tab") {
+      if (isOpen && filteredSuggestions.length > 0) {
+        if (activeIndex >= 0 && activeIndex < filteredSuggestions.length) {
+          handleSelect(filteredSuggestions[activeIndex]);
+        } else {
+          setIsOpen(false);
+        }
       }
     }
-  }
-
-  function handleSelect(suggestion) {
-    onChange(suggestion);
-    setIsOpen(false);
   }
 
   // Highlight matching substring
@@ -263,11 +308,27 @@ export default function AutocompleteInput({
       <div className="autocomplete-input-row">
         {icon && <span className="autocomplete-icon">{icon}</span>}
         <input
+          ref={inputRef}
           type="text"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            justSelectedRef.current = false;
+            isTypingRef.current = true;
+            onChange(e.target.value);
+          }}
           onFocus={() => {
-            if (filteredSuggestions.length > 0) setIsOpen(true);
+            isTypingRef.current = true;
+            if (filteredSuggestions.length > 0 && !justSelectedRef.current) {
+              setIsOpen(true);
+            }
+          }}
+          onBlur={() => {
+            // Small timeout to allow mouse clicks on items to register before closing
+            setTimeout(() => {
+              setIsOpen(false);
+              setActiveIndex(-1);
+              isTypingRef.current = false;
+            }, 150);
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
@@ -278,7 +339,7 @@ export default function AutocompleteInput({
       </div>
 
       {isOpen && filteredSuggestions.length > 0 && (
-        <ul className="autocomplete-dropdown">
+        <ul className="autocomplete-dropdown" ref={listRef}>
           {filteredSuggestions.map((suggestion, idx) => (
             <li
               key={idx}

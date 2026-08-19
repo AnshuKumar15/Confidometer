@@ -5,6 +5,31 @@ import { Camera, CameraOff, Mic, MicOff, PhoneOff, MessageSquare, Clock, FileTex
 import { getApiBase, getWsBase, uploadVideo } from "@/utils/api";
 import { getToken } from "@/utils/auth";
 
+// Multi-region STUN + Free OpenRelay TURN servers for production NAT traversal
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"] },
+    { urls: ["stun:stun.cloudflare.com:3478", "stun:global.stun.twilio.com:3478"] },
+    { urls: "stun:openrelay.metered.ca:80" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
+  iceCandidatePoolSize: 10,
+};
+
 /**
  * PeerRoom — WebRTC-powered peer-to-peer mock interview room with dynamic AI interview guides.
  */
@@ -28,6 +53,9 @@ export default function PeerRoom({
   const [liveTranscript, setLiveTranscript] = useState("");
   const [uploadStatus, setUploadStatus] = useState(""); // "" | "uploading" | "success" | "error"
   const [speechId, setSpeechId] = useState(null);
+
+  // Stream presence states
+  const [hasRemoteStream, setHasRemoteStream] = useState(false);
 
   // Refs for tracking changes inside callbacks/closures
   const myRoleRef = useRef(myRoleProp);
@@ -83,7 +111,6 @@ export default function PeerRoom({
   // ── Setup local media ──
   const setupMedia = async () => {
     setMediaError("");
-    // Guard: skip if stream is already active and acquired
     if (localStreamRef.current && localStreamRef.current.active) {
       if (localVideoRef.current && localVideoRef.current.srcObject !== localStreamRef.current) {
         localVideoRef.current.srcObject = localStreamRef.current;
@@ -114,7 +141,6 @@ export default function PeerRoom({
         localVideoRef.current.play().catch(() => {});
       }
 
-      // If peer connection is already established, attach newly acquired tracks
       if (pcRef.current) {
         addTracksToPeerConnection(stream, pcRef.current);
       }
@@ -137,11 +163,9 @@ export default function PeerRoom({
   };
 
   useEffect(() => {
-    let isCancelled = false;
     setupMedia();
 
     return () => {
-      isCancelled = true;
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
@@ -167,7 +191,7 @@ export default function PeerRoom({
       }
       remoteVideoRef.current.play().catch(() => {});
     }
-  }, [status, mediaReady, peerName]);
+  }, [status, mediaReady, peerName, hasRemoteStream]);
 
   const drainIceCandidates = async (pc) => {
     while (iceCandidatesQueue.current.length > 0) {
@@ -179,6 +203,98 @@ export default function PeerRoom({
       }
     }
   };
+
+  async function setupPeerConnection(isInitiator) {
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch (e) {}
+      pcRef.current = null;
+    }
+    iceCandidatesQueue.current = [];
+
+    const pc = new RTCPeerConnection(ICE_CONFIG);
+    pcRef.current = pc;
+
+    // Add local tracks
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        try {
+          pc.addTrack(track, localStreamRef.current);
+        } catch (err) {
+          console.warn("[WebRTC] Error adding local track:", err);
+        }
+      });
+    }
+
+    // Handle remote stream
+    pc.ontrack = (event) => {
+      console.log("[WebRTC] ontrack received track:", event.track.kind);
+      let stream = event.streams && event.streams[0];
+      if (!stream) {
+        if (!remoteStreamRef.current) {
+          remoteStreamRef.current = new MediaStream();
+        }
+        remoteStreamRef.current.addTrack(event.track);
+        stream = remoteStreamRef.current;
+      } else {
+        remoteStreamRef.current = stream;
+      }
+
+      setHasRemoteStream(true);
+
+      if (remoteVideoRef.current) {
+        if (remoteVideoRef.current.srcObject !== stream) {
+          remoteVideoRef.current.srcObject = stream;
+        }
+        remoteVideoRef.current.play().catch((e) => console.warn("[WebRTC] Remote video play error:", e));
+      }
+
+      event.track.onunmute = () => {
+        setHasRemoteStream(true);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      };
+    };
+
+    // Send ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: "ice_candidate", candidate: event.candidate.toJSON() })
+        );
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("[WebRTC] ICE Connection State:", pc.iceConnectionState);
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        setHasRemoteStream(true);
+        if (remoteVideoRef.current && remoteStreamRef.current) {
+          remoteVideoRef.current.play().catch(() => {});
+        }
+      }
+    };
+
+    // If interviewer, create and dispatch offer
+    if (isInitiator) {
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await pc.setLocalDescription(offer);
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+        }
+      } catch (err) {
+        console.error("[WebRTC] Create offer error:", err);
+      }
+    }
+
+    return pc;
+  }
 
   // ── WebSocket + WebRTC setup ──
   useEffect(() => {
@@ -223,9 +339,10 @@ export default function PeerRoom({
           }
 
           // Start timer
+          if (timerRef.current) clearInterval(timerRef.current);
           timerRef.current = setInterval(() => setElapsed((p) => p + 1), 1000);
 
-          // Start recording local stream (audio/video for diagnostics check)
+          // Start recording local stream
           if (localStreamRef.current) {
             try {
               const preferredMime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
@@ -240,7 +357,6 @@ export default function PeerRoom({
                 if (e.data?.size > 0) {
                   recordedChunksRef.current.push(e.data);
 
-                  // Stream raw interviewee audio bytes to signaling server
                   if (myRoleRef.current === "interviewee" && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     e.data.arrayBuffer().then((buf) => {
                       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -251,30 +367,37 @@ export default function PeerRoom({
                 }
               };
 
-              recorder.start(1000); // 1-second chunks for low-latency transcription
+              recorder.start(1000);
               recorderRef.current = recorder;
             } catch (e) {
               console.warn("MediaRecorder failed:", e);
             }
           }
 
-          // Create peer connection (interviewer creates offer)
+          // Initialize WebRTC (Interviewer sends initial offer)
           await setupPeerConnection(data.role === "interviewer");
           break;
 
         case "offer":
-          if (pcRef.current) {
-            try {
-              await pcRef.current.setRemoteDescription(
-                new RTCSessionDescription({ type: "offer", sdp: data.sdp })
-              );
-              await drainIceCandidates(pcRef.current);
-              const answer = await pcRef.current.createAnswer();
-              await pcRef.current.setLocalDescription(answer);
-              ws.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
-            } catch (e) {
-              console.error("[WebRTC] Offer handling error:", e);
+          let pcOffer = pcRef.current;
+          if (!pcOffer) {
+            pcOffer = await setupPeerConnection(false);
+          }
+          try {
+            await pcOffer.setRemoteDescription(
+              new RTCSessionDescription({ type: "offer", sdp: data.sdp })
+            );
+            await drainIceCandidates(pcOffer);
+            const answer = await pcOffer.createAnswer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true,
+            });
+            await pcOffer.setLocalDescription(answer);
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
             }
+          } catch (e) {
+            console.error("[WebRTC] Offer handling error:", e);
           }
           break;
 
@@ -332,6 +455,7 @@ export default function PeerRoom({
 
         case "peer_left":
           setStatus("disconnected");
+          setHasRemoteStream(false);
           if (timerRef.current) clearInterval(timerRef.current);
           break;
       }
@@ -340,16 +464,23 @@ export default function PeerRoom({
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
       setStatus("disconnected");
+      setHasRemoteStream(false);
     };
 
     ws.onclose = () => {
-      if (status !== "disconnected") setStatus("disconnected");
+      if (status !== "disconnected") {
+        setStatus("disconnected");
+        setHasRemoteStream(false);
+      }
     };
 
     return () => {
       ws.close();
       if (timerRef.current) clearInterval(timerRef.current);
-      if (pcRef.current) pcRef.current.close();
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
       }
@@ -382,57 +513,6 @@ export default function PeerRoom({
     }
   }, [status, myRole, roomId]);
 
-  async function setupPeerConnection(isInitiator) {
-    if (pcRef.current) {
-      try {
-        pcRef.current.close();
-      } catch (e) {}
-      pcRef.current = null;
-    }
-    iceCandidatesQueue.current = [];
-
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ],
-    });
-    pcRef.current = pc;
-
-    // Add local tracks
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current);
-      });
-    }
-
-    // Handle remote stream
-    pc.ontrack = (event) => {
-      const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
-      remoteStreamRef.current = stream;
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = stream;
-        remoteVideoRef.current.play().catch(() => {});
-      }
-    };
-
-    // Send ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({ type: "ice_candidate", candidate: event.candidate.toJSON() })
-        );
-      }
-    };
-
-    // If interviewer, create offer
-    if (isInitiator) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      wsRef.current?.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
-    }
-  }
-
   function handleEndInterview() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "end_interview" }));
@@ -459,42 +539,46 @@ export default function PeerRoom({
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "leave" }));
     }
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (pcRef.current) pcRef.current.close();
-    setStatus("disconnected");
-    onLeave?.();
+    setHasRemoteStream(false);
+    onLeave();
   }
 
   function toggleMute() {
     if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMuted(!audioTrack.enabled);
-      }
+      localStreamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = !t.enabled;
+      });
+      setIsMuted(!isMuted);
     }
   }
 
   function toggleCamera() {
     if (localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsCameraOff(!videoTrack.enabled);
-      }
+      localStreamRef.current.getVideoTracks().forEach((t) => {
+        t.enabled = !t.enabled;
+      });
+      setIsCameraOff(!isCameraOff);
     }
   }
 
-  // ── Render ──
   if (status === "connecting" || status === "waiting") {
     return (
       <div className="peer-room-lobby">
         <div className="peer-lobby-card glass">
-          <Camera size={48} className="peer-lobby-icon pulse" />
-          <h2>Looking for a peer...</h2>
-          <p>Waiting for another candidate to join the <strong>{role.replace(/_/g, " ")}</strong> interview lobby.</p>
           <div className="peer-lobby-spinner" />
-          <button className="button" onClick={onLeave}>Cancel</button>
+          <h2>Waiting for Peer...</h2>
+          <p>
+            {status === "connecting"
+              ? "Establishing secure signaling connection..."
+              : `You are in room #${roomId || initialRoomId}. Waiting for the other participant to join.`}
+          </p>
+          <div className="peer-lobby-info">
+            <span className="peer-role-badge">{myRole === "interviewer" ? "Interviewer" : "Candidate"}</span>
+            <span className="peer-name-tag">{userName}</span>
+          </div>
+          <button className="button subtle" onClick={handleLeave} style={{ marginTop: "16px" }}>
+            Cancel & Exit
+          </button>
         </div>
       </div>
     );
@@ -585,7 +669,7 @@ export default function PeerRoom({
             playsInline 
             className="peer-video peer-video-remote" 
           />
-          {!remoteStreamRef.current && (
+          {!hasRemoteStream && (
             <div className="peer-video-off-overlay" style={{ background: "rgba(10, 15, 29, 0.75)" }}>
               <div className="peer-lobby-spinner" style={{ width: "32px", height: "32px", borderWidth: "2px" }} />
               <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Connecting to {peerName || "peer"}...</span>
@@ -600,33 +684,25 @@ export default function PeerRoom({
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "20px" }}>
           {roomPhase === "warmup" ? (
             /* WARMUP PHASE */
-            <div className="peer-question-panel glass" style={{ padding: "24px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.2)" }}>
+            <div className="peer-guide-panel glass" style={{ padding: "24px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.3)" }}>
               {myRole === "interviewer" ? (
                 <>
-                  <h3 style={{ color: "var(--teal)", margin: "0 0 16px 0", fontSize: "1.3rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                    👔 Interviewer Warmup & Guidelines
-                  </h3>
-                  
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                    <h3 style={{ margin: 0, color: "var(--teal)", display: "flex", alignItems: "center", gap: "8px" }}>
+                      📋 Interviewer Warmup & Target Profile
+                    </h3>
+                    <span className="badge" style={{ background: "rgba(0,184,148,0.15)", color: "var(--teal)" }}>
+                      Warmup Phase
+                    </span>
+                  </div>
+
                   {targetDetails && (
-                    <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "8px", padding: "16px", marginBottom: "20px" }}>
-                      <h4 style={{ margin: "0 0 10px 0", fontSize: "1rem", color: "var(--text)" }}>Practicing Candidate Details:</h4>
-                      <ul style={{ margin: 0, paddingLeft: "20px", fontSize: "0.92rem", color: "#e2e8f0", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <li>Candidate Name: <strong>{peerName}</strong></li>
-                        <li>Practicing Role: <strong>{targetDetails.targetRole.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</strong></li>
-                        <li>Target Company: <strong>{targetDetails.targetCompany}</strong></li>
-                        <li>Interview Type: <strong>{targetDetails.interviewType.toUpperCase()}</strong></li>
-                        {targetDetails.resumeFilename && (
-                          <li style={{ marginTop: "6px" }}>
-                            <a 
-                              href={`${getApiBase()}/uploads/${targetDetails.resumeFilename}`} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "var(--cyan)", textDecoration: "underline", fontWeight: "600" }}
-                            >
-                              <FileText size={16} /> View/Download Candidate Resume
-                            </a>
-                          </li>
-                        )}
+                    <div className="target-details-card glass" style={{ padding: "16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", marginBottom: "20px" }}>
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "0.9rem" }}>
+                        <li><span style={{ color: "var(--muted)" }}>Candidate Name:</span> <strong>{peerName}</strong></li>
+                        <li><span style={{ color: "var(--muted)" }}>Target Role:</span> <strong>{targetDetails.targetRole || "Software Engineer"}</strong></li>
+                        <li><span style={{ color: "var(--muted)" }}>Target Company:</span> <strong>{targetDetails.targetCompany || "Tech"}</strong></li>
+                        <li><span style={{ color: "var(--muted)" }}>Interview Type:</span> <strong style={{ textTransform: "capitalize" }}>{targetDetails.interviewType || "Technical"}</strong></li>
                       </ul>
                       {targetDetails.jobDescription && (
                         <div style={{ marginTop: "12px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "10px" }}>
@@ -825,4 +901,3 @@ export default function PeerRoom({
     </div>
   );
 }
-

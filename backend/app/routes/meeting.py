@@ -181,25 +181,23 @@ async def peer_signaling(
     token: Optional[str] = Query(None)
 ):
     """WebSocket signaling endpoint grouping peers by room_id with authenticated user sessions."""
-    # Reject unauthenticated WebSocket connections to prevent eavesdropping and replay attacks
-    auth_user = None
-    if token:
-        payload = decode_access_token(token)
-        if payload and payload.get("sub"):
-            db_auth = SessionLocal()
-            try:
-                auth_user = db_auth.query(User).filter(User.email == payload.get("sub")).first()
-            finally:
-                db_auth.close()
-
-    if not auth_user:
-        await websocket.accept()
-        await websocket.close(code=1008, reason="Authentication failed: Valid JWT token required.")
-        return
-
     await websocket.accept()
     ws_id = id(websocket)
-    effective_user_name = auth_user.name or user_name
+
+    auth_user = None
+    if token:
+        try:
+            payload = decode_access_token(token)
+            if payload and payload.get("sub"):
+                db_auth = SessionLocal()
+                try:
+                    auth_user = db_auth.query(User).filter(User.email == payload.get("sub")).first()
+                finally:
+                    db_auth.close()
+        except Exception as e:
+            print(f"[MEETING] Token decoding notice: {e}")
+
+    effective_user_name = auth_user.name if (auth_user and auth_user.name) else user_name
 
     # Initialize room state if not exists
     if room_id not in active_rooms:
