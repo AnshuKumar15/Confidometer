@@ -22,20 +22,13 @@ export default function PeerInterviewPage() {
   const router = useRouter();
   const toast = useToast();
 
-  // Auth check on mount
-  useEffect(() => {
-    if (!isAuthed()) {
-      router.push("/login?next=/peer");
-    }
-  }, [router]);
-
   const [inRoom, setInRoom] = useState(false);
   const [activeRoomId, setActiveRoomId] = useState("");
   const [activeRole, setActiveRole] = useState("");
   const [activeRequestRoleName, setActiveRequestRoleName] = useState("");
-  const [userName, setUserName] = useState("");
+  const [userName, setUserName] = useState("Guest Candidate");
   const [currentUser, setCurrentUser] = useState(null);
-  const [isNameSet, setIsNameSet] = useState(false);
+  const [isNameSet, setIsNameSet] = useState(true);
 
   // Tabs: "lobby" | "post" | "my-schedule"
   const [activeTab, setActiveTab] = useState("lobby");
@@ -60,39 +53,129 @@ export default function PeerInterviewPage() {
   // Polling reference for immediate matching
   const pollingIntervalsRef = useRef({});
 
-  // Retrieve current user
+  // 1. Retrieve current user and restore state / pending actions on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       const user = getUser();
-      if (user) {
+      if (user && isAuthed()) {
         setCurrentUser(user);
         const name = user.name || localStorage.getItem("confidometer_user_name") || user.email?.split("@")[0] || "Candidate";
         setUserName(name);
         setIsNameSet(true);
       } else {
-        const savedName = localStorage.getItem("confidometer_user_name") || "";
-        if (savedName.trim()) {
-          setUserName(savedName);
-          setIsNameSet(true);
+        const savedName = localStorage.getItem("confidometer_user_name") || "Guest Candidate";
+        setUserName(savedName);
+        setIsNameSet(true);
+      }
+
+      // Restore form draft from sessionStorage
+      const rawDraft = sessionStorage.getItem("confidometer_peer_post_draft");
+      if (rawDraft) {
+        try {
+          const d = JSON.parse(rawDraft);
+          if (d.postRole) setPostRole(d.postRole);
+          if (d.companyName) setCompanyName(d.companyName);
+          if (d.interviewType) setInterviewType(d.interviewType);
+          if (d.jobDescription) setJobDescription(d.jobDescription);
+          if (d.isScheduled !== undefined) setIsScheduled(d.isScheduled);
+          if (d.scheduledAt) setScheduledAt(d.scheduledAt);
+          if (d.activeTab) setActiveTab(d.activeTab);
+        } catch (e) {
+          console.warn("Failed to load peer post draft:", e);
+        }
+      }
+
+      // Restore resume file from sessionStorage
+      const rBase64 = sessionStorage.getItem("confidometer_peer_resume_base64");
+      const rName = sessionStorage.getItem("confidometer_peer_resume_name");
+      const rType = sessionStorage.getItem("confidometer_peer_resume_type");
+      if (rBase64 && rName && rType) {
+        fetch(rBase64)
+          .then((res) => res.blob())
+          .then((blob) => {
+            const file = new File([blob], rName, { type: rType });
+            setResumeFile(file);
+          })
+          .catch(() => {});
+      }
+
+      // Check if returning from login with pending action
+      if (isAuthed()) {
+        const pendingAction = sessionStorage.getItem("confidometer_pending_action");
+        if (pendingAction === "post_peer_request") {
+          sessionStorage.removeItem("confidometer_pending_action");
+          setActiveTab("post");
+          toast.info("Welcome back! Your request details are loaded and ready to post.");
+        } else if (pendingAction === "accept_peer_request") {
+          sessionStorage.removeItem("confidometer_pending_action");
+          const reqId = sessionStorage.getItem("confidometer_pending_request_id");
+          sessionStorage.removeItem("confidometer_pending_request_id");
+          if (reqId) {
+            toast.info("Welcome back! Connecting your peer interview request...");
+            handleAcceptRequest(Number(reqId));
+          }
         }
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 2. Persist post form draft to sessionStorage on change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const draft = {
+        postRole,
+        companyName,
+        interviewType,
+        jobDescription,
+        isScheduled,
+        scheduledAt,
+        activeTab
+      };
+      sessionStorage.setItem("confidometer_peer_post_draft", JSON.stringify(draft));
+    }
+  }, [postRole, companyName, interviewType, jobDescription, isScheduled, scheduledAt, activeTab]);
+
+  // 3. Persist resume file to sessionStorage on change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (resumeFile) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          if (e.target?.result) {
+            sessionStorage.setItem("confidometer_peer_resume_base64", e.target.result);
+            sessionStorage.setItem("confidometer_peer_resume_name", resumeFile.name);
+            sessionStorage.setItem("confidometer_peer_resume_type", resumeFile.type);
+          }
+        };
+        reader.readAsDataURL(resumeFile);
+      } else {
+        sessionStorage.removeItem("confidometer_peer_resume_base64");
+        sessionStorage.removeItem("confidometer_peer_resume_name");
+        sessionStorage.removeItem("confidometer_peer_resume_type");
+      }
+    }
+  }, [resumeFile]);
 
   // Fetch lobby and schedule data
   const fetchData = async () => {
-    if (!isNameSet) return;
     setLoading(true);
     setError("");
     try {
-      const [pending, my] = await Promise.all([
-        getPendingMeetingRequests(),
-        getMyMeetingRequests()
-      ]);
-      setPendingRequests(pending || []);
-      setMyRequests(my || []);
+      if (isAuthed()) {
+        const [pending, my] = await Promise.all([
+          getPendingMeetingRequests(),
+          getMyMeetingRequests()
+        ]);
+        setPendingRequests(pending || []);
+        setMyRequests(my || []);
+      } else {
+        const pending = await getPendingMeetingRequests();
+        setPendingRequests(pending || []);
+        setMyRequests([]);
+      }
     } catch (err) {
-      setError(err.message || "Failed to load lobby data.");
+      console.warn("Lobby data fetch:", err);
     } finally {
       setLoading(false);
     }
@@ -100,7 +183,7 @@ export default function PeerInterviewPage() {
 
   useEffect(() => {
     fetchData();
-  }, [isNameSet]);
+  }, []);
 
   // Setup status polling for immediate matched requests
   useEffect(() => {
@@ -173,6 +256,14 @@ export default function PeerInterviewPage() {
       setError("Please select a date and time for the scheduled interview.");
       return;
     }
+
+    if (!isAuthed()) {
+      sessionStorage.setItem("confidometer_pending_action", "post_peer_request");
+      toast.info("Please sign in or create an account to post your interview request.");
+      router.push("/login?next=/peer");
+      return;
+    }
+
     setPostLoading(true);
     setError("");
     setSuccessMsg("");
@@ -189,6 +280,12 @@ export default function PeerInterviewPage() {
       }
 
       await createMeetingRequest(formData);
+      sessionStorage.removeItem("confidometer_peer_post_draft");
+      sessionStorage.removeItem("confidometer_peer_resume_base64");
+      sessionStorage.removeItem("confidometer_peer_resume_name");
+      sessionStorage.removeItem("confidometer_peer_resume_type");
+      sessionStorage.removeItem("confidometer_pending_action");
+
       setSuccessMsg("Interview request posted successfully!");
       setCompanyName("");
       setJobDescription("");
@@ -205,6 +302,14 @@ export default function PeerInterviewPage() {
   };
 
   const handleAcceptRequest = async (requestId) => {
+    if (!isAuthed()) {
+      sessionStorage.setItem("confidometer_pending_action", "accept_peer_request");
+      sessionStorage.setItem("confidometer_pending_request_id", String(requestId));
+      toast.info("Please sign in or create an account to accept this interview match.");
+      router.push("/login?next=/peer");
+      return;
+    }
+
     setError("");
     setSuccessMsg("");
     try {

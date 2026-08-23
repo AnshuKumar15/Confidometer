@@ -62,6 +62,7 @@ def decode_access_token(token: str):
 # -------------------------
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
@@ -79,4 +80,27 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
 
-    return user
+    return user
+
+
+def get_optional_current_user(token: str = Depends(oauth2_scheme_optional)):
+    """Optional authentication dependency that returns User if valid token provided, else None."""
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+
+    email: str = payload.get("sub")
+    if not email:
+        return None
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        return user
+    except Exception:
+        return None
+    finally:
+        db.close()
+

@@ -90,30 +90,19 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
 
-    // If unauthorized, clear local session and redirect to login (unless it's the login request itself)
+    // If unauthorized, clear local session (unless it's the login request itself)
     if (res.status === 401 && path !== "/auth/login") {
+      clearSession();
+      let detail = "Unauthorized";
       try {
-        // try to parse backend message
         const data = contentType.includes("application/json") ? await res.json() : null;
-        const detail = data && typeof data?.detail === "string" ? data.detail : "Unauthorized";
-        clearSession();
-
-        // client-side redirect to login if running in browser
-        if (typeof window !== "undefined") {
-          // preserve a query param so user can be returned after login if desired
-          const next = typeof window !== "undefined" ? window.location.pathname : "/";
-          window.location.href = `/login?next=${encodeURIComponent(next)}`;
+        if (data && typeof data?.detail === "string") {
+          detail = data.detail;
         }
-
-        throw new Error(detail || `Unauthorized`);
       } catch (e) {
-        clearSession();
-        if (typeof window !== "undefined") {
-          const next = typeof window !== "undefined" ? window.location.pathname : "/";
-          window.location.href = `/login?next=${encodeURIComponent(next)}`;
-        }
-        throw new Error("Unauthorized");
+        // ignore JSON parse error
       }
+      throw new Error(detail);
     }
 
     if (contentType.includes("application/json")) {

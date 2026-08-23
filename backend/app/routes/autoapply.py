@@ -1,11 +1,12 @@
 import os
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.utils.security import get_current_user
+from app.utils.security import get_current_user, get_optional_current_user
 from app.models.user import User
 from app.models.autoapply_models import (
     CandidateProfile, UserPreferences, ResumeVersion, DiscoveredJob,
@@ -32,10 +33,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/resume/parse")
 async def parse_resume_endpoint(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_current_user)
 ):
     """Upload resume file and parse into structured profile JSON for user review."""
-    file_path = os.path.join(UPLOAD_DIR, f"user_{current_user.id}_{file.filename}")
+    prefix = f"user_{current_user.id}" if current_user else f"guest_{uuid.uuid4().hex[:8]}"
+    file_path = os.path.join(UPLOAD_DIR, f"{prefix}_{file.filename}")
     contents = await file.read()
     with open(file_path, "wb") as f:
         f.write(contents)

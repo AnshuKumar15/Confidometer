@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Info } from "lucide-react";
 import { saveSession } from "@/utils/auth";
 import { register, login } from "@/utils/api";
 import { useToast } from "@/components/Toast";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextUrl = searchParams.get("next") || "/upload";
   const toast = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -115,7 +117,7 @@ export default function RegisterPage() {
       });
 
       toast.success("Account created successfully!");
-      router.push("/upload");
+      router.push(nextUrl);
       router.refresh();
     } catch (err) {
       const errorMsg = err.message || "Registration failed";
@@ -124,6 +126,10 @@ export default function RegisterPage() {
       setLoading(false);
     }
   }
+
+  const loginHref = nextUrl && nextUrl !== "/upload"
+    ? `/login?next=${encodeURIComponent(nextUrl)}`
+    : "/login";
 
   return (
     <div className="auth-wrap">
@@ -249,9 +255,24 @@ export default function RegisterPage() {
         </button>
 
         <div className="auth-card-footer">
-          Already have an account? <Link href="/login">Sign in</Link>
+          Already have an account? <Link href={loginHref}>Sign in</Link>
         </div>
       </form>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={
+      <div className="auth-wrap">
+        <div className="auth-card glass" style={{ textAlign: "center", padding: "40px" }}>
+          <div className="loader-spinner" style={{ margin: "0 auto 12px" }} />
+          <p style={{ color: "var(--muted)", margin: 0 }}>Loading registration...</p>
+        </div>
+      </div>
+    }>
+      <RegisterForm />
+    </Suspense>
   );
 }

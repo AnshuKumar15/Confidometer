@@ -7,6 +7,7 @@ import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/comp
 import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, createSTTWebSocket } from "@/utils/api";
 import { isAuthed } from "@/utils/auth";
 import { useTheme } from "@/components/ThemeProvider";
+import { useToast } from "@/components/Toast";
 import {
   Camera, Mic, Play, Square, FileText, CheckCircle,
   Building2, Briefcase, Clock, Brain, MessageSquare,
@@ -70,13 +71,18 @@ const DSA_TIMER_TOTAL = 30 * 60;
 export default function UploadPage() {
   const { theme } = useTheme();
   const router = useRouter();
+  const toast = useToast();
 
-  // Auth check on mount
+  // Check if returning from guest login
   useEffect(() => {
-    if (!isAuthed()) {
-      router.push("/login?next=/upload");
+    if (typeof window !== "undefined" && isAuthed()) {
+      const pending = sessionStorage.getItem("confidometer_pending_action");
+      if (pending === "start_ai_interview") {
+        sessionStorage.removeItem("confidometer_pending_action");
+        toast.info("Welcome back! Your interview setup has been restored. Grant permissions to begin.");
+      }
     }
-  }, [router]);
+  }, [toast]);
   
   // Setup States
   const [resumeFile, setResumeFile] = useState(null);
@@ -748,6 +754,13 @@ export default function UploadPage() {
       setError("Please specify the role you are interviewing for.");
       return;
     }
+
+    if (!isAuthed()) {
+      sessionStorage.setItem("confidometer_pending_action", "start_ai_interview");
+      router.push("/login?next=/upload");
+      return;
+    }
+
     if (!permissionGranted || !mediaStream) {
       setError("Please grant camera/microphone permissions first.");
       return;

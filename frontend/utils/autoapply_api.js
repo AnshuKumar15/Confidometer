@@ -63,10 +63,16 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
     const contentType = res.headers.get("content-type") || "";
     if (res.status === 401 && path !== "/auth/login") {
       clearSession();
-      if (typeof window !== "undefined") {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+      let detail = "Unauthorized";
+      try {
+        const data = contentType.includes("application/json") ? await res.json() : null;
+        if (data && typeof data?.detail === "string") {
+          detail = data.detail;
+        }
+      } catch (e) {
+        // ignore
       }
-      throw new Error("Unauthorized");
+      throw new Error(detail);
     }
 
     if (contentType.includes("application/json")) {

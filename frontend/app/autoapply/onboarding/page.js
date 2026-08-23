@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { parseResume, completeOnboarding, getProfile, getPreferences } from "@/utils/autoapply_api";
 import { Upload, Check, ArrowRight, ArrowLeft, Sparkles, Building2, ShieldAlert, Sliders, Briefcase, GraduationCap, MapPin, Target, X, Plus } from "lucide-react";
+import { isAuthed } from "@/utils/auth";
 import RoleTagInput from "@/components/autoapply/RoleTagInput";
 import SalaryRangeSlider from "@/components/autoapply/SalaryRangeSlider";
 import { useToast } from "@/components/Toast";
@@ -48,6 +49,7 @@ const EXPERIENCE_YEAR_OPTIONS = [
 
 export default function OnboardingWizard() {
   const router = useRouter();
+  const toast = useToast();
   const [currentStep, setCurrentStep] = useState(0);
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -92,24 +94,83 @@ export default function OnboardingWizard() {
     require_approval: true
   });
 
-  // Pre-fill existing profile & preferences if re-running setup
+  // 1. Load draft from sessionStorage or pre-fill existing account profile
   useEffect(() => {
-    async function loadExisting() {
-      try {
-        const existingProf = await getProfile();
-        const existingPref = await getPreferences();
-        if (existingProf) {
-          setProfile((prev) => ({ ...prev, ...existingProf }));
+    async function loadData() {
+      // Check for local draft in sessionStorage first
+      if (typeof window !== "undefined") {
+        const rawDraft = sessionStorage.getItem("confidometer_autoapply_draft");
+        if (rawDraft) {
+          try {
+            const draft = JSON.parse(rawDraft);
+            if (draft.profile) setProfile(draft.profile);
+            if (draft.preferences) setPreferences(draft.preferences);
+            if (draft.config) setConfig(draft.config);
+            if (typeof draft.currentStep === "number") setCurrentStep(draft.currentStep);
+
+            // Check if user just logged in to complete launching
+            const pendingAction = sessionStorage.getItem("confidometer_pending_action");
+            if (pendingAction === "launch_autoapply" && isAuthed()) {
+              sessionStorage.removeItem("confidometer_pending_action");
+              sessionStorage.removeItem("confidometer_autoapply_draft");
+              setSubmitting(true);
+              try {
+                await completeOnboarding({
+                  profile: draft.profile || profile,
+                  preferences: draft.preferences || preferences,
+                  config: draft.config || config
+                });
+                toast.success("Setup complete! Your ApplyBuddy AI engine is active.");
+                router.push("/autoapply");
+                return;
+              } catch (err) {
+                toast.error("Error launching engine: " + (err.message || "Unknown error"));
+                setSubmitting(false);
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to load autoapply draft:", e);
+          }
         }
-        if (existingPref) {
-          setPreferences((prev) => ({ ...prev, ...existingPref }));
+      }
+
+      // If logged in and no draft was present, load server profile
+      if (isAuthed()) {
+        try {
+          const existingProf = await getProfile();
+          const existingPref = await getPreferences();
+          if (existingProf) {
+            setProfile((prev) => ({ ...prev, ...existingProf }));
+          }
+          if (existingPref) {
+            setPreferences((prev) => ({ ...prev, ...existingPref }));
+          }
+        } catch (e) {
+          // Keep defaults
         }
-      } catch (e) {
-        // First-time onboarding, keep defaults
       }
     }
-    loadExisting();
-  }, []);
+    loadData();
+  }, [router, toast]);
+
+  // 2. Persist draft to sessionStorage on every change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(
+          "confidometer_autoapply_draft",
+          JSON.stringify({
+            profile,
+            preferences,
+            config,
+            currentStep
+          })
+        );
+      } catch (e) {
+        // Storage limit exceeded or private browsing
+      }
+    }
+  }, [profile, preferences, config, currentStep]);
 
   const handleFileUpload = async (e) => {
     const file = e.target?.files?.[0] || e.dataTransfer?.files?.[0] || (e instanceof File ? e : null);
@@ -169,9 +230,27 @@ export default function OnboardingWizard() {
   };
 
   const handleComplete = async () => {
+    if (!isAuthed()) {
+      sessionStorage.setItem("confidometer_pending_action", "launch_autoapply");
+      sessionStorage.setItem(
+        "confidometer_autoapply_draft",
+        JSON.stringify({
+          profile,
+          preferences,
+          config,
+          currentStep: 6
+        })
+      );
+      toast.info("Please sign in or create an account to activate your AI ApplyBuddy Engine.");
+      router.push("/login?next=/autoapply/onboarding");
+      return;
+    }
+
     setSubmitting(true);
     try {
       await completeOnboarding({ profile, preferences, config });
+      sessionStorage.removeItem("confidometer_autoapply_draft");
+      sessionStorage.removeItem("confidometer_pending_action");
       toast.success("Setup complete! Your AI career agent is ready.");
       router.push("/autoapply");
     } catch (err) {

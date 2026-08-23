@@ -12,7 +12,7 @@ from app.database import SessionLocal, get_db
 from app.models.meeting_request import PeerInterviewRequest
 from app.models.user import User
 from app.schema.meeting_schema import MeetingRequestResponse
-from app.utils.security import get_current_user, decode_access_token
+from app.utils.security import get_current_user, get_optional_current_user, decode_access_token
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question
 from app.utils.audio import transcribe_chunk
@@ -87,14 +87,14 @@ async def create_meeting_request(
 
 @router.get("/requests/pending", response_model=list[MeetingRequestResponse])
 def get_pending_requests(
-    current_user = Depends(get_current_user),
+    current_user = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
     """Browse pending P2P requests posted by other users."""
-    return db.query(PeerInterviewRequest).filter(
-        PeerInterviewRequest.status == "pending",
-        PeerInterviewRequest.user_id != current_user.id
-    ).order_by(PeerInterviewRequest.created_at.desc()).all()
+    query = db.query(PeerInterviewRequest).filter(PeerInterviewRequest.status == "pending")
+    if current_user:
+        query = query.filter(PeerInterviewRequest.user_id != current_user.id)
+    return query.order_by(PeerInterviewRequest.created_at.desc()).all()
 
 
 @router.get("/requests/my", response_model=list[MeetingRequestResponse])
