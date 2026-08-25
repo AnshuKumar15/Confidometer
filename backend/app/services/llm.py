@@ -16,18 +16,31 @@ if gemini_key:
 # A comprehensive list of mock interview questions to use as a fallback if no API key is provided
 MOCK_QUESTIONS = {
     "software engineer": [
-        "Welcome to your interview. To start off, could you tell me about your most challenging coding project?",
-        "That's interesting. How do you handle database optimization and indexing in your projects?",
-        "Could you explain the difference between a SQL and NoSQL database, and when you would choose one over the other?",
-        "How do you approach debugging a memory leak or CPU spike in a production environment?",
-        "Thank you for sharing. That concludes our technical questions. Do you have any questions for me?"
+        "Welcome to your interview. To start off, could you tell me about the primary programming languages and frameworks listed on your resume, and why you chose them for your recent work?",
+        "That's great. Looking at your skills section, how deeply have you worked with backend concurrency and asynchronous processing?",
+        "Could you explain the difference between a SQL and NoSQL database, and when you would choose one over the other in your architecture?",
+        "In one of the projects or internships on your resume, what was the most difficult bug or technical bottleneck you personally diagnosed and resolved?",
+        "How do you approach database indexing and query optimization to ensure low latency under load?",
+        "Could you walk me through your experience with RESTful API design, error handling, and data validation standards?",
+        "If you noticed a sudden memory leak or CPU spike in a production service, what step-by-step diagnostic workflow would you follow?",
+        "Looking at your education and achievements, what technical concept or coursework has had the biggest impact on how you write code today?",
+        "How do you handle writing automated tests, CI/CD pipelines, and ensuring software reliability before deploying?",
+        "Can you describe a scenario where you had to learn a new technology or programming language quickly to deliver a critical feature?",
+        "How do you approach designing a system for scalability and fault tolerance when traffic increases by 10x?",
+        "Thank you for sharing your experience. That concludes our technical questions. Do you have any questions for me?"
     ],
     "default": [
-        "Welcome to your interview. Can you please tell me about a project from your resume that you are most proud of?",
-        "What motivated you to apply for this specific role, and what skills do you bring?",
-        "How do you handle conflict or differing opinions within a team setting?",
-        "Describe a time when you had to meet a tight deadline under stress. How did you manage it?",
-        "Thank you. That covers my questions. Do you have any questions for the interviewer?"
+        "Welcome to your interview. Can you please give me a brief overview of your background and the core skills highlighted on your resume?",
+        "Looking at the technical skills and tools you've listed, which ones are you most confident in and why?",
+        "Can you walk me through a major project from your resume that you are particularly proud of, detailing your specific contributions?",
+        "What motivated you to apply for this specific role, and how do your past experiences align with what we do here?",
+        "Could you describe a challenging achievement, award, or milestone mentioned on your resume and the effort it took to accomplish?",
+        "How do you handle conflict, differing technical opinions, or communication roadblocks within a team setting?",
+        "Describe a time when you had to meet a tight deadline under stress. How did you prioritize your tasks to deliver quality results?",
+        "How do you approach continuous learning and keeping your technical skills up to date in a rapidly changing industry?",
+        "Can you share an example of a mistake or setback you experienced on a project, and what you learned from it?",
+        "Where do you see yourself growing technically over the next 2 to 3 years?",
+        "Thank you for sharing. That covers my questions for today. Do you have any questions for the interviewer?"
     ]
 }
 
@@ -61,8 +74,69 @@ def is_user_asking_question(text: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
-# INTERVIEW-TYPE SPECIFIC SYSTEM PROMPTS
+# INTERVIEW-TYPE SPECIFIC SYSTEM PROMPTS & GUIDANCE
 # ──────────────────────────────────────────────────────────────
+
+def _get_experience_level_guidance(experience_level: str) -> str:
+    """Generate question calibration guidance tailored to the candidate's experience level."""
+    exp_clean = (experience_level or "").lower().strip()
+    if not exp_clean or "fresher" in exp_clean or "0" in exp_clean:
+        return (
+            "EXPERIENCE-LEVEL CALIBRATION (ENTRY LEVEL / FRESHER):\n"
+            "- Target difficulty: Core fundamentals, foundational concepts, and academic understanding.\n"
+            "- Focus on: Programming language basics (memory, data types, scope, closures, OOP principles), fundamental data structures & algorithms (arrays, hash maps, recursion, basic sorting), fundamental CS concepts (DBMS ACID properties, basic SQL queries, HTTP methods, OS processes vs threads), and coursework/personal projects.\n"
+            "- Question style: 'Can you explain how X works under the hood?', 'What is the difference between X and Y?', 'In your project, why did you choose X over Y?', 'How does [concept] work in [language]?'\n"
+            "- Do NOT ask high-scale distributed systems architecture, microservices mesh, or enterprise cloud scaling questions."
+        )
+    elif any(y in exp_clean for y in ["1 year", "2 year", "1-2", "junior"]):
+        return (
+            "EXPERIENCE-LEVEL CALIBRATION (JUNIOR - 1-2 YEARS):\n"
+            "- Target difficulty: Practical implementation, API integration, debugging, and clean coding.\n"
+            "- Focus on: Framework-specific knowledge (e.g. React lifecycle/hooks, FastAPI dependency injection, Django ORM), database queries and indexing basics, RESTful API design, basic error handling, unit testing, and how they contributed to team features.\n"
+            "- Question style: 'How did you handle error states and validations in X?', 'Walk me through how you implemented feature Y in your recent role.', 'How do you optimize an API that takes too long to respond?'"
+        )
+    elif any(y in exp_clean for y in ["3 year", "4 year", "5 year", "mid", "senior"]):
+        return (
+            "EXPERIENCE-LEVEL CALIBRATION (MID TO SENIOR - 3-5 YEARS):\n"
+            "- Target difficulty: Architecture decisions, trade-offs, scalability bottlenecks, caching, and resiliency.\n"
+            "- Focus on: Database optimization (indexing, query execution plans, connection pooling), caching strategies (Redis, cache invalidation), asynchronous processing (message queues, background workers), microservices vs monolith trade-offs, concurrency handling, and system reliability.\n"
+            "- Question style: 'What architectural trade-offs did you make when building X?', 'How would you scale this service to handle a 10x traffic spike?', 'Tell me about a production incident or severe bottleneck you debugged and resolved.'"
+        )
+    else:  # 6+ years, 7 years, 8+ years, Lead, Staff
+        return (
+            "EXPERIENCE-LEVEL CALIBRATION (LEAD / STAFF / PRINCIPAL - 6+ YEARS):\n"
+            "- Target difficulty: High-level distributed system design, multi-region architecture, resilience engineering, technical leadership, and strategic trade-offs.\n"
+            "- Focus on: Distributed systems (CAP theorem, consensus, event-driven architectures, Kafka/RabbitMQ), data partitioning & sharding, observability & SLOs, handling failure modes at scale, technical leadership, mentoring, and cross-team architectural alignment.\n"
+            "- Question style: 'How would you architect a fault-tolerant, globally distributed system for X?', 'Walk me through a high-stakes technical decision where there was no obvious right answer.', 'How do you balance technical debt versus speed of delivery in a mission-critical platform?'"
+        )
+
+
+RESUME_DIVERSITY_INSTRUCTIONS = (
+    "RESUME COVERAGE & QUESTION DIVERSITY (MANDATORY):\n"
+    "Real interviewers evaluate the candidate across ALL areas of their resume, not just projects or internships.\n"
+    "You MUST actively rotate your questions across different sections of the candidate's resume:\n"
+    "1. Languages & Core Technologies: Ask specific in-depth technical questions about the programming languages, databases, or frameworks explicitly listed under their Skills section (e.g. Python generators/GIL, React reconciliation/virtual DOM, SQL indexes/joins, TypeScript generics, Go channels, Docker containers).\n"
+    "2. Projects: Ask about technical architecture, tricky bugs solved, state management, or design patterns used in ONE or TWO specific projects.\n"
+    "3. Work Experience / Internships: Ask about real-world team workflow, CI/CD, production deployments, handling requirements, or measurable impact.\n"
+    "4. Achievements, Certifications & Education: If the candidate lists achievements, hackathons, awards, AWS/cloud certifications, or academic research, ask how they achieved it or what deep knowledge they acquired.\n"
+    "5. Problem Solving & Scenarios: Present a realistic situational or troubleshooting question relevant to the skills and tools they claim to know.\n"
+    "- CRITICAL: Do NOT spend more than 2 consecutive questions on projects/internships. Vary your topics across languages, concepts, skills, and background!"
+)
+
+
+def _get_pacing_guidance(duration_minutes: int, elapsed_minutes: int, questions_asked: int) -> str:
+    """Provide real-time pacing instructions to ensure interviews span the intended duration."""
+    time_remaining = max(0, duration_minutes - elapsed_minutes)
+    return (
+        f"PACING & TIME MANAGEMENT (CURRENT SESSION DURATION: {duration_minutes} MINUTES):\n"
+        f"- Total allocated duration: {duration_minutes} minutes.\n"
+        f"- Elapsed time so far: ~{elapsed_minutes} minutes.\n"
+        f"- Questions asked so far: {questions_asked}.\n"
+        f"- Approximate time remaining: ~{time_remaining} minutes.\n"
+        f"- CRITICAL PACING RULE: Do NOT rush or wrap up the interview prematurely! For a {duration_minutes}-minute interview, you must conduct a full, thorough conversation with substantive follow-ups and diverse questions across the candidate's resume until the full duration is reached.\n"
+        f"- NEVER say 'This concludes our interview' or 'That wraps up our session' on your own. Keep asking engaging, challenging, and relevant questions until you receive the explicit time limit wrap-up instruction."
+    )
+
 
 # ── Stress Mode prompt appendix (shared across Technical, HR, Behavioural) ──
 STRESS_MODE_APPENDIX = (
@@ -79,10 +153,15 @@ STRESS_MODE_APPENDIX = (
 )
 
 
-def _build_system_prompt_technical(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
+def _build_system_prompt_technical(
+    user_name, role, company_name, experience_level, resume_text, job_description,
+    duration_minutes=10, elapsed_minutes=0, questions_asked=0, stress_mode=False
+):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
     jd_context = f"\nJob Description provided by the candidate:\n{job_description}\n" if job_description else ""
+    exp_guidance = _get_experience_level_guidance(experience_level)
+    pacing_guidance = _get_pacing_guidance(duration_minutes, elapsed_minutes, questions_asked)
 
     prompt = (
         f"You are a professional, polite, and concise technical interviewer named 'Liza' interviewing a candidate named '{user_name}' for the position of '{role}'.\n"
@@ -90,6 +169,9 @@ def _build_system_prompt_technical(user_name, role, company_name, experience_lev
         f"{experience_context}"
         f"Here is the candidate's resume:\n{resume_text}\n"
         f"{jd_context}\n"
+        f"{exp_guidance}\n\n"
+        f"{RESUME_DIVERSITY_INSTRUCTIONS}\n\n"
+        f"{pacing_guidance}\n\n"
         "INSTRUCTIONS & FLOW:\n"
         "1. You must guide the candidate through the interview starting from the greeting. Do not skip any steps.\n"
         "2. In your very first turn, introduce yourself as Liza, the interview agent, and ask how the candidate is and how they are feeling today.\n"
@@ -97,11 +179,11 @@ def _build_system_prompt_technical(user_name, role, company_name, experience_lev
         "4. Once they agree to start, ask them to introduce themselves or tell you about themselves.\n"
         "5. After they introduce themselves, proceed to ask technical questions based on their resume, the target role, the candidate's experience level, and the job description (if provided).\n"
         "6. Ask exactly ONE question at a time.\n"
-        "7. Keep your questions relevant, clear, and very concise (no more than 2-3 sentences).\n"
-        "8. Reference their resume experiences naturally when asking questions.\n"
+        "7. Keep your questions relevant, clear, and concise (no more than 2-3 sentences).\n"
+        "8. Reference their resume skills, languages, achievements, and experiences naturally when asking questions.\n"
         f"{'9. Tailor question difficulty and style to the company (' + company_name + ') interview standards. Ask questions similar to what ' + company_name + ' would ask in a real interview.' + chr(10) if company_name else ''}"
         "10. If the candidate asks a clarifying question or cross-question (e.g. asking about the role, repeating the question, or asking for clarification), politely answer or clarify their question, and then repeat/re-ask the current interview question. Do not skip to the next interview question until they have actually answered the current one.\n"
-        "11. After 4-5 technical questions, politely conclude the interview."
+        "11. Continue asking diverse technical questions until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -110,23 +192,28 @@ def _build_system_prompt_technical(user_name, role, company_name, experience_lev
     return prompt
 
 
-def _build_system_prompt_hr(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
+def _build_system_prompt_hr(
+    user_name, role, company_name, experience_level, resume_text, job_description,
+    duration_minutes=10, elapsed_minutes=0, questions_asked=0, stress_mode=False
+):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
+    pacing_guidance = _get_pacing_guidance(duration_minutes, elapsed_minutes, questions_asked)
 
     prompt = (
         f"You are a warm, professional HR interviewer named 'Liza' conducting an HR round for a candidate named '{user_name}' applying for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
         f"Here is the candidate's resume:\n{resume_text}\n"
-        "\nINSTRUCTIONS & FLOW:\n"
+        f"\n{pacing_guidance}\n\n"
+        "INSTRUCTIONS & FLOW:\n"
         "1. Start with a friendly greeting, introduce yourself as Liza.\n"
         "2. Ask the candidate to briefly introduce themselves.\n"
-        "3. Ask HR-focused questions: motivation, teamwork, conflict resolution, salary expectations, work culture preferences, strengths/weaknesses, career goals, etc.\n"
+        "3. Ask HR-focused questions: motivation, teamwork, conflict resolution, salary expectations, work culture preferences, strengths/weaknesses, career goals, achievements on their resume, and company alignment.\n"
         "4. Keep questions conversational, empathetic, and relevant to the role and company.\n"
         "5. Ask exactly ONE question at a time. Keep responses concise (2-3 sentences).\n"
         "6. If the candidate asks questions, answer helpfully and redirect back to your question.\n"
-        "7. After 4-5 HR questions, politely conclude the interview."
+        "7. Continue conducting the HR round until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -135,24 +222,29 @@ def _build_system_prompt_hr(user_name, role, company_name, experience_level, res
     return prompt
 
 
-def _build_system_prompt_behavioural(user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=False):
+def _build_system_prompt_behavioural(
+    user_name, role, company_name, experience_level, resume_text, job_description,
+    duration_minutes=10, elapsed_minutes=0, questions_asked=0, stress_mode=False
+):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
+    pacing_guidance = _get_pacing_guidance(duration_minutes, elapsed_minutes, questions_asked)
 
     prompt = (
         f"You are a sharp behavioural interviewer named 'Liza' assessing a candidate named '{user_name}' for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
         f"Here is the candidate's resume:\n{resume_text}\n"
-        "\nINSTRUCTIONS & FLOW:\n"
+        f"\n{pacing_guidance}\n\n"
+        "INSTRUCTIONS & FLOW:\n"
         "1. Start with a friendly greeting, introduce yourself as Liza.\n"
         "2. Ask the candidate to briefly introduce themselves.\n"
         "3. Ask STAR-method behavioural questions: 'Tell me about a time when...', 'Describe a situation where...', 'Give me an example of...'.\n"
-        "4. Focus on: leadership, problem-solving under pressure, teamwork, handling failure, adaptability, and initiative.\n"
-        "5. After each answer, probe deeper with follow-ups like 'What was the result?', 'What did you learn?', 'What would you do differently?'.\n"
+        "4. Focus on diverse themes: leadership, handling conflict, cross-functional collaboration, overcoming project failures, tight deadlines, adaptability, and high-impact achievements from their resume.\n"
+        "5. After each answer, probe deeper with follow-ups like 'What was the quantifiable result?', 'What did you learn from that experience?', 'What would you do differently today?'.\n"
         "6. Ask exactly ONE question at a time. Keep responses concise.\n"
         "7. If the candidate asks questions, answer helpfully and redirect back.\n"
-        "8. After 4-5 behavioural questions, politely conclude the interview."
+        "8. Continue the behavioural assessment until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -161,17 +253,22 @@ def _build_system_prompt_behavioural(user_name, role, company_name, experience_l
     return prompt
 
 
-def _build_system_prompt_negotiation(user_name, role, company_name, experience_level, resume_text):
+def _build_system_prompt_negotiation(
+    user_name, role, company_name, experience_level, resume_text,
+    duration_minutes=10, elapsed_minutes=0, questions_asked=0
+):
     """Build a system prompt for the Salary & Offer Negotiation Simulator."""
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
+    pacing_guidance = _get_pacing_guidance(duration_minutes, elapsed_minutes, questions_asked)
 
     return (
         f"You are a seasoned, professional recruiter and hiring manager named 'Liza' conducting a salary negotiation simulation with a candidate named '{user_name}' for the position of '{role}'.\n"
         f"{company_context}"
         f"{experience_context}"
         f"Here is the candidate's resume:\n{resume_text}\n"
-        "\nINSTRUCTIONS & FLOW:\n"
+        f"\n{pacing_guidance}\n\n"
+        "INSTRUCTIONS & FLOW:\n"
         "1. In your very first turn, introduce yourself warmly as Liza from the hiring team. Congratulate the candidate on passing the interview rounds.\n"
         "2. Present an initial compensation offer that is slightly below market rate for the role and experience level. Include base salary, equity/stock options, and sign-on bonus (if applicable).\n"
         "3. When the candidate counter-offers, push back using realistic recruiter tactics:\n"
@@ -181,10 +278,8 @@ def _build_system_prompt_negotiation(user_name, role, company_name, experience_l
         "   - 'I understand your expectations. Let me share what flexibility I have...'\n"
         "4. Be open to compromise — don't always say no. If the candidate makes strong arguments (citing market data, competing offers, or unique skills), acknowledge them and adjust the offer.\n"
         "5. Keep responses concise and conversational (2-4 sentences). Ask exactly ONE question or make ONE counter per turn.\n"
-        "6. After 4-5 exchanges of negotiation, conclude by either:\n"
-        "   a) Accepting the candidate's proposed package with minor adjustments, OR\n"
-        "   b) Presenting a final 'best and final' offer and asking if they accept.\n"
-        "7. End the simulation by thanking the candidate and summarizing the final agreed package.\n"
+        "6. Conduct realistic multi-stage negotiations spanning base pay, bonuses, stock vesting, relocation, and start dates.\n"
+        "7. End the simulation by thanking the candidate and summarizing the final agreed package only when time has elapsed.\n"
         "8. Never break character — you are a real recruiter throughout this simulation."
     )
 
@@ -253,10 +348,14 @@ def generate_interview_question(
     experience_level: str = "", job_description: str = "",
     interview_type: str = "technical", dsa_context: dict = None,
     is_time_up: bool = False, stress_mode: bool = False,
-    is_peer: bool = False
+    is_peer: bool = False,
+    duration_minutes: int = 10,
+    elapsed_minutes: int = 0,
+    questions_asked: int = 0
 ) -> str:
     """
-    Generate the next interview question based on interview type and conversation history.
+    Generate the next interview question based on interview type, conversation history,
+    selected duration pacing, resume diversity, and experience level.
     """
     role_lower = role.lower() if role else ""
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -414,25 +513,42 @@ def generate_interview_question(
             )
         elif interview_type == "hr":
             system_instruction = _build_system_prompt_hr(
-                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
+                user_name, role, company_name, experience_level, resume_text, job_description,
+                duration_minutes=duration_minutes, elapsed_minutes=elapsed_minutes,
+                questions_asked=questions_asked, stress_mode=stress_mode
             )
         elif interview_type == "behavioural":
             system_instruction = _build_system_prompt_behavioural(
-                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
+                user_name, role, company_name, experience_level, resume_text, job_description,
+                duration_minutes=duration_minutes, elapsed_minutes=elapsed_minutes,
+                questions_asked=questions_asked, stress_mode=stress_mode
             )
         elif interview_type == "negotiation":
             system_instruction = _build_system_prompt_negotiation(
-                user_name, role, company_name, experience_level, resume_text
+                user_name, role, company_name, experience_level, resume_text,
+                duration_minutes=duration_minutes, elapsed_minutes=elapsed_minutes,
+                questions_asked=questions_asked
             )
         else:
             system_instruction = _build_system_prompt_technical(
-                user_name, role, company_name, experience_level, resume_text, job_description, stress_mode=stress_mode
+                user_name, role, company_name, experience_level, resume_text, job_description,
+                duration_minutes=duration_minutes, elapsed_minutes=elapsed_minutes,
+                questions_asked=questions_asked, stress_mode=stress_mode
             )
 
         # Dynamic adjustments to system instructions based on elapsed time
         if is_time_up:
-            system_instruction += "\n\nCRITICAL INSTRUCTION: The interview time limit is up. You must politely conclude the interview in this turn. Thank the candidate, state that the interview is complete, and wish them a great day. Do NOT ask any new questions."
+            system_instruction += (
+                "\n\nCRITICAL INSTRUCTION: The interview time limit is up. You must politely conclude the interview in this turn. "
+                "Thank the candidate warmly, state that the interview is complete, provide brief encouraging closing remarks, and wish them a great day. "
+                "Do NOT ask any new questions."
+            )
         elif not is_peer:
+            if elapsed_minutes >= (duration_minutes - 2) and elapsed_minutes > 0:
+                system_instruction += (
+                    f"\n\nPACING NOTICE: Approximately 1 to 2 minutes remain in this {duration_minutes}-minute interview. "
+                    "Ask your final substantive question or a forward-looking reflective question, and keep in mind we will wrap up on the next turn."
+                )
             # Reinforce clarifying question instructions for solo AI mode
             system_instruction += (
                 "\n\nCRITICAL REMINDER ON CLARIFICATIONS: If the candidate asks you to explain, repeat, or clarify a question, "

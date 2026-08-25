@@ -40,6 +40,11 @@ def get_user_history(
             "use_of_words_score": s.use_of_words_score,
             "filler_words_score": s.filler_words_score,
             "explanation_quality_score": s.explanation_quality_score,
+            "negotiation_score": s.negotiation_score,
+            "code_quality_score": s.code_quality_score,
+            "optimization_score": s.optimization_score,
+            "thinking_process_score": s.thinking_process_score,
+            "communication_score": s.communication_score,
         })
 
     return results

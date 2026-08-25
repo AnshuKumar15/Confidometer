@@ -242,6 +242,9 @@ async def initiate_interview(
                 job_description=job_description,
                 interview_type=interview_type,
                 stress_mode=stress_mode,
+                duration_minutes=duration,
+                elapsed_minutes=0,
+                questions_asked=0,
             )
             active_sessions[session_id]["history"].append({
                 "role": "model",
@@ -271,6 +274,7 @@ async def respond_to_agent(
     interview_type = session.get("interview_type", "technical")
     duration = session.get("duration", 10)
     is_time_up = elapsed_seconds >= (duration * 60)
+    elapsed_minutes = elapsed_seconds // 60
     
     # Append user response to history
     user_entry = {"role": "user", "text": message}
@@ -278,6 +282,9 @@ async def respond_to_agent(
         user_entry["code"] = code
         user_entry["question_index"] = question_index
     session["history"].append(user_entry)
+
+    # Count model questions asked so far
+    questions_asked = sum(1 for m in session["history"] if m.get("role") == "model")
 
     user_name = session.get("user_name", "Anshu")
     response_payload = {}
@@ -311,7 +318,10 @@ async def respond_to_agent(
                 "action": "explain",
                 "current_question": questions[question_index] if question_index < len(questions) else None,
                 "submitted_code": code,
-            }
+            },
+            duration_minutes=duration,
+            elapsed_minutes=elapsed_minutes,
+            questions_asked=questions_asked,
         )
 
         session["history"].append({"role": "model", "text": next_question})
@@ -331,14 +341,27 @@ async def respond_to_agent(
             interview_type=interview_type,
             is_time_up=is_time_up,
             stress_mode=session.get("stress_mode", False),
+            duration_minutes=duration,
+            elapsed_minutes=elapsed_minutes,
+            questions_asked=questions_asked,
         )
 
         session["history"].append({"role": "model", "text": next_question})
         response_payload["next_question"] = next_question
         
         is_complete = is_time_up
-        # Detect if model wrapped up in its text output
-        if is_time_up or "interview is complete" in next_question.lower() or "concludes our" in next_question.lower() or "conclude our" in next_question.lower() or "complete." in next_question.lower():
+        # Detect if model wrapped up in its text output ONLY IF near the end (last 90 seconds)
+        near_end = elapsed_seconds >= max(0, (duration * 60) - 90)
+        closing_phrases = [
+            "interview is complete",
+            "concludes our",
+            "conclude our",
+            "that's all for today",
+            "that concludes the interview",
+            "thank you for your time today",
+            "concludes this interview"
+        ]
+        if is_time_up or (near_end and any(phrase in next_question.lower() for phrase in closing_phrases)):
             is_complete = True
             
         response_payload["is_complete"] = is_complete

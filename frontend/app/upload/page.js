@@ -226,6 +226,43 @@ export default function UploadPage() {
     };
   }, [isInterviewing]);
 
+  // ── Auto-submit / conclude interview when selected duration expires ──
+  const autoFinishedRef = useRef(false);
+  useEffect(() => {
+    if (!isInterviewing) {
+      autoFinishedRef.current = false;
+      return;
+    }
+    if (interviewType === "dsa") return; // DSA has its own dedicated 30-min countdown
+
+    const targetSeconds = duration * 60;
+    if (interviewDuration >= targetSeconds) {
+      // 1. If interview is already marked complete by AI, finish immediately
+      if (isCompleteRef.current && !isSpeaking && !autoFinishedRef.current) {
+        autoFinishedRef.current = true;
+        handleFinishInterview();
+        return;
+      }
+
+      // 2. If user has pending speech transcript at time expiry, submit it to trigger closing response
+      if (
+        !isSubmittingResponseRef.current &&
+        !isAiThinking &&
+        !isSpeaking &&
+        !autoFinishedRef.current
+      ) {
+        const pendingText = (accumulatedTranscriptRef.current || interimTranscript || "").trim();
+        if (pendingText) {
+          submitResponse(pendingText);
+        } else if (interviewDuration >= targetSeconds + 10) {
+          // If 10s past duration and candidate is idle, automatically submit and conclude
+          autoFinishedRef.current = true;
+          handleFinishInterview();
+        }
+      }
+    }
+  }, [interviewDuration, isInterviewing, duration, interviewType, isSpeaking, isAiThinking, interimTranscript]);
+
   function formatDuration(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -414,8 +451,11 @@ export default function UploadPage() {
         if (audioUrl && audioUrl.startsWith("blob:")) {
           URL.revokeObjectURL(audioUrl);
         }
-        // Auto-trigger recording after AI finishes asking
-        if (!speechCancelledRef.current) {
+        // If interview concluded, auto-finish and proceed to analysis
+        if (isCompleteRef.current) {
+          handleFinishInterview();
+        } else if (!speechCancelledRef.current) {
+          // Auto-trigger recording after AI finishes asking
           startListening();
         }
       };
@@ -424,7 +464,9 @@ export default function UploadPage() {
         if (audioUrl && audioUrl.startsWith("blob:")) {
           URL.revokeObjectURL(audioUrl);
         }
-        if (!speechCancelledRef.current) {
+        if (isCompleteRef.current) {
+          handleFinishInterview();
+        } else if (!speechCancelledRef.current) {
           startListening();
         }
       };
@@ -441,14 +483,18 @@ export default function UploadPage() {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.onend = () => {
           setIsSpeaking(false);
-          if (!speechCancelledRef.current) {
+          if (isCompleteRef.current) {
+            handleFinishInterview();
+          } else if (!speechCancelledRef.current) {
             startListening();
           }
         };
         window.speechSynthesis.speak(utterance);
       } else {
         setIsSpeaking(false);
-        if (!speechCancelledRef.current) {
+        if (isCompleteRef.current) {
+          handleFinishInterview();
+        } else if (!speechCancelledRef.current) {
           startListening();
         }
       }
@@ -1139,6 +1185,7 @@ export default function UploadPage() {
                       onChange={(e) => setDuration(Number(e.target.value))}
                       disabled={loading}
                     >
+                      <option value={5}>5 Minutes</option>
                       <option value={10}>10 Minutes</option>
                       <option value={20}>20 Minutes</option>
                       <option value={30}>30 Minutes</option>
@@ -1269,11 +1316,14 @@ export default function UploadPage() {
 
               <div className="hud-stat-item">
                 <span className="hud-stat-label">Elapsed Time</span>
-                <div className="hud-timer-wrap">
+                <div className={`hud-timer-wrap ${!isDsaRound && duration && interviewDuration >= (duration * 60 - 60) ? "hud-timer-wrap-warning" : ""}`}>
                   <Clock size={14} className="hud-timer-icon" />
                   <span className="hud-timer-val">{formatDuration(interviewDuration)}</span>
                   {!isDsaRound && duration && (
                     <span className="hud-timer-target">/ {duration}:00</span>
+                  )}
+                  {!isDsaRound && duration && interviewDuration >= (duration * 60 - 60) && (
+                    <span className="hud-timer-warning-tag">Wrapping Up</span>
                   )}
                 </div>
               </div>

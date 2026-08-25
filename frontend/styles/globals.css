@@ -2409,6 +2409,34 @@ body.interview-active .upload-page::before {
   display: flex;
   align-items: center;
   gap: 6px;
+  transition: all 0.3s ease;
+}
+
+.hud-timer-wrap-warning .hud-timer-icon {
+  color: #f87171 !important;
+  animation: hudPulse 1.5s infinite;
+}
+
+.hud-timer-wrap-warning .hud-timer-val {
+  color: #fca5a5 !important;
+}
+
+.hud-timer-warning-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  animation: hudPulse 2s infinite ease-in-out;
+}
+
+@keyframes hudPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(0.97); }
 }
 
 .hud-timer-icon {

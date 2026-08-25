@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.speech import Speech
-from app.services.scoring import calculate_confidence_score
+from app.services.scoring import calculate_confidence_score, calculate_blended_score
 from app.utils.audio import extract_audio, transcribe_audio
 from app.services.filler import count_fillers
 from app.services.voice import analyze_voice
@@ -374,6 +374,34 @@ def process_speech(speech_id: int):
             speech.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))  # type: ignore
             speech.communication_score = float(sub_scores.get("communication_score", 50.0))  # type: ignore
 
+        # 🔟.5 Calculate unified blended score (combining content depth & delivery poise)
+        tech_score = float(sub_scores.get("technical_knowledge_score", 50.0))
+        expl_score = float(sub_scores.get("explanation_quality_score", 50.0))
+        words_score = float(sub_scores.get("use_of_words_score", 50.0))
+        neg_score = float(sub_scores.get("negotiation_score", 60.0)) if interview_type_str == "negotiation" else None
+        cq_score = float(sub_scores.get("code_quality_score", 50.0)) if dsa_code_str else None
+        opt_score = float(sub_scores.get("optimization_score", 50.0)) if dsa_code_str else None
+        tp_score = float(sub_scores.get("thinking_process_score", 50.0)) if dsa_code_str else None
+        comm_score = float(sub_scores.get("communication_score", 50.0)) if dsa_code_str else None
+
+        blended_confidence_score = calculate_blended_score(
+            interview_type=interview_type_str,
+            filler_count=filler_count,
+            eye_contact=final_eye_score,
+            gesture=gesture_frequency,
+            voice=voice_stability_score,
+            speaking_rate=speaking_rate_score,
+            technical_knowledge=tech_score,
+            explanation_quality=expl_score,
+            use_of_words=words_score,
+            negotiation_score=neg_score,
+            code_quality=cq_score,
+            optimization=opt_score,
+            thinking_process=tp_score,
+            communication=comm_score,
+        )
+        speech.confidence_score = float(blended_confidence_score)  # type: ignore
+
         speech.technical_feedback = json.dumps(analysis.get("technical_feedback", []))  # type: ignore
         speech.non_technical_feedback = json.dumps(analysis.get("non_technical_feedback", {}))  # type: ignore
         # Include coding_feedback inside non_technical_feedback if present
@@ -406,7 +434,7 @@ def process_speech(speech_id: int):
         db = SessionLocal()
         speech = db.query(Speech).filter(Speech.id == speech_id).first()
         if speech:
-            # Re-apply all LLM analysis results on the fresh session object
+            # Re-apply all LLM analysis results and blended score on the fresh session object
             speech.eye_contact_score = final_eye_score
             speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))
             speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))
@@ -420,6 +448,7 @@ def process_speech(speech_id: int):
                 speech.optimization_score = float(sub_scores.get("optimization_score", 50.0))
                 speech.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))
                 speech.communication_score = float(sub_scores.get("communication_score", 50.0))
+            speech.confidence_score = float(blended_confidence_score)
             speech.technical_feedback = json.dumps(analysis.get("technical_feedback", []))
             speech.non_technical_feedback = json.dumps(analysis.get("non_technical_feedback", {}))
             if analysis.get("coding_feedback"):

@@ -19,6 +19,94 @@ import {
   Target, ShieldCheck, CheckCircle2, Lock
 } from "lucide-react";
 
+export function computeBlendedScore(item) {
+  if (!item) return 0;
+
+  const hasSubScores = (
+    item.technical_knowledge_score != null ||
+    item.explanation_quality_score != null ||
+    item.use_of_words_score != null
+  );
+
+  const rawConfidence = Number(item.confidence_score || 0);
+  if (!hasSubScores) {
+    return rawConfidence;
+  }
+
+  const itype = (item.interview_type || "technical").toLowerCase().trim();
+
+  // 1. Delivery score (behavioral poise, camera presence, speech fluency)
+  const rawEye = Number(item.eye_contact_score || item.eye_contact || 0);
+  const eye = rawEye > 0 ? rawEye : (rawConfidence ? Math.min(90, Math.max(55, Math.round(rawConfidence))) : 70);
+  const voice = Number(item.voice_stability || item.voice_stability_score || 70);
+  const fillerCount = Number(item.filler_count || 0);
+  const fillerScore = Number(item.filler_words_score || Math.max(0, 100 - fillerCount * 3));
+  const speakingRate = 75; // Default baseline
+  const gesture = Number(item.gesture_frequency || 30);
+
+  const deliveryScore = (
+    0.30 * eye +
+    0.25 * voice +
+    0.25 * fillerScore +
+    0.15 * speakingRate +
+    0.05 * gesture
+  );
+
+  // 2. Content scores
+  const tech = Number(item.technical_knowledge_score || 50);
+  const expl = Number(item.explanation_quality_score || 50);
+  const words = Number(item.use_of_words_score || 50);
+  const neg = Number(item.negotiation_score || 60);
+
+  let contentScore = 50;
+  let contentWeight = 0.50;
+  let deliveryWeight = 0.50;
+
+  if (itype === "technical") {
+    // 70% Content, 30% Delivery
+    contentScore = 0.40 * tech + 0.35 * expl + 0.25 * words;
+    contentWeight = 0.70;
+    deliveryWeight = 0.30;
+  } else if (itype === "dsa") {
+    // 70% Content, 30% Delivery
+    if (item.code_quality_score != null && item.optimization_score != null && item.thinking_process_score != null) {
+      const comm = item.communication_score != null ? Number(item.communication_score) : words;
+      contentScore = (
+        0.35 * Number(item.code_quality_score) +
+        0.25 * Number(item.optimization_score) +
+        0.25 * Number(item.thinking_process_score) +
+        0.15 * comm
+      );
+    } else {
+      contentScore = 0.40 * tech + 0.35 * expl + 0.25 * words;
+    }
+    contentWeight = 0.70;
+    deliveryWeight = 0.30;
+  } else if (itype === "behavioural") {
+    // 50% Content, 50% Delivery
+    contentScore = 0.45 * expl + 0.30 * words + 0.25 * tech;
+    contentWeight = 0.50;
+    deliveryWeight = 0.50;
+  } else if (itype === "hr") {
+    // 40% Content, 60% Delivery
+    contentScore = 0.40 * words + 0.40 * expl + 0.20 * tech;
+    contentWeight = 0.40;
+    deliveryWeight = 0.60;
+  } else if (itype === "negotiation") {
+    // 55% Content, 45% Delivery
+    contentScore = 0.50 * neg + 0.25 * words + 0.25 * expl;
+    contentWeight = 0.55;
+    deliveryWeight = 0.45;
+  } else {
+    contentScore = 0.40 * tech + 0.35 * expl + 0.25 * words;
+    contentWeight = 0.50;
+    deliveryWeight = 0.50;
+  }
+
+  const blended = (contentWeight * contentScore) + (deliveryWeight * deliveryScore);
+  return Math.round(Math.max(0, Math.min(100, blended)) * 10) / 10;
+}
+
 export default function DashboardClient() {
   const { theme } = useTheme();
   const params = useSearchParams();
@@ -191,7 +279,7 @@ export default function DashboardClient() {
         const resolvedItemEye = itemEye > 0 ? itemEye : (item.confidence_score ? Math.min(90, Math.max(55, Math.round(Number(item.confidence_score)))) : 70);
         return {
           name: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : `#${idx + 1}`,
-          confidence: Number(item.confidence_score || 0),
+          confidence: computeBlendedScore(item),
           eye: resolvedItemEye,
           fluency: Number(item.fluency_score || 50),
           technical: Number(item.technical_knowledge_score || 50),
@@ -217,10 +305,10 @@ export default function DashboardClient() {
   }, [trendsData]);
 
   const confidenceTrend = useMemo(() => {
-    const scoreVal = Number(data?.confidence_score || 0);
+    const scoreVal = computeBlendedScore(data);
     const prevSession = historyData && historyData.length > 1 ? historyData[1] : null;
     if (!prevSession) return null;
-    const prevVal = Number(prevSession.confidence_score || 0);
+    const prevVal = computeBlendedScore(prevSession);
     const diff = scoreVal - prevVal;
     return {
       diff,
@@ -296,7 +384,7 @@ export default function DashboardClient() {
     return <p className="error-text centered">{error}</p>;
   }
 
-  const score = Number(data?.confidence_score || 0);
+  const score = computeBlendedScore(data);
   const hasCodingScores = data?.code_quality_score != null;
   const codingFeedback = nonTechnicalFeedback?.coding_feedback || null;
 
