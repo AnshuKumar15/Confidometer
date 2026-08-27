@@ -59,26 +59,36 @@ export default function AutoApplyDashboard() {
             <h3 className="aa-card-title"><BarChart2 size={20} color="var(--teal)" /> Status Distribution</h3>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {Object.entries(stats?.status_distribution || {}).map(([key, val]) => (
-              <div key={key}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
-                  <span>{key}</span>
-                  <span>{val}</span>
-                </div>
-                <div style={{ height: 8, width: "100%", borderRadius: 4, background: "var(--surface-strong)", overflow: "hidden" }}>
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${Math.min(100, (val / Math.max(1, stats?.total_jobs_found || 1)) * 100)}%`,
-                      background: "linear-gradient(90deg, var(--teal), #14b8a6)",
-                      borderRadius: 4
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+            {(() => {
+              const totalApps = Object.values(stats?.status_distribution || {}).reduce((a, b) => a + b, 0);
+              return Object.entries(stats?.status_distribution || {}).map(([key, val]) => {
+                const pct = totalApps > 0 ? Math.round((val / totalApps) * 100) : 0;
+                return (
+                  <div key={key}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
+                      <span>{key}</span>
+                      <span>
+                        {val}{" "}
+                        <span style={{ fontSize: "0.75rem", color: "var(--muted)", fontWeight: 500 }}>
+                          ({pct}%)
+                        </span>
+                      </span>
+                    </div>
+                    <div style={{ height: 8, width: "100%", borderRadius: 4, background: "var(--surface-strong)", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${pct}%`,
+                          background: "linear-gradient(90deg, var(--teal), #14b8a6)",
+                          borderRadius: 4,
+                          transition: "width 0.4s ease"
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              });
+            })()}
         </div>
 
         {/* System Activity Timeline */}

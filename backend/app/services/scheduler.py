@@ -47,6 +47,7 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         "preferred_salary": prefs_model.preferred_salary,
         "blacklisted_companies": prefs_model.blacklisted_companies or [],
         "blocked_keywords": prefs_model.blocked_keywords or [],
+        "experience_level": prefs_model.experience_level or "0-1 year",
         "min_match_score": 0.0
     }
 
@@ -104,7 +105,10 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         existing_matched_job_ids.add(db_job.id)
 
         match_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_data)
-        if match_res["overall_score"] > 0:
+        # If the matcher explicitly skipped the job (e.g. location/experience mismatch), preserve skipped
+        if match_res.get("status") == "skipped":
+            pass
+        elif match_res["overall_score"] > 0:
             match_res["status"] = "matched"
             match_res["skip_reason"] = None
 

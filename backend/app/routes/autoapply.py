@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.database import get_db
 from app.utils.security import get_current_user, get_optional_current_user
@@ -22,6 +22,8 @@ from app.schema.autoapply_schema import (
 )
 from app.services.resume_parser import parse_resume_file
 from app.services.scheduler import run_autoapply_cycle_for_user
+from app.services.job_discovery import generate_job_fingerprint
+from app.services.job_matcher import JobMatcher
 
 router = APIRouter()
 
@@ -158,15 +160,32 @@ def update_preferences(
 @router.get("/jobs", response_model=List[JobMatchResponse])
 def get_discovered_jobs(
     status: Optional[str] = None,
-    limit: int = 50,
+    platform: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
     offset: int = 0,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(JobMatch).join(DiscoveredJob).filter(JobMatch.user_id == current_user.id)
-    if status:
+    if status and status != "all":
         query = query.filter(JobMatch.status == status)
-    return query.order_by(DiscoveredJob.id.desc(), JobMatch.created_at.desc()).offset(offset).limit(limit).all()
+    if platform and platform.lower() != "all":
+        p = platform.strip().lower()
+        if p == "foundit":
+            query = query.filter((DiscoveredJob.source_platform.ilike("%foundit%")) | (DiscoveredJob.source_platform.ilike("%monster%")))
+        elif p == "indeed":
+            query = query.filter((DiscoveredJob.source_platform.ilike("%indeed%")) | (DiscoveredJob.source_platform == "jsearch"))
+        else:
+            query = query.filter(DiscoveredJob.source_platform.ilike(f"%{p}%"))
+    if search and search.strip():
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            (DiscoveredJob.title.ilike(s)) |
+            (DiscoveredJob.company.ilike(s)) |
+            (DiscoveredJob.location.ilike(s))
+        )
+    return query.order_by(JobMatch.overall_score.desc(), DiscoveredJob.id.desc()).offset(offset).limit(limit).all()
 
 @router.post("/jobs/search")
 async def trigger_job_search(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -196,6 +215,7 @@ async def trigger_job_search(current_user: User = Depends(get_current_user), db:
 
     await run_autoapply_cycle_for_user(db, config)
     return {"message": "Job discovery cycle completed"}
+
 
 @router.put("/jobs/{match_id}/status", response_model=JobMatchResponse)
 def update_job_match_status(
@@ -338,16 +358,22 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), db: Sess
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     apps_today = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= today_start).count()
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+    apps_week = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= week_start).count()
+    apps_month = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= month_start).count()
 
     total_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id).count()
     matched_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "matched").count()
     skipped_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "skipped").count()
     saved_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "saved").count()
 
-    total_applied = db.query(Application).filter(Application.user_id == user_id, Application.status.in_(["ready", "submitted"])).count()
+    ready_apps = db.query(Application).filter(Application.user_id == user_id, Application.status == "ready").count()
+    submitted_apps = db.query(Application).filter(Application.user_id == user_id, Application.status == "submitted").count()
     interviews = db.query(Application).filter(Application.user_id == user_id, Application.status == "interview").count()
     offers = db.query(Application).filter(Application.user_id == user_id, Application.status == "offer").count()
     rejections = db.query(Application).filter(Application.user_id == user_id, Application.status == "rejected").count()
+    total_applied = ready_apps + submitted_apps + interviews + offers + rejections
 
     config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == user_id).first()
     enabled = config.enabled if config else False
@@ -357,26 +383,37 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), db: Sess
     scores = [m[0] for m in matches if m[0] is not None]
     avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
 
+    # Aggregate real missing skills from user's matched jobs
+    from collections import Counter
+    missing_counter = Counter()
+    match_skills = db.query(JobMatch.missing_skills).filter(JobMatch.user_id == user_id, JobMatch.status == "matched").all()
+    for (m_list,) in match_skills:
+        if isinstance(m_list, list):
+            for s in m_list:
+                if s and isinstance(s, str):
+                    missing_counter[s.strip().title()] += 1
+    top_missing = [{"skill": k, "count": v} for k, v in missing_counter.most_common(5)]
+
     return {
         "applications_today": apps_today,
-        "applications_this_week": apps_today * 3,
-        "applications_this_month": apps_today * 10,
+        "applications_this_week": apps_week,
+        "applications_this_month": apps_month,
         "total_jobs_found": total_jobs,
         "total_jobs_matched": matched_jobs,
         "total_jobs_applied": total_applied,
         "total_jobs_skipped": skipped_jobs,
         "total_jobs_saved": saved_jobs,
-        "pending_applications": db.query(Application).filter(Application.user_id == user_id, Application.status == "ready").count(),
+        "pending_applications": ready_apps,
         "interviews": interviews,
         "offers": offers,
         "rejections": rejections,
         "average_match_score": avg_score,
-        "success_rate": round(((interviews + offers) / max(1, total_applied)) * 100, 1),
+        "success_rate": round(((interviews + offers) / max(1, total_applied)) * 100, 1) if total_applied > 0 else 0.0,
         "automation_enabled": enabled,
-        "top_missing_skills": [{"skill": "Docker", "count": 4}, {"skill": "Kubernetes", "count": 3}],
+        "top_missing_skills": top_missing,
         "status_distribution": {
-            "Ready": db.query(Application).filter(Application.user_id == user_id, Application.status == "ready").count(),
-            "Submitted": db.query(Application).filter(Application.user_id == user_id, Application.status == "submitted").count(),
+            "Ready": ready_apps,
+            "Submitted": submitted_apps,
             "Interview": interviews,
             "Offer": offers,
             "Rejected": rejections

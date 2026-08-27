@@ -119,7 +119,7 @@ export default function AutoApplyHub() {
             <Sparkles size={16} />
             {searching ? "Searching Jobs..." : "Run Job Search Now"}
           </button>
-          <Link href="/autoapply/onboarding" className="aa-btn aa-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: "0.85rem" }} title="Re-run the step-by-step setup wizard">
+          <Link href="/autoapply/onboarding?reset=true" className="aa-btn aa-btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", fontSize: "0.85rem" }} title="Re-run the step-by-step setup wizard">
             <Sliders size={15} /> Re-run Setup
           </Link>
           <Link href="/autoapply/settings" className="aa-btn aa-btn-secondary" style={{ padding: "10px" }} title="Settings">

@@ -132,9 +132,21 @@ export function updatePreferences(prefsData) {
   });
 }
 
-export function getDiscoveredJobs(status = null) {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  return request(`/autoapply/jobs${query}`);
+export function getDiscoveredJobs(filterOrOptions = {}) {
+  const params = new URLSearchParams();
+  if (typeof filterOrOptions === "string" || filterOrOptions === null) {
+    if (filterOrOptions && filterOrOptions !== "all") params.append("status", filterOrOptions);
+    params.append("limit", "100");
+  } else {
+    const { status, platform, search, limit = 100, offset = 0 } = filterOrOptions;
+    if (status && status !== "all") params.append("status", status);
+    if (platform && platform !== "all") params.append("platform", platform);
+    if (search && search.trim()) params.append("search", search.trim());
+    if (limit) params.append("limit", limit);
+    if (offset) params.append("offset", offset);
+  }
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return request(`/autoapply/jobs${qs}`);
 }
 
 export function triggerJobSearch() {

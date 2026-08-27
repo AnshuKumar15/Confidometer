@@ -18,7 +18,12 @@ const bodyFont = Plus_Jakarta_Sans({
 
 export const metadata = {
   title: "Confidometer - AI Interview Agent",
-  description: "AI interview confidence analysis"
+  description: "AI interview confidence analysis and job matching platform",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/logo.svg"
+  }
 };
 
 export const viewport = {

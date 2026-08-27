@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { getTrends } from "@/utils/api";
 import { useTheme } from "@/components/ThemeProvider";
+import BrandLogo from "@/components/BrandLogo";
 
 const links = [
   { href: "/", label: "Home", icon: Home },
@@ -149,9 +150,8 @@ export default function Navbar() {
   return (
     <header className={`nav-wrap ${navVisible ? "" : "nav-hidden"}`}>
       <nav className="nav glass">
-        <Link href="/" className="brand">
-          <span className="brand-dot" />
-          Confidometer
+        <Link href="/" className="brand" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+          <BrandLogo size={32} showText={true} />
         </Link>
 
         <div className="nav-links">
@@ -319,9 +319,8 @@ export default function Navbar() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mobile-menu-header">
-              <Link href="/" className="brand" onClick={() => setMobileMenuOpen(false)}>
-                <span className="brand-dot" />
-                Confidometer
+              <Link href="/" className="brand" onClick={() => setMobileMenuOpen(false)} style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                <BrandLogo size={28} showText={true} />
               </Link>
               <button
                 type="button"

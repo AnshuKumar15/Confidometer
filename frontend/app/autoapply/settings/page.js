@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { getAutoApplyConfig, updateAutoApplyConfig, getPreferences, updatePreferences } from "@/utils/autoapply_api";
 import { Sliders, Key, Save } from "lucide-react";
 import { useToast } from "@/components/Toast";
@@ -155,9 +156,9 @@ export default function AutoApplySettingsPage() {
               Re-enter your target roles, salary range in INR, work modes, and job search goals anytime.
             </p>
           </div>
-          <a href="/autoapply/onboarding" className="aa-btn aa-btn-secondary" style={{ padding: "10px 18px", fontSize: "0.85rem", whiteSpace: "nowrap" }}>
+          <Link href="/autoapply/onboarding?reset=true" className="aa-btn aa-btn-secondary" style={{ padding: "10px 18px", fontSize: "0.85rem", whiteSpace: "nowrap" }}>
             Re-run Setup Wizard ⚙️
-          </a>
+          </Link>
         </div>
       </div>
 

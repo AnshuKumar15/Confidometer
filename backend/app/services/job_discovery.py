@@ -1,3 +1,4 @@
+import os
 import hashlib
 import json
 import httpx
@@ -5,6 +6,7 @@ import re
 import urllib.parse
 from typing import List, Dict, Any
 from datetime import datetime, timezone
+from app.config import settings
 
 def generate_job_fingerprint(title: str, company: str, location: str = "") -> str:
     """Generate SHA256 hash for job deduplication."""
@@ -94,24 +96,96 @@ class JobDiscoveryEngine:
         return jobs
 
     async def fetch_jsearch_jobs(self, query: str, location: str = "") -> List[Dict[str, Any]]:
-        """Tier 2: JSearch API via RapidAPI (Requires API Key)."""
-        rapidapi_key = self.user_api_keys.get("rapidapi_key") or self.user_api_keys.get("jsearch_key")
+        """Tier 2: JSearch API via RapidAPI (Aggregates Indeed, LinkedIn, Glassdoor, ZipRecruiter)."""
+        rapidapi_key = (
+            self.user_api_keys.get("rapidapi_key") or
+            self.user_api_keys.get("jsearch_key") or
+            getattr(settings, "RAPIDAPI_KEY", None) or
+            os.environ.get("RAPIDAPI_KEY")
+        )
         if not rapidapi_key:
             return []
 
         jobs = []
         try:
-            url = "https://jsearch.p.rapidapi.com/search"
+            url = "https://jsearch.p.rapidapi.com/search-v2"
             headers = {
                 "X-RapidAPI-Key": rapidapi_key,
                 "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
             }
             params = {"query": f"{query} in {location}".strip(), "num_pages": "1"}
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                res = await client.get(url, headers=headers, params=params)
+                if res.status_code != 200:
+                    res = await client.get("https://jsearch.p.rapidapi.com/search", headers=headers, params=params)
+
+                if res.status_code == 200:
+                    raw_json = res.json()
+                    raw_data = raw_json.get("data", [])
+                    items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
+                    for item in items:
+                        title = item.get("job_title", "")
+                        company = item.get("employer_name", "")
+                        loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
+                        fingerprint = generate_job_fingerprint(title, company, loc)
+                        
+                        pub_lower = (item.get("job_publisher") or "").lower()
+                        if "indeed" in pub_lower:
+                            source = "indeed"
+                        elif "foundit" in pub_lower or "monster" in pub_lower:
+                            source = "foundit"
+                        elif "linkedin" in pub_lower:
+                            source = "linkedin"
+                        elif "glassdoor" in pub_lower:
+                            source = "glassdoor"
+                        elif "ziprecruiter" in pub_lower:
+                            source = "ziprecruiter"
+                        else:
+                            source = "indeed"  # Default generic aggregator postings to indeed
+
+                        jobs.append({
+                            "title": title,
+                            "company": company,
+                            "location": loc or "Remote",
+                            "employment_type": item.get("job_employment_type", "Full-Time"),
+                            "salary_min": item.get("job_min_salary"),
+                            "salary_max": item.get("job_max_salary"),
+                            "description": item.get("job_description", ""),
+                            "required_skills": item.get("job_required_skills") or [],
+                            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
+                            "source_platform": source,
+                            "posted_date": item.get("job_posted_at_datetime_utc", ""),
+                            "fingerprint": fingerprint
+                        })
+        except Exception as e:
+            print(f"[WARN] JSearch API failed: {e}")
+        return jobs
+
+    async def fetch_indeed_jobs(self, query: str, location: str = "") -> List[Dict[str, Any]]:
+        """Fetch targeted Indeed job postings via RapidAPI JSearch."""
+        rapidapi_key = (
+            self.user_api_keys.get("rapidapi_key") or
+            self.user_api_keys.get("jsearch_key") or
+            getattr(settings, "RAPIDAPI_KEY", None) or
+            os.environ.get("RAPIDAPI_KEY")
+        )
+        if not rapidapi_key:
+            return []
+
+        jobs = []
+        try:
+            url = "https://jsearch.p.rapidapi.com/search-v2"
+            headers = {
+                "X-RapidAPI-Key": rapidapi_key,
+                "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+            }
+            params = {"query": f"{query} on Indeed in {location}".strip(), "num_pages": "1"}
+            async with httpx.AsyncClient(timeout=12.0) as client:
                 res = await client.get(url, headers=headers, params=params)
                 if res.status_code == 200:
-                    data = res.json()
-                    for item in data.get("data", []):
+                    raw_data = res.json().get("data", {})
+                    items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
+                    for item in items:
                         title = item.get("job_title", "")
                         company = item.get("employer_name", "")
                         loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
@@ -126,12 +200,59 @@ class JobDiscoveryEngine:
                             "description": item.get("job_description", ""),
                             "required_skills": item.get("job_required_skills") or [],
                             "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
-                            "source_platform": "jsearch",
+                            "source_platform": "indeed",
                             "posted_date": item.get("job_posted_at_datetime_utc", ""),
                             "fingerprint": fingerprint
                         })
         except Exception as e:
-            print(f"[WARN] JSearch API failed: {e}")
+            print(f"[WARN] Indeed fetch failed: {e}")
+        return jobs
+
+    async def fetch_foundit_jobs(self, query: str, location: str = "") -> List[Dict[str, Any]]:
+        """Fetch targeted Foundit (Monster) job postings via RapidAPI JSearch."""
+        rapidapi_key = (
+            self.user_api_keys.get("rapidapi_key") or
+            self.user_api_keys.get("jsearch_key") or
+            getattr(settings, "RAPIDAPI_KEY", None) or
+            os.environ.get("RAPIDAPI_KEY")
+        )
+        if not rapidapi_key:
+            return []
+
+        jobs = []
+        try:
+            url = "https://jsearch.p.rapidapi.com/search-v2"
+            headers = {
+                "X-RapidAPI-Key": rapidapi_key,
+                "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+            }
+            params = {"query": f"{query} on Foundit in {location}".strip(), "num_pages": "1"}
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                res = await client.get(url, headers=headers, params=params)
+                if res.status_code == 200:
+                    raw_data = res.json().get("data", {})
+                    items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
+                    for item in items:
+                        title = item.get("job_title", "")
+                        company = item.get("employer_name", "")
+                        loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
+                        fingerprint = generate_job_fingerprint(title, company, loc)
+                        jobs.append({
+                            "title": title,
+                            "company": company,
+                            "location": loc or "Remote",
+                            "employment_type": item.get("job_employment_type", "Full-Time"),
+                            "salary_min": item.get("job_min_salary"),
+                            "salary_max": item.get("job_max_salary"),
+                            "description": item.get("job_description", ""),
+                            "required_skills": item.get("job_required_skills") or [],
+                            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
+                            "source_platform": "foundit",
+                            "posted_date": item.get("job_posted_at_datetime_utc", ""),
+                            "fingerprint": fingerprint
+                        })
+        except Exception as e:
+            print(f"[WARN] Foundit fetch failed: {e}")
         return jobs
 
     async def fetch_jobicy_jobs(self, search_query: str = "") -> List[Dict[str, Any]]:
@@ -303,6 +424,136 @@ class JobDiscoveryEngine:
             print(f"[WARN] Unstop scraper failed: {e}")
         return jobs
 
+    async def fetch_instahyre_jobs(self, search_query: str = "", location: str = "Bengaluru") -> List[Dict[str, Any]]:
+        """Instahyre India Tech Job Scraper (Live startup & product jobs, no auth required)."""
+        jobs = []
+        encoded_q = urllib.parse.quote(search_query or "Software Engineer")
+        encoded_loc = urllib.parse.quote(location if location else "Bangalore")
+        url = f"https://www.instahyre.com/api/v1/job_search?designation={encoded_q}&city={encoded_loc}&count=25"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*"
+        }
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                res = await client.get(url, headers=headers, follow_redirects=True)
+                if res.status_code == 200:
+                    data = res.json()
+                    for item in data.get("objects", []):
+                        title = item.get("title") or item.get("candidate_title")
+                        company = item.get("employer", {}).get("company_name", "Tech Startup")
+                        if not title:
+                            continue
+
+                        loc_list = item.get("locations", [])
+                        loc_str = ", ".join(loc_list) if isinstance(loc_list, list) and loc_list else location
+                        app_url = item.get("public_url") or f"https://www.instahyre.com/job-{item.get('id', '')}"
+
+                        raw_keywords = item.get("keywords") or []
+                        skills = raw_keywords if isinstance(raw_keywords, list) else [search_query]
+
+                        fingerprint = generate_job_fingerprint(title, company, loc_str)
+                        jobs.append({
+                            "title": title,
+                            "company": company,
+                            "location": loc_str,
+                            "employment_type": "Full-Time",
+                            "salary_min": None,
+                            "salary_max": None,
+                            "description": f"{title} role at {company} in {loc_str}. Required skills: {', '.join(skills[:5])}. Direct application via Instahyre.",
+                            "required_skills": skills,
+                            "application_url": app_url,
+                            "source_platform": "instahyre",
+                            "posted_date": item.get("reviewed_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            "fingerprint": fingerprint
+                        })
+        except Exception as e:
+            print(f"[WARN] Instahyre scraper failed: {e}")
+        return jobs
+
+    async def fetch_wellfound_jobs(self, search_query: str = "", location: str = "Bengaluru") -> List[Dict[str, Any]]:
+        """Wellfound (AngelList) Startup Job Scraper (Live startup roles in India & Remote)."""
+        jobs = []
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", (search_query or "software-engineer").lower()).strip("-")
+        loc_slug = "bengaluru-bangalore" if "bengaluru" in location.lower() or "bangalore" in location.lower() else "india"
+        url = f"https://wellfound.com/role/l/{slug}/{loc_slug}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                res = await client.get(url, headers=headers, follow_redirects=True)
+                if res.status_code == 200:
+                    job_pattern = re.findall(r'href="(/jobs/(\d+)-([^"]+))"[^>]*>([^<]+)</a>', res.text)
+                    for full_path, job_id, job_slug, link_text in job_pattern[:20]:
+                        title = link_text.strip() or job_slug.replace("-", " ").title()
+                        app_url = f"https://wellfound.com{full_path}"
+                        company = "YC / Venture-Backed Startup"
+                        # Try finding company from link or text
+                        m_comp = re.search(rf'href="(/company/[^"]+)"[^>]*>([^<]+)</a>', res.text)
+                        if m_comp:
+                            company = m_comp.group(2).strip()
+
+                        fingerprint = generate_job_fingerprint(title, company, location)
+                        jobs.append({
+                            "title": title,
+                            "company": company,
+                            "location": location,
+                            "employment_type": "Full-Time",
+                            "salary_min": None,
+                            "salary_max": None,
+                            "description": f"{title} startup position at {company} in {location}. Direct link on Wellfound.",
+                            "required_skills": [search_query] if search_query else ["Startups", "Software Engineering"],
+                            "application_url": app_url,
+                            "source_platform": "wellfound",
+                            "posted_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            "fingerprint": fingerprint
+                        })
+        except Exception as e:
+            print(f"[WARN] Wellfound scraper failed: {e}")
+        return jobs
+
+    async def fetch_remoteok_jobs(self, search_query: str = "") -> List[Dict[str, Any]]:
+        """RemoteOK Free Public API (Global remote tech jobs)."""
+        jobs = []
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        try:
+            url = "https://remoteok.com/api"
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                res = await client.get(url, headers=headers)
+                if res.status_code == 200:
+                    data = res.json()
+                    for item in data[1:35]: # Skip disclaimer header object
+                        if not isinstance(item, dict):
+                            continue
+                        title = item.get("position", "")
+                        company = item.get("company", "")
+                        location = item.get("location", "Remote")
+                        if search_query and search_query.lower() not in title.lower() and search_query.lower() not in item.get("description", "").lower():
+                            continue
+
+                        fingerprint = generate_job_fingerprint(title, company, location)
+                        jobs.append({
+                            "title": title,
+                            "company": company,
+                            "location": location or "Remote",
+                            "employment_type": "Full-Time",
+                            "salary_min": item.get("salary_min"),
+                            "salary_max": item.get("salary_max"),
+                            "description": item.get("description", ""),
+                            "required_skills": item.get("tags", []),
+                            "application_url": item.get("url", ""),
+                            "source_platform": "remoteok",
+                            "posted_date": str(item.get("date", "")),
+                            "fingerprint": fingerprint
+                        })
+        except Exception as e:
+            print(f"[WARN] RemoteOK API failed: {e}")
+        return jobs
+
     async def discover_jobs(self, job_titles: List[str], locations: List[str] = None) -> List[Dict[str, Any]]:
         """Discover jobs from all available tiers, deduplicate, and sort NEWEST FIRST."""
         all_jobs = []
@@ -315,15 +566,19 @@ class JobDiscoveryEngine:
 
         for title in titles[:4]:
             for loc in target_locations:
-                # Fetch concurrently for every selected title and location across platforms
                 linkedin_jobs = await self.fetch_linkedin_guest_jobs(title, loc)
+                indeed_jobs = await self.fetch_indeed_jobs(title, loc)
+                foundit_jobs = await self.fetch_foundit_jobs(title, loc)
+                instahyre_jobs = await self.fetch_instahyre_jobs(title, loc)
+                wellfound_jobs = await self.fetch_wellfound_jobs(title, loc)
                 unstop_jobs = await self.fetch_unstop_jobs(title, loc)
+                remoteok_jobs = await self.fetch_remoteok_jobs(title)
                 remotive_jobs = await self.fetch_remotive_jobs(title)
                 arbeitnow_jobs = await self.fetch_arbeitnow_jobs(title)
                 jobicy_jobs = await self.fetch_jobicy_jobs(title)
                 jsearch_jobs = await self.fetch_jsearch_jobs(title, loc)
 
-                for job_list in [linkedin_jobs, unstop_jobs, remotive_jobs, arbeitnow_jobs, jobicy_jobs, jsearch_jobs]:
+                for job_list in [linkedin_jobs, indeed_jobs, foundit_jobs, instahyre_jobs, wellfound_jobs, unstop_jobs, remoteok_jobs, remotive_jobs, arbeitnow_jobs, jobicy_jobs, jsearch_jobs]:
                     for j in job_list:
                         fp = j["fingerprint"]
                         if fp not in fingerprints_seen:

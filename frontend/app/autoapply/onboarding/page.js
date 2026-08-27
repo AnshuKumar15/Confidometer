@@ -97,10 +97,14 @@ export default function OnboardingWizard() {
   // 1. Load draft from sessionStorage or pre-fill existing account profile
   useEffect(() => {
     async function loadData() {
-      // Check for local draft in sessionStorage first
       if (typeof window !== "undefined") {
+        const isReset = new URLSearchParams(window.location.search).get("reset") === "true";
+        if (isReset) {
+          sessionStorage.removeItem("confidometer_autoapply_draft");
+        }
+
         const rawDraft = sessionStorage.getItem("confidometer_autoapply_draft");
-        if (rawDraft) {
+        if (rawDraft && !isReset) {
           try {
             const draft = JSON.parse(rawDraft);
             if (draft.profile) setProfile(draft.profile);
@@ -134,7 +138,7 @@ export default function OnboardingWizard() {
         }
       }
 
-      // If logged in and no draft was present, load server profile
+      // If logged in and no draft was present (or resetting), load server profile
       if (isAuthed()) {
         try {
           const existingProf = await getProfile();
@@ -151,7 +155,7 @@ export default function OnboardingWizard() {
       }
     }
     loadData();
-  }, [router, toast]);
+  }, []); // Run only once on mount to prevent toast from resetting step
 
   // 2. Persist draft to sessionStorage on every change
   useEffect(() => {
@@ -179,21 +183,38 @@ export default function OnboardingWizard() {
     setParsing(true);
     try {
       const data = await parseResume(file);
-      setProfile((prev) => ({
-        ...prev,
-        name: data.name || "",
-        email: data.email || "",
-        phone: data.phone || "",
-        skills: data.skills || [],
-        technical_skills: data.technical_skills || [],
-        soft_skills: data.soft_skills || [],
-        work_experience: data.work_experience || [],
-        education: data.education || [],
-        github: data.github || "",
-        linkedin: data.linkedin || "",
-        portfolio: data.portfolio || "",
-        career_goals: data.career_goals || ""
-      }));
+      const updatedProfile = {
+        ...profile,
+        name: data.name || profile.name || "",
+        email: data.email || profile.email || "",
+        phone: data.phone || profile.phone || "",
+        skills: data.skills || profile.skills || [],
+        technical_skills: data.technical_skills || profile.technical_skills || [],
+        soft_skills: data.soft_skills || profile.soft_skills || [],
+        work_experience: data.work_experience || profile.work_experience || [],
+        education: data.education || profile.education || [],
+        github: data.github || profile.github || "",
+        linkedin: data.linkedin || profile.linkedin || "",
+        portfolio: data.portfolio || profile.portfolio || "",
+        career_goals: data.career_goals || profile.career_goals || ""
+      };
+      setProfile(updatedProfile);
+
+      // Persist step 1 immediately into sessionStorage
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(
+            "confidometer_autoapply_draft",
+            JSON.stringify({
+              profile: updatedProfile,
+              preferences,
+              config,
+              currentStep: 1
+            })
+          );
+        } catch (err) {}
+      }
+
       toast.success("Resume parsed successfully!");
       setCurrentStep(1);
     } catch (err) {
@@ -320,6 +341,28 @@ export default function OnboardingWizard() {
           <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text)", margin: 0, opacity: 0.9 }}>
             {parsing ? "Parsing resume with AI, please wait..." : "Click the arrow above to select your PDF or TXT resume (Max 10MB)"}
           </p>
+
+          {/* Profile Detected & Continue Option */}
+          {(profile.name || (profile.skills && profile.skills.length > 0) || profile.email) && !parsing && (
+            <div style={{ marginTop: 24, padding: "16px 20px", borderRadius: 16, background: "rgba(45, 212, 191, 0.08)", border: "1px solid rgba(45, 212, 191, 0.3)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14, maxWidth: 520, margin: "24px auto 0" }}>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: "0.9rem", fontWeight: 800, color: "var(--teal)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Check size={16} /> Profile Ready: {profile.name || profile.email || "Detected"}
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: 2 }}>
+                  {profile.skills?.length || 0} skills detected
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="aa-btn aa-btn-primary"
+                style={{ padding: "8px 18px", fontSize: "0.85rem" }}
+              >
+                Continue to Goals <ArrowRight size={15} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

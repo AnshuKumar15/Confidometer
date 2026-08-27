@@ -34,6 +34,21 @@ export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied })
               </span>
               <span>•</span>
               <span className="aa-badge-tag">{job.source_platform.toUpperCase()}</span>
+              {matchItem.match_reasons?.some((r) => r.toLowerCase().includes("open experience")) ? (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag" style={{ border: "1px solid rgba(45, 212, 191, 0.4)", color: "var(--teal)" }}>
+                    Open Exp
+                  </span>
+                </>
+              ) : matchItem.match_reasons?.some((r) => r.toLowerCase().includes("early-career") || r.toLowerCase().includes("entry-level")) ? (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag matched" style={{ fontSize: "0.74rem" }}>
+                    0-1 Yr
+                  </span>
+                </>
+              ) : null}
               {job.posted_date && (
                 <>
                   <span>•</span>
