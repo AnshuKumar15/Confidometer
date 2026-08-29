@@ -19,10 +19,18 @@ const bodyFont = Plus_Jakarta_Sans({
 export const metadata = {
   title: "Confidometer - AI Interview Agent",
   description: "AI interview confidence analysis and job matching platform",
+  metadataBase: new URL("https://www.confidometer.online"),
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
-    apple: "/logo.svg"
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/favicon-48x48.png", sizes: "48x48", type: "image/png" },
+      { url: "/icon-96x96.png", sizes: "96x96", type: "image/png" },
+      { url: "/favicon.svg", type: "image/svg+xml" }
+    ],
+    shortcut: "/favicon.ico",
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }
+    ]
   }
 };
 

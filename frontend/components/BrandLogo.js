@@ -30,44 +30,44 @@ export default function BrandLogo({ size = 32, showText = true, className = "" }
           </linearGradient>
         </defs>
 
-        {/* Orange Badge with Rounded Left Corners and Right Notch */}
+        {/* Orange Badge with Pointy End on Left and Balanced Notch */}
         <path
-          d="M 96 48 
-             L 432 48 
-             A 20 20 0 0 1 450 76 
-             L 366 244 
-             Q 354 256 366 268 
-             L 450 436 
-             A 20 20 0 0 1 432 464 
-             L 96 464 
-             A 48 48 0 0 1 48 416 
-             L 48 96 
-             A 48 48 0 0 1 96 48 Z"
+          d="M 416 48 
+             L 88 48 
+             A 20 20 0 0 0 70 76 
+             L 122 244 
+             Q 130 256 122 268 
+             L 70 436 
+             A 20 20 0 0 0 88 464 
+             L 416 464 
+             A 48 48 0 0 0 464 416 
+             L 464 96 
+             A 48 48 0 0 0 416 48 Z"
           fill="url(#exactNavGrad)"
         />
 
-        {/* Three Concentric "C" Hemispheres */}
+        {/* Three Concentric "C" Hemispheres with Generous Spacing */}
         {/* Outer Arc */}
         <path
-          d="M 333 137 A 145 145 0 1 0 333 375"
+          d="M 380 153 A 126 126 0 1 0 380 359"
           stroke="#FFFFFF"
-          strokeWidth="32"
+          strokeWidth="28"
           strokeLinecap="round"
         />
 
         {/* Middle Arc */}
         <path
-          d="M 306 176 A 98 98 0 1 0 306 336"
+          d="M 355 186 A 85 85 0 1 0 355 326"
           stroke="#FFFFFF"
-          strokeWidth="30"
+          strokeWidth="26"
           strokeLinecap="round"
         />
 
         {/* Inner Arc */}
         <path
-          d="M 280 213 A 52 52 0 1 0 280 299"
+          d="M 330 220 A 45 45 0 1 0 330 292"
           stroke="#FFFFFF"
-          strokeWidth="28"
+          strokeWidth="24"
           strokeLinecap="round"
         />
       </svg>
