@@ -144,7 +144,17 @@ async def lifespan(app: FastAPI):
     yield
     stop_scheduler()
 
+from app.rate_limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
 app = FastAPI(lifespan=lifespan)
+
+# ── Rate Limiting ──
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 from fastapi.staticfiles import StaticFiles
 import os

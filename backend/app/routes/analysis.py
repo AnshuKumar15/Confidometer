@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.speech import Speech
 from app.utils.security import get_current_user
+from app.rate_limiter import limiter, RATE_STANDARD
 
 router = APIRouter()
 
 
 
 @router.get("/history")
+@limiter.limit(RATE_STANDARD)
 def get_user_history(
+    request: Request,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -51,7 +54,9 @@ def get_user_history(
 
 
 @router.get("/{speech_id}")
+@limiter.limit(RATE_STANDARD)
 def get_analysis(
+    request: Request,
     speech_id: int,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)

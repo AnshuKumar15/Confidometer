@@ -1,9 +1,10 @@
 import os
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from app.rate_limiter import limiter, RATE_SEARCH, RATE_UPLOAD, RATE_STANDARD
 
 from app.database import get_db
 from app.utils.security import get_current_user, get_optional_current_user
@@ -24,6 +25,7 @@ from app.services.resume_parser import parse_resume_file
 from app.services.scheduler import run_autoapply_cycle_for_user
 from app.services.job_discovery import generate_job_fingerprint
 from app.services.job_matcher import JobMatcher
+from app.services.feedback_learner import FeedbackLearner
 
 router = APIRouter()
 
@@ -33,7 +35,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ── ONBOARDING & RESUME PARSING ──
 
 @router.post("/resume/parse")
+@limiter.limit(RATE_UPLOAD)
 async def parse_resume_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     current_user: Optional[User] = Depends(get_optional_current_user)
 ):
@@ -50,7 +54,9 @@ async def parse_resume_endpoint(
     return parsed_profile
 
 @router.post("/onboard")
+@limiter.limit(RATE_STANDARD)
 def complete_onboarding(
+    request: Request,
     payload: OnboardingCompleteRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -107,14 +113,17 @@ def complete_onboarding(
 # ── PROFILE & PREFERENCES ──
 
 @router.get("/profile")
-def get_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_profile(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     profile = db.query(CandidateProfile).filter(CandidateProfile.user_id == current_user.id).first()
     if not profile:
         return None
     return profile
 
 @router.put("/profile", response_model=CandidateProfileResponse)
+@limiter.limit(RATE_STANDARD)
 def update_profile(
+    request: Request,
     payload: CandidateProfileUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -131,14 +140,17 @@ def update_profile(
     return profile
 
 @router.get("/preferences")
-def get_preferences(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_preferences(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     prefs = db.query(UserPreferences).filter(UserPreferences.user_id == current_user.id).first()
     if not prefs:
         return None
     return prefs
 
 @router.put("/preferences", response_model=UserPreferencesResponse)
+@limiter.limit(RATE_STANDARD)
 def update_preferences(
+    request: Request,
     payload: UserPreferencesUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -158,7 +170,9 @@ def update_preferences(
 # ── DISCOVERED JOBS & MATCHES ──
 
 @router.get("/jobs", response_model=List[JobMatchResponse])
+@limiter.limit(RATE_STANDARD)
 def get_discovered_jobs(
+    request: Request,
     status: Optional[str] = None,
     platform: Optional[str] = None,
     search: Optional[str] = None,
@@ -188,7 +202,8 @@ def get_discovered_jobs(
     return query.order_by(JobMatch.overall_score.desc(), DiscoveredJob.id.desc()).offset(offset).limit(limit).all()
 
 @router.post("/jobs/search")
-async def trigger_job_search(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_SEARCH)
+async def trigger_job_search(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Trigger manual job search and evaluation cycle."""
     config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == current_user.id).first()
     if not config:
@@ -200,25 +215,62 @@ async def trigger_job_search(current_user: User = Depends(get_current_user), db:
     config.min_match_score = 0.0  # type: ignore
     db.commit()
 
-    # Convert any old threshold-skipped matches with overall_score > 0 to 'matched'
-    old_matches = db.query(JobMatch).filter(JobMatch.user_id == current_user.id).all()
-    for m in old_matches:
-        if m.skip_reason and "below threshold" in m.skip_reason.lower():
-            m.status = "matched"
-            m.skip_reason = None
-        elif m.job:
-            loc = (m.job.location or "").lower()
-            if any(foreign in loc for foreign in ["england", "uk", "united kingdom", "germany"]) and not any(in_loc in loc for in_loc in ["india", "bengaluru", "bangalore"]):
-                m.status = "skipped"
-                m.skip_reason = "Location mismatch: foreign location (UK/England/Germany)"
-    db.commit()
+    # Re-evaluate all existing non-applied matches against updated matcher rules
+    prefs_model = db.query(UserPreferences).filter(UserPreferences.user_id == current_user.id).first()
+    profile_model = db.query(CandidateProfile).filter(CandidateProfile.user_id == current_user.id).first()
+    if prefs_model and profile_model:
+        profile_dict = {
+            "name": profile_model.name,
+            "skills": profile_model.skills or [],
+            "technical_skills": profile_model.technical_skills or [],
+            "soft_skills": profile_model.soft_skills or [],
+            "work_experience": profile_model.work_experience or [],
+            "projects": profile_model.projects or [],
+            "education": profile_model.education or []
+        }
+        prefs_dict = {
+            "job_titles": prefs_model.job_titles or ["Software Engineer", "AI Engineer"],
+            "locations": prefs_model.locations or ["Remote"],
+            "work_modes": prefs_model.work_modes or [],
+            "min_salary": prefs_model.min_salary,
+            "preferred_salary": prefs_model.preferred_salary,
+            "blacklisted_companies": prefs_model.blacklisted_companies or [],
+            "blocked_keywords": prefs_model.blocked_keywords or [],
+            "experience_level": prefs_model.experience_level or "0-1 year",
+            "min_match_score": 0.0
+        }
+        skip_signals = FeedbackLearner.get_user_feedback_signals(current_user.id, db)
+        old_matches = db.query(JobMatch).filter(JobMatch.user_id == current_user.id).all()
+        for m in old_matches:
+            if m.job and m.status != "applied":
+                job_dict = {
+                    "title": m.job.title,
+                    "company": m.job.company,
+                    "location": m.job.location,
+                    "description": m.job.description or "",
+                    "required_skills": m.job.required_skills or []
+                }
+                eval_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_dict, skip_signals=skip_signals)
+                m.overall_score = eval_res["overall_score"]
+                m.confidence_score = eval_res["confidence_score"]
+                m.skill_match_score = eval_res["skill_match_score"]
+                m.experience_match_score = eval_res["experience_match_score"]
+                m.missing_skills = eval_res["missing_skills"]
+                m.strengths = eval_res["strengths"]
+                m.match_reasons = eval_res["match_reasons"]
+                m.rejection_reasons = eval_res["rejection_reasons"]
+                m.status = eval_res["status"]
+                m.skip_reason = eval_res["skip_reason"]
+        db.commit()
 
     await run_autoapply_cycle_for_user(db, config)
     return {"message": "Job discovery cycle completed"}
 
 
 @router.put("/jobs/{match_id}/status", response_model=JobMatchResponse)
+@limiter.limit(RATE_STANDARD)
 def update_job_match_status(
+    request: Request,
     match_id: int,
     payload: MatchStatusUpdate,
     current_user: User = Depends(get_current_user),
@@ -230,7 +282,148 @@ def update_job_match_status(
 
     match_record.status = payload.status
     if payload.skip_reason:
-        match_record.skip_reason = payload.skip_reason
+        if isinstance(payload.skip_reason, list):
+            match_record.skip_reason = ", ".join(payload.skip_reason)
+            reasons_list = payload.skip_reason
+        else:
+            match_record.skip_reason = str(payload.skip_reason)
+            reasons_list = [r.strip() for r in payload.skip_reason.split(",") if r.strip()]
+
+    # Handle Candidate Skip Feedback & Adaptive Improvement (Multi-Option Support)
+    if payload.status == "skipped" and payload.skip_reason:
+        full_reasons_str = match_record.skip_reason.lower()
+        job = match_record.job
+        triggered_any = False
+
+        # 1. No longer accepting applications / Expired link
+        if any(k in full_reasons_str for k in ["no longer", "accepting", "expired", "closed", "broken", "inactive"]):
+            triggered_any = True
+            if job:
+                job.status = "expired"
+                # Automatically skip any other active matches for this dead job
+                other_matches = db.query(JobMatch).filter(
+                    JobMatch.job_id == job.id,
+                    JobMatch.id != match_record.id,
+                    JobMatch.status == "matched"
+                ).all()
+                for om in other_matches:
+                    om.status = "skipped"
+                    om.skip_reason = "Expired posting (reported by candidate)"
+
+            log = ActivityLog(
+                user_id=current_user.id,
+                action="job_deactivated_expired",
+                details={
+                    "job_id": match_record.job_id,
+                    "title": job.title if job else "",
+                    "company": job.company if job else "",
+                    "reasons": reasons_list,
+                    "learning_action": "Marked job posting as expired; suppressed from future discovery"
+                }
+            )
+            db.add(log)
+
+        # 2. Location mismatch
+        if any(k in full_reasons_str for k in ["location", "city", "relocation", "remote", "onsite"]):
+            triggered_any = True
+            job_loc = (job.location or "").strip() if job else ""
+            cascaded_count = 0
+
+            # Immediate cascade: Auto-skip any other active matched jobs from this same rejected location
+            if job and job.location:
+                norm_loc = FeedbackLearner.normalize_str(job.location)
+                if norm_loc and norm_loc not in ["not specified", "unspecified", "none", "remote", "worldwide"]:
+                    other_loc_matches = db.query(JobMatch).join(DiscoveredJob).filter(
+                        JobMatch.user_id == current_user.id,
+                        JobMatch.id != match_record.id,
+                        JobMatch.status == "matched"
+                    ).all()
+                    for om in other_loc_matches:
+                        om_loc = FeedbackLearner.normalize_str(om.job.location if om.job else "")
+                        if om_loc and (om_loc == norm_loc or (len(norm_loc) >= 4 and (norm_loc in om_loc or om_loc in norm_loc))):
+                            om.status = "skipped"
+                            om.skip_reason = f"Location mismatch: Cascade skipped based on candidate feedback for '{job.location}'"
+                            cascaded_count += 1
+
+            log = ActivityLog(
+                user_id=current_user.id,
+                action="feedback_location_mismatch",
+                details={
+                    "job_id": match_record.job_id,
+                    "title": job.title if job else "",
+                    "location": job_loc,
+                    "reasons": reasons_list,
+                    "cascaded_skipped_count": cascaded_count,
+                    "learning_action": f"Recorded location mismatch for '{job_loc}'. Auto-cleaned {cascaded_count} other active matches."
+                }
+            )
+            db.add(log)
+
+        # 3. Job / Skill mismatch
+        if any(k in full_reasons_str for k in ["skill", "stack", "role", "tech"]):
+            triggered_any = True
+            job_title = job.title if job else ""
+            job_skills = (job.required_skills or [])[:5] if job else []
+            log = ActivityLog(
+                user_id=current_user.id,
+                action="feedback_skill_mismatch",
+                details={
+                    "job_id": match_record.job_id,
+                    "title": job_title,
+                    "skills": job_skills,
+                    "reasons": reasons_list,
+                    "learning_action": f"Recorded candidate skill/role mismatch for '{job_title}'"
+                }
+            )
+            db.add(log)
+
+        # 4. Experience mismatch
+        if any(k in full_reasons_str for k in ["experience", "seniority", "years"]):
+            triggered_any = True
+            job_title = job.title if job else ""
+            cascaded_exp_count = 0
+
+            # Immediate cascade: Auto-skip other active matches sharing the exact same seniority or title pattern
+            if job and job.title:
+                norm_title = FeedbackLearner.normalize_str(job.title)
+                if norm_title:
+                    other_exp_matches = db.query(JobMatch).join(DiscoveredJob).filter(
+                        JobMatch.user_id == current_user.id,
+                        JobMatch.id != match_record.id,
+                        JobMatch.status == "matched"
+                    ).all()
+                    for om in other_exp_matches:
+                        om_title = FeedbackLearner.normalize_str(om.job.title if om.job else "")
+                        if om_title and (om_title == norm_title or (len(norm_title) >= 6 and (norm_title in om_title or om_title in norm_title))):
+                            om.status = "skipped"
+                            om.skip_reason = f"Experience mismatch: Cascade skipped based on candidate feedback for '{job.title}'"
+                            cascaded_exp_count += 1
+
+            log = ActivityLog(
+                user_id=current_user.id,
+                action="feedback_experience_mismatch",
+                details={
+                    "job_id": match_record.job_id,
+                    "title": job_title,
+                    "reasons": reasons_list,
+                    "cascaded_skipped_count": cascaded_exp_count,
+                    "learning_action": f"Calibrating experience tier boundaries for '{job_title}'. Auto-cleaned {cascaded_exp_count} other active matches."
+                }
+            )
+            db.add(log)
+
+        # 5. General fallback
+        if not triggered_any:
+            log = ActivityLog(
+                user_id=current_user.id,
+                action="job_skipped_general",
+                details={
+                    "job_id": match_record.job_id,
+                    "title": job.title if job else "",
+                    "reasons": reasons_list
+                }
+            )
+            db.add(log)
 
     # If marked as applied, create or update Application record to 'submitted'
     if payload.status == "applied":
@@ -267,7 +460,9 @@ def update_job_match_status(
 # ── APPLICATIONS ──
 
 @router.get("/applications", response_model=List[ApplicationResponse])
+@limiter.limit(RATE_STANDARD)
 def get_applications(
+    request: Request,
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -280,7 +475,9 @@ def get_applications(
     return query.order_by(Application.created_at.desc()).offset(offset).limit(limit).all()
 
 @router.put("/applications/{app_id}/status", response_model=ApplicationResponse)
+@limiter.limit(RATE_STANDARD)
 def update_application_status(
+    request: Request,
     app_id: int,
     payload: ApplicationStatusUpdate,
     current_user: User = Depends(get_current_user),
@@ -304,7 +501,8 @@ def update_application_status(
 # ── AUTOMATION CONFIG & CONTROLS ──
 
 @router.get("/config", response_model=AutoApplyConfigResponse)
-def get_config(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_config(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == current_user.id).first()
     if not config:
         config = AutoApplyConfig(user_id=current_user.id, enabled=False)
@@ -314,7 +512,9 @@ def get_config(current_user: User = Depends(get_current_user), db: Session = Dep
     return config
 
 @router.put("/config", response_model=AutoApplyConfigResponse)
+@limiter.limit(RATE_STANDARD)
 def update_config(
+    request: Request,
     payload: AutoApplyConfigUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -331,7 +531,8 @@ def update_config(
     return config
 
 @router.post("/config/pause")
-def pause_automation(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def pause_automation(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == current_user.id).first()
     if config:
         config.enabled = False
@@ -340,7 +541,8 @@ def pause_automation(current_user: User = Depends(get_current_user), db: Session
     return {"message": "Automation paused", "enabled": False}
 
 @router.post("/config/resume")
-def resume_automation(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def resume_automation(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == current_user.id).first()
     if config:
         config.enabled = True
@@ -352,7 +554,8 @@ def resume_automation(current_user: User = Depends(get_current_user), db: Sessio
 # ── DASHBOARD & NOTIFICATIONS ──
 
 @router.get("/dashboard", response_model=DashboardStatsResponse)
-def get_dashboard_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_dashboard_stats(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user_id = current_user.id
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -421,11 +624,13 @@ def get_dashboard_stats(current_user: User = Depends(get_current_user), db: Sess
     }
 
 @router.get("/notifications", response_model=List[NotificationResponse])
-def get_notifications(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_notifications(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(AutoApplyNotification).filter(AutoApplyNotification.user_id == current_user.id).order_by(AutoApplyNotification.created_at.desc()).limit(20).all()
 
 @router.put("/notifications/{notif_id}/read")
-def mark_notification_read(notif_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def mark_notification_read(request: Request, notif_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     n = db.query(AutoApplyNotification).filter(AutoApplyNotification.id == notif_id, AutoApplyNotification.user_id == current_user.id).first()
     if n:
         n.read = True
@@ -433,5 +638,6 @@ def mark_notification_read(notif_id: int, current_user: User = Depends(get_curre
     return {"status": "success"}
 
 @router.get("/activity", response_model=List[ActivityLogResponse])
-def get_activity_log(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@limiter.limit(RATE_STANDARD)
+def get_activity_log(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(ActivityLog).filter(ActivityLog.user_id == current_user.id).order_by(ActivityLog.created_at.desc()).limit(50).all()

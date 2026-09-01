@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
 # ── Candidate Profile Schemas ──
@@ -172,7 +172,7 @@ class JobMatchResponse(BaseModel):
 
 class MatchStatusUpdate(BaseModel):
     status: str # "matched", "applied", "saved", "skipped", "rejected"
-    skip_reason: Optional[str] = None
+    skip_reason: Optional[Union[str, List[str]]] = None
 
 
 # ── Application Schemas ──

@@ -4,9 +4,10 @@ import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File, Form, HTTPException, Request
 from starlette.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
+from app.rate_limiter import limiter, RATE_STANDARD
 
 from app.database import SessionLocal, get_db
 from app.models.meeting_request import PeerInterviewRequest
@@ -34,7 +35,9 @@ ws_to_room: dict[int, str] = {}
 # -----------------------------------------------------------------------------
 
 @router.post("/request", response_model=MeetingRequestResponse)
+@limiter.limit(RATE_STANDARD)
 async def create_meeting_request(
+    request: Request,
     role: str = Form(...),
     interview_type: str = Form(...),
     company_name: str = Form(...),
@@ -86,7 +89,9 @@ async def create_meeting_request(
 
 
 @router.get("/requests/pending", response_model=list[MeetingRequestResponse])
+@limiter.limit(RATE_STANDARD)
 def get_pending_requests(
+    request: Request,
     current_user = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
@@ -98,7 +103,9 @@ def get_pending_requests(
 
 
 @router.get("/requests/my", response_model=list[MeetingRequestResponse])
+@limiter.limit(RATE_STANDARD)
 def get_my_requests(
+    request: Request,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -110,7 +117,9 @@ def get_my_requests(
 
 
 @router.post("/request/{request_id}/accept", response_model=MeetingRequestResponse)
+@limiter.limit(RATE_STANDARD)
 def accept_meeting_request(
+    request: Request,
     request_id: int,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -137,7 +146,9 @@ def accept_meeting_request(
 
 
 @router.get("/request/{request_id}/status", response_model=MeetingRequestResponse)
+@limiter.limit(RATE_STANDARD)
 def get_meeting_request_status(
+    request: Request,
     request_id: int,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -150,7 +161,9 @@ def get_meeting_request_status(
 
 
 @router.delete("/request/{request_id}")
+@limiter.limit(RATE_STANDARD)
 def delete_meeting_request(
+    request: Request,
     request_id: int,
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)

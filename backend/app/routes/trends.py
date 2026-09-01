@@ -1,11 +1,12 @@
 import json
 from datetime import date, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.speech import Speech
 from app.models.user import User
 from app.utils.security import get_current_user
+from app.rate_limiter import limiter, RATE_STANDARD
 
 router = APIRouter()
 
@@ -139,7 +140,9 @@ def _compute_badges(db: Session, user: User, speeches) -> list:
 
 
 @router.get("/")
+@limiter.limit(RATE_STANDARD)
 def get_trends(
+    request: Request,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

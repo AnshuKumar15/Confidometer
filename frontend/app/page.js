@@ -6,36 +6,10 @@ import { motion } from "framer-motion";
 import {
   ArrowRight, Sparkles, Brain, Users, Terminal,
   MessageSquare, DollarSign, Mic, Eye, TrendingUp,
-  BarChart3, Award, Zap, Target, Volume2, Video,
-  Activity, Timer, Code2, Shield, Headphones, BookOpen, Box,
-  Bot, User, ChevronDown
+  BarChart3, Award, Zap, Target, Volume2,
+  Activity, Timer, Code2, Shield, BookOpen, Box,
+  Bot, User
 } from "lucide-react";
-
-/* ── Symmetrical waveform matching the screenshot size/style but wider ── */
-function FeedbackWaveform() {
-  return (
-    <div className="lp-speak-wave-centered">
-      {[...Array(40)].map((_, i) => {
-        // Dynamic symmetric scaling for a centered look (steep gradient for big waves)
-        const factor = i < 20 ? 0.2 + (i * 0.04) : 0.2 + ((39 - i) * 0.04);
-        return (
-          <motion.div
-            key={i}
-            className="lp-wave-bar"
-            style={{ height: `${factor * 100}%` }}
-            animate={{ scaleY: [0.8, 1.2, 0.8] }}
-            transition={{
-              duration: 0.5,
-              repeat: Infinity,
-              delay: i * 0.02,
-              ease: "easeInOut",
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
 
 /* ── Interview type data ── */
 const INTERVIEW_TYPES = [
@@ -259,40 +233,8 @@ function RenderLogo({ logoType }) {
   return null;
 }
 
-const FAQS = [
-  {
-    question: "What is Confidometer and how does it work?",
-    answer: "Confidometer is an AI-powered interview preparation platform. It conducts live practice interviews across 5 distinct rounds (Technical, HR, DSA Coding, Behavioural, Salary Negotiation), analyzes your speech, vocal stability, eye contact, and response quality, and delivers instant actionable telemetry."
-  },
-  {
-    question: "Do I need a camera and microphone to practice?",
-    answer: "For real-time visual and vocal analytics (eye contact tracking, filler word counts, vocal stability), a webcam and microphone are recommended. However, you can also practice in audio-only or text response modes."
-  },
-  {
-    question: "How does the DSA Coding round work?",
-    answer: "The DSA Coding round provides 2 LeetCode problems (1 Easy + 1 Medium) with an integrated code editor, compiler sandbox (Python, JavaScript, C++, Java), automated test suite execution, and a 30-minute timer."
-  },
-  {
-    question: "Is my resume and video data stored securely?",
-    answer: "Yes, privacy is paramount. Your resume, transcripts, and recorded video chunks are encrypted, processed strictly for generating your personalized interview telemetry, and never shared with third parties."
-  },
-  {
-    question: "What is Stress Simulation Mode?",
-    answer: "Stress Mode tests your composure under high pressure. Liza asks challenging follow-up questions with strict timer constraints while tracking fidgeting index, speech rate variance, and biometric deviations."
-  },
-  {
-    question: "Can I practice mock interviews with real peers?",
-    answer: "Yes! Our Peer-to-Peer mode matches you with candidates targeting top tech roles. You take turns as interviewer and interviewee while our AI provides live telemetry for both participants."
-  }
-];
-
 export default function LandingPage() {
   const [indices, setIndices] = useState([0, 1, 2]);
-  const [openFaq, setOpenFaq] = useState(null);
-
-  const toggleFaq = (index) => {
-    setOpenFaq(openFaq === index ? null : index);
-  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -366,69 +308,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ━━━━ SECTION 3: AI INTERVIEW FEATURE (with image) ━━━━ */}
-        <section className="lp-section">
-          <div className="lp-feature lp-feature-normal">
-            <div className="lp-feature-text">
-              <span className="lp-feature-badge" style={{ color: "#16a085" }}>
-                <Video size={16} /> AI Interview
-              </span>
-              <h2>Talk to Liza. Get real feedback.</h2>
-              <p>
-                Liza reads your resume, generates custom questions for your target company, and conducts a live interview. Adapts dynamically to your responses.
-              </p>
-              <Link href="/upload" className="lp-feature-link">
-                Start an interview <ArrowRight size={16} />
-              </Link>
-            </div>
-
-            <div className="lp-feature-visual">
-              <div className="lp-visual-transcript-css">
-                <div className="lp-transcript-header">
-                  <span className="lp-transcript-dot" />
-                  <span className="lp-transcript-title">REAL-TIME ANALYTICS</span>
-                </div>
-                <div className="lp-transcript-body">
-                  {/* Liza's Question */}
-                  <div className="lp-chat-row lp-chat-ai">
-                    <span className="lp-chat-label">LIZA (AI RECRUITER)</span>
-                    <p className="lp-chat-bubble">
-                      "Tell me about a time you had to pivot a strategy based on unexpected user telemetry. What was your approach?"
-                    </p>
-                  </div>
-
-                  {/* User's Answer Wave/Indicator */}
-                  <div className="lp-chat-row lp-chat-user">
-                    <span className="lp-chat-label">YOU (SPEAKING...)</span>
-                    <div className="lp-user-recording-wave">
-                      <span className="lp-wave-line" style={{ height: "12px" }} />
-                      <span className="lp-wave-line" style={{ height: "24px" }} />
-                      <span className="lp-wave-line" style={{ height: "36px" }} />
-                      <span className="lp-wave-line" style={{ height: "28px" }} />
-                      <span className="lp-wave-line" style={{ height: "18px" }} />
-                      <span className="lp-wave-line" style={{ height: "32px" }} />
-                      <span className="lp-wave-line" style={{ height: "10px" }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="lp-transcript-telemetry">
-                  <div className="lp-telemetry-pill">
-                    <span className="lp-pill-label">Pace</span>
-                    <span className="lp-pill-value">130 wpm</span>
-                  </div>
-                  <div className="lp-telemetry-pill">
-                    <span className="lp-pill-label">Fillers</span>
-                    <span className="lp-pill-value lp-success">None</span>
-                  </div>
-                  <div className="lp-telemetry-pill">
-                    <span className="lp-pill-label">Sentiment</span>
-                    <span className="lp-pill-value">Confident</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* ━━━━ SECTION 4: COMPANY-SPECIFIC PRACTICE ROUNDS ━━━━ */}
         <section className="lp-section lp-company-section">
@@ -476,94 +355,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ━━━━ SECTION 5: NARRATED AUDIO & TEXT FEEDBACK CHOICES (centered wave) ━━━━ */}
-        <section className="lp-section">
-          <div className="lp-feature lp-feature-reverse">
-            <div className="lp-feature-text">
-              <span className="lp-feature-badge" style={{ color: "#4d39a2" }}>
-                <Headphones size={16} /> Personalized Feedback Choices
-              </span>
-              <h2>Listen or Read. Choose how you learn.</h2>
-              <p>
-                Download a detailed text report outlining suggestions, or listen to Liza speak your personalized feedback directly with realistic audio narration.
-              </p>
-              <Link href="/dashboard" className="lp-feature-link">
-                Explore feedback dashboard <ArrowRight size={16} />
-              </Link>
-            </div>
-
-            <div className="lp-feature-visual">
-              <div className="lp-visual-feedback">
-                <div className="lp-feedback-audio-header">
-                  <Headphones size={18} className="lp-pulse-icon" />
-                  <span>Audio Feedback Playback</span>
-                </div>
-                <FeedbackWaveform />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ━━━━ SECTION 5: STRESS SIMULATION MODE (with image) ━━━━ */}
-        <section className="lp-section">
-          <div className="lp-feature lp-feature-normal">
-            <div className="lp-feature-text">
-              <span className="lp-feature-badge" style={{ color: "#c2410c" }}>
-                <Shield size={16} /> Stress Mode
-              </span>
-              <h2>Train under pressure.</h2>
-              <p>
-                Toggle Stress Mode to face aggressive follow-up questions, quick response prompts, and background analytics tracking your fidgeting and speech pace variance.
-              </p>
-              <Link href="/upload" className="lp-feature-link">
-                Test your composure <ArrowRight size={16} />
-              </Link>
-            </div>
-
-            <div className="lp-feature-visual">
-              <div className="lp-visual-stress">
-                <div className="lp-stress-indicator">
-                  <Shield size={18} className="lp-stress-pulse-icon" />
-                  <span>Stress Mode Active</span>
-                </div>
-                <div className="lp-stress-meters">
-                  <div className="lp-stress-meter-row">
-                    <div className="lp-meter-header">
-                      <span>Fidgeting Index</span>
-                      <span className="lp-color-warning">Volatile</span>
-                    </div>
-                    <div className="lp-meter-bar-container">
-                      <div className="lp-meter-bar lp-bg-warning" style={{ width: "78%" }} />
-                    </div>
-                  </div>
-
-                  <div className="lp-stress-meter-row">
-                    <div className="lp-meter-header">
-                      <span>Speech Rate Variance</span>
-                      <span className="lp-color-danger">Spike detected</span>
-                    </div>
-                    <div className="lp-meter-bar-container">
-                      <div className="lp-meter-bar lp-bg-danger" style={{ width: "85%" }} />
-                    </div>
-                  </div>
-
-                  <div className="lp-stress-meter-row">
-                    <div className="lp-meter-header">
-                      <span>Stress Tolerance Score</span>
-                      <span className="lp-color-success">82%</span>
-                    </div>
-                    <div className="lp-meter-bar-container">
-                      <div className="lp-meter-bar lp-bg-success" style={{ width: "82%" }} />
-                    </div>
-                  </div>
-                </div>
-                <div className="lp-stress-alert">
-                  ⚠️ HIGH BIOMETRIC DEVIATION
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
         {/* ━━━━ SECTION 6: 5 INTERVIEW TYPES ━━━━ */}
         <section className="lp-section lp-types-section">
@@ -795,49 +586,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ━━━━ SECTION 12: FAQ ━━━━ */}
-        <section className="lp-section lp-faq-section">
-          <div className="lp-section-header">
-            <h2>Frequently Asked Questions</h2>
-            <p>Everything you need to know about preparing with Confidometer.</p>
-          </div>
-
-          <div className="lp-faq-container">
-            {FAQS.map((faq, index) => (
-              <div
-                key={index}
-                className={`lp-faq-item ${openFaq === index ? "open" : ""}`}
-                onClick={() => toggleFaq(index)}
-              >
-                <div className="lp-faq-question">
-                  <h3>{faq.question}</h3>
-                  <span className="lp-faq-icon">
-                    <ChevronDown
-                      size={20}
-                      style={{
-                        transform: openFaq === index ? "rotate(180deg)" : "rotate(0deg)",
-                        transition: "transform 0.3s ease"
-                      }}
-                    />
-                  </span>
-                </div>
-                {openFaq === index && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="lp-faq-answer"
-                  >
-                    <p>{faq.answer}</p>
-                  </motion.div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ━━━━ SECTION 13: FOOTER BAR ━━━━ */}
+        {/* ━━━━ FOOTER BAR ━━━━ */}
         <footer className="lp-footer">
           <div className="lp-footer-content">
             <div className="lp-footer-copyright">
@@ -859,6 +608,8 @@ export default function LandingPage() {
               <Link href="/privacy-policy">Privacy Policy</Link>
               <span className="lp-footer-pipe">|</span>
               <Link href="/terms-of-use">Terms Of use</Link>
+              <span className="lp-footer-pipe">|</span>
+              <Link href="/faq">FAQ</Link>
             </div>
           </div>
         </footer>

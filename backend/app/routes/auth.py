@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schema.user_schema import UserCreate
 from app.utils.security import hash_password, verify_password, create_access_token
+from app.rate_limiter import limiter, RATE_AUTH
 
 
 router = APIRouter()
@@ -17,7 +18,8 @@ router = APIRouter()
 # -------------------------
 
 @router.post("/register")
-def register(user: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit(RATE_AUTH)
+def register(request: Request, user: UserCreate, db: Session = Depends(get_db)):
 
     existing_user = db.query(User).filter(User.email == user.email).first()
 
@@ -48,7 +50,9 @@ MAX_EMAIL_LENGTH = 254
 MAX_PASSWORD_LENGTH = 128
 
 @router.post("/login")
+@limiter.limit(RATE_AUTH)
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):

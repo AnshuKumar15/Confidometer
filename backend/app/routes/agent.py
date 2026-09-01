@@ -1,9 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query, Request
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question, generate_dsa_question
 from app.utils.security import get_current_user
 from app.utils.audio import transcribe_chunk
 from app.services.stt import SmartTranscriber, _extract_confidence
+from app.rate_limiter import limiter, RATE_EXPENSIVE
 import os
 import uuid
 import json
@@ -138,7 +139,9 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/initiate")
+@limiter.limit(RATE_EXPENSIVE)
 async def initiate_interview(
+    request: Request,
     role: str = Form(...),
     resume: UploadFile = File(...),
     company_name: str = Form(""),
@@ -260,7 +263,9 @@ async def initiate_interview(
 
 
 @router.post("/respond")
+@limiter.limit(RATE_EXPENSIVE)
 async def respond_to_agent(
+    request: Request,
     session_id: str = Form(...),
     message: str = Form(...),
     code: str = Form(None),
@@ -438,7 +443,9 @@ async def _stream_tts(text: str):
 
 
 @router.post("/run")
+@limiter.limit(RATE_EXPENSIVE)
 async def run_code(
+    request: Request,
     code: str = Form(...),
     language: str = Form(...),
     question_number: int = Form(...),
@@ -541,7 +548,8 @@ async def websocket_stt(websocket: WebSocket, session_id: str = Query("")):
 
 
 @router.post("/stt/reset")
-async def reset_stt_session(session_id: str = Form(...)):
+@limiter.limit(RATE_EXPENSIVE)
+async def reset_stt_session(request: Request, session_id: str = Form(...)):
     """Reset the STT transcriber for a session (e.g., when starting a new question)."""
     if session_id in _stt_sessions:
         _stt_sessions[session_id].reset()

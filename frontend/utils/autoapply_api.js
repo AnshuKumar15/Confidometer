@@ -61,6 +61,13 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
+
+    // Handle rate limiting (429) gracefully
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("Retry-After") || "60";
+      throw new Error(`Too many requests. Please wait ${retryAfter}s and try again.`);
+    }
+
     if (res.status === 401 && path !== "/auth/login") {
       clearSession();
       let detail = "Unauthorized";
@@ -153,10 +160,12 @@ export function triggerJobSearch() {
   return request("/autoapply/jobs/search", { method: "POST" });
 }
 
-export function updateJobMatchStatus(matchId, status) {
+export function updateJobMatchStatus(matchId, status, skip_reason = null) {
+  const body = { status };
+  if (skip_reason) body.skip_reason = skip_reason;
   return request(`/autoapply/jobs/${matchId}/status`, {
     method: "PUT",
-    body: { status }
+    body
   });
 }
 

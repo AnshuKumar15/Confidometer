@@ -136,7 +136,7 @@ export default function AutoApplySettingsPage() {
         </p>
 
         <div className="aa-form-group">
-          <label className="aa-label">RapidAPI Key (For JSearch Jobs)</label>
+          <label className="aa-label">RapidAPI Key (For Live Indeed & Foundit Jobs via JSearch)</label>
           <input
             type="password"
             className="aa-input"
@@ -144,6 +144,9 @@ export default function AutoApplySettingsPage() {
             value={apiKeys.rapidapi_key || ""}
             onChange={(e) => setApiKeys({ ...apiKeys, rapidapi_key: e.target.value })}
           />
+          <div style={{ marginTop: 8, padding: "10px 14px", borderRadius: 8, background: "rgba(56, 189, 248, 0.08)", border: "1px solid rgba(56, 189, 248, 0.2)", fontSize: "0.82rem", color: "var(--text)" }}>
+            <span style={{ fontWeight: 700, color: "var(--cyan)" }}>Notice on Indeed & Foundit volume:</span> Standard Free RapidAPI JSearch plans include 50 requests/month. When the quota is reached (HTTP 429), Indeed and Foundit discovery pauses while LinkedIn, Instahyre, Unstop, and Wellfound continue uninterrupted. Entering an upgraded or fresh RapidAPI key here restores real-time Indeed and Foundit polling immediately.
+          </div>
         </div>
       </div>
 

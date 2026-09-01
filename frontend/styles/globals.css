@@ -633,311 +633,7 @@ body.light-theme-bg .button.subtle:hover {
   width: 100%;
 }
 
-.lp-feature-image {
-  max-width: 100%;
-  height: auto;
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(26, 61, 52, 0.1);
-  box-shadow: 0 15px 45px rgba(26, 61, 52, 0.06);
-}
 
-/* Feedback visual (with waveform matching user's uploaded SS/GIF) */
-.lp-visual-feedback {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  max-width: 320px;
-  aspect-ratio: 1 / 1;
-  padding: 24px;
-  background: #f4f1e6;
-  border: 1px solid rgba(26, 61, 52, 0.12);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 10px 30px rgba(26, 61, 52, 0.03);
-}
-
-.lp-feedback-audio-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.98rem;
-  color: #1a3d34;
-  font-weight: 600;
-}
-
-.lp-pulse-icon {
-  color: #8b5cf6;
-  animation: pulse-glow 1.5s infinite ease-in-out;
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
-
-.lp-speak-wave-centered {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  height: 140px;
-  width: 100%;
-  padding: 10px 0;
-}
-
-.lp-wave-bar {
-  width: 6px;
-  height: 100%;
-  background: linear-gradient(to top, #d97706, #16a085);
-  border-radius: 0px;
-  transform-origin: center;
-}
-
-.lp-feedback-text-snippet {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(2, 6, 12, 0.04);
-  border: 1px solid rgba(26, 61, 52, 0.08);
-  font-size: 0.88rem;
-  line-height: 1.4;
-  color: #5e7a70;
-  font-style: italic;
-}
-
-/* Real-Time Transcript & Telemetry Visual Mockup (Pure CSS) */
-.lp-visual-transcript-css {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: 100%;
-  max-width: 440px;
-  background: #ffffff;
-  border: 1px solid rgba(26, 61, 52, 0.08);
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 15px 35px rgba(26, 61, 52, 0.03);
-}
-
-.lp-transcript-header {
-  background: rgba(26, 61, 52, 0.02);
-  border-bottom: 1px solid rgba(26, 61, 52, 0.05);
-  padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.lp-transcript-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #16a085;
-  box-shadow: 0 0 6px rgba(22, 160, 133, 0.4);
-  animation: pulse-dot 2s infinite ease-in-out;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
-}
-
-.lp-transcript-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: #728a80;
-  letter-spacing: 0.08em;
-}
-
-.lp-transcript-body {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  background: #ffffff;
-}
-
-.lp-chat-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.lp-chat-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #a3b8b0;
-  letter-spacing: 0.06em;
-}
-
-.lp-chat-bubble {
-  font-size: 0.92rem;
-  line-height: 1.5;
-  color: #1a3d34;
-  font-style: italic;
-  background: rgba(26, 61, 52, 0.02);
-  border: 1px solid rgba(26, 61, 52, 0.05);
-  padding: 14px 18px;
-  border-radius: 12px;
-  margin: 0;
-}
-
-.lp-user-recording-wave {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 52px;
-  padding: 0 20px;
-  background: rgba(22, 160, 133, 0.02);
-  border: 1px solid rgba(22, 160, 133, 0.08);
-  border-radius: 12px;
-  justify-content: center;
-}
-
-.lp-wave-line {
-  width: 4px;
-  background: #16a085;
-  border-radius: 2px;
-  animation: dynamic-wave 1.2s infinite ease-in-out;
-}
-
-@keyframes dynamic-wave {
-  0%, 100% { transform: scaleY(0.4); }
-  50% { transform: scaleY(1); }
-}
-
-.lp-wave-line:nth-child(1) { animation-delay: 0.1s; }
-.lp-wave-line:nth-child(2) { animation-delay: 0.3s; }
-.lp-wave-line:nth-child(3) { animation-delay: 0.5s; }
-.lp-wave-line:nth-child(4) { animation-delay: 0.2s; }
-.lp-wave-line:nth-child(5) { animation-delay: 0.4s; }
-.lp-wave-line:nth-child(6) { animation-delay: 0.6s; }
-.lp-wave-line:nth-child(7) { animation-delay: 0.15s; }
-
-.lp-transcript-telemetry {
-  display: flex;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: rgba(26, 61, 52, 0.01);
-  border-top: 1px solid rgba(26, 61, 52, 0.05);
-}
-
-.lp-telemetry-pill {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.lp-pill-label {
-  font-size: 0.6rem;
-  font-weight: 700;
-  color: #a3b8b0;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.lp-pill-value {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #1a3d34;
-}
-
-.lp-success {
-  color: #10b981;
-}
-
-/* Stress simulation visual - Telemetry Panel (Pure CSS) */
-.lp-visual-stress {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 16px;
-  width: 100%;
-  max-width: 440px;
-  padding: 24px;
-  background: rgba(239, 68, 68, 0.02);
-  border: 1px solid rgba(239, 68, 68, 0.15);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 10px 30px rgba(26, 61, 52, 0.03);
-}
-
-.lp-stress-indicator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.95rem;
-  color: #ef4444;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.lp-stress-pulse-icon {
-  animation: stress-heartbeat 1.2s infinite cubic-bezier(0.215, 0.610, 0.355, 1);
-}
-
-@keyframes stress-heartbeat {
-  0% { transform: scale(1); }
-  14% { transform: scale(1.15); }
-  28% { transform: scale(1); }
-  42% { transform: scale(1.15); }
-  70% { transform: scale(1); }
-}
-
-.lp-stress-meters {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.lp-stress-meter-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.lp-meter-header {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #5e7a70;
-}
-
-.lp-meter-bar-container {
-  height: 6px;
-  background: rgba(26, 61, 52, 0.08);
-  border-radius: 99px;
-  overflow: hidden;
-}
-
-.lp-meter-bar {
-  height: 100%;
-  border-radius: 99px;
-}
-
-.lp-bg-warning { background: #b45309; }
-.lp-bg-danger { background: #ef4444; }
-.lp-bg-success { background: #0f766e; }
-
-.lp-color-warning { color: #b45309; }
-.lp-color-danger { color: #ef4444; }
-.lp-color-success { color: #0f766e; }
-
-.lp-stress-alert {
-  text-align: center;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  font-size: 0.8rem;
-  font-weight: 800;
-  padding: 8px;
-  border-radius: 6px;
-}
 
 /* Get Set Speak Slots Visual (Pure CSS) */
 .lp-visual-speak {
@@ -1354,15 +1050,6 @@ body.light-theme-bg .button.subtle:hover {
   margin-bottom: 12px;
 }
 
-.lp-logo-nykaa {
-  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  font-style: italic;
-  font-weight: 900;
-  color: #e51b58;
-  font-size: 1.5rem;
-  letter-spacing: -0.05em;
-}
-
 .lp-logo-zomato {
   background: #cb202d;
   color: #ffffff;
@@ -1372,14 +1059,6 @@ body.light-theme-bg .button.subtle:hover {
   font-size: 0.95rem;
   letter-spacing: -0.02em;
   text-transform: lowercase;
-}
-
-.lp-logo-meesho {
-  font-family: 'Outfit', sans-serif;
-  font-weight: 800;
-  color: #ff4f81;
-  font-size: 1.5rem;
-  letter-spacing: -0.02em;
 }
 
 .lp-logo-svg-wrap {
@@ -8711,79 +8390,7 @@ body.dark-theme-bg .lp-feature-link {
   color: #2dd4bf !important;
 }
 
-/* AI Interview Visual Mockup */
-body.dark-theme-bg .lp-visual-transcript-css {
-  background: #141f1b !important;
-  border: 1px solid rgba(180, 220, 200, 0.12) !important;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4) !important;
-}
 
-body.dark-theme-bg .lp-transcript-header {
-  background: rgba(255, 255, 255, 0.03) !important;
-  border-bottom-color: rgba(180, 220, 200, 0.1) !important;
-}
-
-body.dark-theme-bg .lp-transcript-title {
-  color: #8aa99e !important;
-}
-
-body.dark-theme-bg .lp-transcript-body {
-  background: #141f1b !important;
-}
-
-body.dark-theme-bg .lp-chat-label {
-  color: #6b8a7f !important;
-}
-
-body.dark-theme-bg .lp-chat-bubble {
-  color: #e8f0ec !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(180, 220, 200, 0.1) !important;
-}
-
-body.dark-theme-bg .lp-user-recording-wave {
-  background: rgba(45, 212, 191, 0.05) !important;
-  border: 1px solid rgba(45, 212, 191, 0.15) !important;
-}
-
-body.dark-theme-bg .lp-transcript-telemetry {
-  background: rgba(255, 255, 255, 0.02) !important;
-  border-top-color: rgba(180, 220, 200, 0.1) !important;
-}
-
-body.dark-theme-bg .lp-pill-label {
-  color: #6b8a7f !important;
-}
-
-body.dark-theme-bg .lp-pill-value {
-  color: #e8f0ec !important;
-}
-
-/* Audio Feedback Playback Visual */
-body.dark-theme-bg .lp-visual-feedback {
-  background: #1e2d26 !important;
-  border: 1px solid rgba(180, 220, 200, 0.12) !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3) !important;
-}
-
-body.dark-theme-bg .lp-feedback-audio-header {
-  color: #e8f0ec !important;
-}
-
-/* Stress Mode Telemetry Panel */
-body.dark-theme-bg .lp-visual-stress {
-  background: rgba(239, 68, 68, 0.04) !important;
-  border: 1px solid rgba(239, 68, 68, 0.25) !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3) !important;
-}
-
-body.dark-theme-bg .lp-meter-header {
-  color: #8aa99e !important;
-}
-
-body.dark-theme-bg .lp-meter-bar-container {
-  background: rgba(255, 255, 255, 0.08) !important;
-}
 
 /* Interview Types Flow (5 Round Cards) */
 body.dark-theme-bg .lp-type-item {
@@ -9556,76 +9163,6 @@ body.dark-theme-bg .lp-company-footer-action p {
   color: #8aa99e !important;
 }
 
-/* ━━━━ FAQ SECTION ━━━━ */
-.lp-faq-section {
-  padding-top: 80px;
-  padding-bottom: 80px;
-}
-
-.lp-faq-container {
-  max-width: 860px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.lp-faq-item {
-  background: #f4f1e6;
-  border: 1px solid rgba(26, 61, 52, 0.12);
-  border-radius: var(--radius-md, 16px);
-  padding: 22px 26px;
-  cursor: pointer;
-  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-}
-
-.lp-faq-item:hover {
-  border-color: rgba(26, 61, 52, 0.25);
-  background: #efece0;
-}
-
-.lp-faq-item.open {
-  border-color: #16a085;
-  background: #ffffff;
-  box-shadow: 0 8px 25px rgba(26, 61, 52, 0.05);
-}
-
-.lp-faq-question {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.lp-faq-question h3 {
-  margin: 0;
-  font-size: 1.12rem;
-  font-weight: 700;
-  color: #1a3d34;
-  line-height: 1.4;
-}
-
-.lp-faq-icon {
-  color: #16a085;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.lp-faq-answer {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(26, 61, 52, 0.08);
-}
-
-.lp-faq-answer p {
-  margin: 0;
-  color: #5e7a70;
-  font-size: 1rem;
-  line-height: 1.6;
-}
-
 /* ━━━━ FOOTER BAR (Matching Screenshot) ━━━━ */
 .lp-footer {
   margin-top: 60px;
@@ -9672,38 +9209,7 @@ body.dark-theme-bg .lp-company-footer-action p {
   font-weight: 300;
 }
 
-/* Dark Mode Overrides for FAQ & Footer */
-body.dark-theme-bg .lp-faq-item {
-  background: #1e2d26 !important;
-  border: 1px solid rgba(180, 220, 200, 0.12) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2) !important;
-}
-
-body.dark-theme-bg .lp-faq-item:hover {
-  background: #243830 !important;
-  border-color: rgba(45, 212, 191, 0.3) !important;
-}
-
-body.dark-theme-bg .lp-faq-item.open {
-  background: #141f1b !important;
-  border-color: #2dd4bf !important;
-}
-
-body.dark-theme-bg .lp-faq-question h3 {
-  color: #e8f0ec !important;
-}
-
-body.dark-theme-bg .lp-faq-icon {
-  color: #2dd4bf !important;
-}
-
-body.dark-theme-bg .lp-faq-answer {
-  border-top-color: rgba(180, 220, 200, 0.1) !important;
-}
-
-body.dark-theme-bg .lp-faq-answer p {
-  color: #8aa99e !important;
-}
+/* Dark Mode Overrides for Footer */
 
 body.dark-theme-bg .lp-footer {
   border-top: 1px solid rgba(180, 220, 200, 0.12) !important;
@@ -9719,6 +9225,14 @@ body.dark-theme-bg .lp-footer-links a {
 }
 
 body.dark-theme-bg .lp-footer-links a:hover {
+  color: #2dd4bf !important;
+}
+
+body.dark-theme-bg .lp-footer-link-btn {
+  color: #8aa99e !important;
+}
+
+body.dark-theme-bg .lp-footer-link-btn:hover {
   color: #2dd4bf !important;
 }
 

@@ -9,11 +9,10 @@ from datetime import datetime, timezone
 from app.config import settings
 
 def generate_job_fingerprint(title: str, company: str, location: str = "") -> str:
-    """Generate SHA256 hash for job deduplication."""
+    """Generate SHA256 hash for job deduplication based on title and company."""
     norm_title = re.sub(r"\W+", "", title.lower())
     norm_company = re.sub(r"\W+", "", company.lower())
-    norm_loc = re.sub(r"\W+", "", (location or "").lower())
-    raw = f"{norm_title}:{norm_company}:{norm_loc}"
+    raw = f"{norm_title}:{norm_company}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 class JobDiscoveryEngine:
@@ -188,7 +187,11 @@ class JobDiscoveryEngine:
                     for item in items:
                         title = item.get("job_title", "")
                         company = item.get("employer_name", "")
-                        loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
+                        job_city = item.get("job_city") or ""
+                        job_country = item.get("job_country") or ""
+                        loc = f"{job_city}, {job_country}".strip(", ")
+                        if not loc or loc.lower() in ["none, none", "none", "null, null"]:
+                            loc = location or "Remote"
                         fingerprint = generate_job_fingerprint(title, company, loc)
                         jobs.append({
                             "title": title,
@@ -204,6 +207,8 @@ class JobDiscoveryEngine:
                             "posted_date": item.get("job_posted_at_datetime_utc", ""),
                             "fingerprint": fingerprint
                         })
+                elif res.status_code == 429:
+                    print("[INFO] RapidAPI JSearch monthly quota exceeded (HTTP 429). Rotate or upgrade RapidAPI key in Settings to fetch live Indeed postings.")
         except Exception as e:
             print(f"[WARN] Indeed fetch failed: {e}")
         return jobs
@@ -235,7 +240,11 @@ class JobDiscoveryEngine:
                     for item in items:
                         title = item.get("job_title", "")
                         company = item.get("employer_name", "")
-                        loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
+                        job_city = item.get("job_city") or ""
+                        job_country = item.get("job_country") or ""
+                        loc = f"{job_city}, {job_country}".strip(", ")
+                        if not loc or loc.lower() in ["none, none", "none", "null, null"]:
+                            loc = location or "Remote"
                         fingerprint = generate_job_fingerprint(title, company, loc)
                         jobs.append({
                             "title": title,
@@ -251,6 +260,8 @@ class JobDiscoveryEngine:
                             "posted_date": item.get("job_posted_at_datetime_utc", ""),
                             "fingerprint": fingerprint
                         })
+                elif res.status_code == 429:
+                    print("[INFO] RapidAPI JSearch monthly quota exceeded (HTTP 429). Rotate or upgrade RapidAPI key in Settings to fetch live Foundit postings.")
         except Exception as e:
             print(f"[WARN] Foundit fetch failed: {e}")
         return jobs
@@ -325,7 +336,7 @@ class JobDiscoveryEngine:
                         for i in range(len(titles)):
                             t = titles[i].strip()
                             c = companies[i].strip() if i < len(companies) else "Company"
-                            l = locations[i].strip() if i < len(locations) else f"{loc_str}, India"
+                            l = locations[i].strip() if i < len(locations) and locations[i].strip() else "Not Specified"
                             link = links[i].split("?")[0] if i < len(links) else f"https://www.linkedin.com/jobs/search?keywords={encoded_query}"
                             d = dates[i] if i < len(dates) else datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -403,14 +414,20 @@ class JobDiscoveryEngine:
 
                         loc_objs = item.get("locations", [])
                         loc_names = [l.get("city", "") for l in loc_objs if isinstance(l, dict) and l.get("city")]
-                        job_loc = ", ".join(loc_names) if loc_names else location
+                        is_virtual = item.get("is_virtual") or item.get("job_type") == "virtual"
+                        if loc_names:
+                            job_loc = ", ".join(loc_names)
+                        elif is_virtual:
+                            job_loc = "Remote"
+                        else:
+                            job_loc = "Not Specified"
 
                         fingerprint = generate_job_fingerprint(title, company, job_loc)
                         jobs.append({
                             "title": title,
                             "company": company,
                             "location": job_loc,
-                            "employment_type": "Full-Time",
+                            "employment_type": "Full-Time" if job_loc != "Remote" else "Remote",
                             "salary_min": None,
                             "salary_max": None,
                             "description": f"{title} opportunity at {company} in {job_loc}. Direct link on Unstop.",
@@ -428,8 +445,13 @@ class JobDiscoveryEngine:
         """Instahyre India Tech Job Scraper (Live startup & product jobs, no auth required)."""
         jobs = []
         encoded_q = urllib.parse.quote(search_query or "Software Engineer")
-        encoded_loc = urllib.parse.quote(location if location else "Bangalore")
-        url = f"https://www.instahyre.com/api/v1/job_search?designation={encoded_q}&city={encoded_loc}&count=25"
+        # Instahyre city filter (omit if searching for generic remote)
+        city_param = "" if location.lower() in ["remote", "fully remote"] else location
+        encoded_loc = urllib.parse.quote(city_param) if city_param else ""
+        url = f"https://www.instahyre.com/api/v1/job_search?designation={encoded_q}&count=25"
+        if encoded_loc:
+            url += f"&city={encoded_loc}"
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*"
@@ -441,26 +463,50 @@ class JobDiscoveryEngine:
                     data = res.json()
                     for item in data.get("objects", []):
                         title = item.get("title") or item.get("candidate_title")
-                        company = item.get("employer", {}).get("company_name", "Tech Startup")
+                        employer_data = item.get("employer") or {}
+                        company = employer_data.get("company_name", "Tech Startup")
                         if not title:
                             continue
 
-                        loc_list = item.get("locations", [])
-                        loc_str = ", ".join(loc_list) if isinstance(loc_list, list) and loc_list else location
-                        app_url = item.get("public_url") or f"https://www.instahyre.com/job-{item.get('id', '')}"
+                        raw_loc = item.get("locations")
+                        if isinstance(raw_loc, str) and raw_loc.strip():
+                            # If Instahyre returns "Work From Home", normalize to "Remote"
+                            loc_str = "Remote" if "work from home" in raw_loc.lower() else ", ".join([p.strip() for p in raw_loc.split(",") if p.strip()])
+                        elif isinstance(raw_loc, list) and raw_loc:
+                            loc_parts = []
+                            for l in raw_loc:
+                                if isinstance(l, dict):
+                                    city = l.get("city") or l.get("name")
+                                    if city:
+                                        loc_parts.append(str(city))
+                                elif isinstance(l, str) and l.strip():
+                                    loc_parts.append(l.strip())
+                            loc_str = ", ".join(loc_parts) if loc_parts else "Not Specified"
+                        else:
+                            loc_str = "Not Specified"
 
+                        app_url = item.get("public_url") or f"https://www.instahyre.com/job-{item.get('id', '')}"
                         raw_keywords = item.get("keywords") or []
                         skills = raw_keywords if isinstance(raw_keywords, list) else [search_query]
+
+                        note = employer_data.get("instahyre_note", "")
+                        desc_parts = [f"{title} role at {company} in {loc_str}."]
+                        if skills:
+                            desc_parts.append(f"Required skills: {', '.join(skills[:8])}.")
+                        if note:
+                            desc_parts.append(note[:250])
+                        desc_parts.append("Direct application via Instahyre.")
+                        description = " ".join(desc_parts)
 
                         fingerprint = generate_job_fingerprint(title, company, loc_str)
                         jobs.append({
                             "title": title,
                             "company": company,
                             "location": loc_str,
-                            "employment_type": "Full-Time",
+                            "employment_type": "Full-Time" if loc_str != "Remote" else "Remote",
                             "salary_min": None,
                             "salary_max": None,
-                            "description": f"{title} role at {company} in {loc_str}. Required skills: {', '.join(skills[:5])}. Direct application via Instahyre.",
+                            "description": description,
                             "required_skills": skills,
                             "application_url": app_url,
                             "source_platform": "instahyre",
@@ -472,44 +518,166 @@ class JobDiscoveryEngine:
         return jobs
 
     async def fetch_wellfound_jobs(self, search_query: str = "", location: str = "Bengaluru") -> List[Dict[str, Any]]:
-        """Wellfound (AngelList) Startup Job Scraper (Live startup roles in India & Remote)."""
+        """Wellfound (AngelList) Startup Job Scraper with structured card and metadata parsing."""
         jobs = []
-        slug = re.sub(r"[^a-zA-Z0-9]+", "-", (search_query or "software-engineer").lower()).strip("-")
-        loc_slug = "bengaluru-bangalore" if "bengaluru" in location.lower() or "bangalore" in location.lower() else "india"
-        url = f"https://wellfound.com/role/l/{slug}/{loc_slug}"
+        seen_urls = set()
+        base_slug = re.sub(r"[^a-zA-Z0-9]+", "-", (search_query or "software-engineer").lower()).strip("-")
+
+        slugs = [base_slug]
+        if any(k in base_slug for k in ["software", "developer", "backend", "fullstack", "full-stack"]):
+            slugs.extend(["backend-engineer", "full-stack-engineer", "software-engineer"])
+        elif any(k in base_slug for k in ["ai", "machine-learning", "data", "ml"]):
+            slugs.extend(["ai-engineer", "machine-learning-engineer", "data-scientist"])
+
+        loc_lower = location.lower().strip() if location else ""
+        if "bengaluru" in loc_lower or "bangalore" in loc_lower:
+            loc_slug = "bangalore"
+        elif "delhi" in loc_lower or "noida" in loc_lower or "gurgaon" in loc_lower or "gurugram" in loc_lower:
+            loc_slug = "delhi-ncr"
+        elif "san francisco" in loc_lower or "sf" in loc_lower:
+            loc_slug = "san-francisco"
+        elif "new york" in loc_lower or "nyc" in loc_lower:
+            loc_slug = "new-york-city"
+        elif loc_lower and loc_lower not in ["remote", "fully remote", "worldwide", "anywhere"]:
+            loc_slug = re.sub(r"[^a-zA-Z0-9]+", "-", loc_lower).strip("-")
+        else:
+            loc_slug = ""
+
+        urls_to_try = []
+        for s in list(dict.fromkeys(slugs)):
+            if loc_slug:
+                urls_to_try.append(f"https://wellfound.com/role/l/{s}/{loc_slug}")
+                if "india" in loc_lower or loc_slug == "bangalore":
+                    urls_to_try.append(f"https://wellfound.com/role/l/{s}/india")
+            urls_to_try.append(f"https://wellfound.com/role/{s}")
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         }
         try:
             async with httpx.AsyncClient(timeout=12.0) as client:
-                res = await client.get(url, headers=headers, follow_redirects=True)
-                if res.status_code == 200:
-                    job_pattern = re.findall(r'href="(/jobs/(\d+)-([^"]+))"[^>]*>([^<]+)</a>', res.text)
-                    for full_path, job_id, job_slug, link_text in job_pattern[:20]:
-                        title = link_text.strip() or job_slug.replace("-", " ").title()
-                        app_url = f"https://wellfound.com{full_path}"
-                        company = "YC / Venture-Backed Startup"
-                        # Try finding company from link or text
-                        m_comp = re.search(rf'href="(/company/[^"]+)"[^>]*>([^<]+)</a>', res.text)
-                        if m_comp:
-                            company = m_comp.group(2).strip()
+                successful_pages = 0
+                for u in urls_to_try:
+                    if successful_pages >= 3:
+                        break
+                    try:
+                        r = await client.get(u, headers=headers, follow_redirects=True)
+                        if r.status_code != 200 or len(r.text) < 5000:
+                            continue
+                        successful_pages += 1
+                        html = r.text
 
-                        fingerprint = generate_job_fingerprint(title, company, location)
-                        jobs.append({
-                            "title": title,
-                            "company": company,
-                            "location": location,
-                            "employment_type": "Full-Time",
-                            "salary_min": None,
-                            "salary_max": None,
-                            "description": f"{title} startup position at {company} in {location}. Direct link on Wellfound.",
-                            "required_skills": [search_query] if search_query else ["Startups", "Software Engineering"],
-                            "application_url": app_url,
-                            "source_platform": "wellfound",
-                            "posted_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                            "fingerprint": fingerprint
-                        })
+                        # Divide HTML by startup-header sections to accurately associate companies
+                        sections = html.split('data-testid="startup-header"')
+                        
+                        for sec in sections[1:]:
+                            # 1. Company name for this startup block
+                            m_comp = re.search(r'alt="([^"]+?)\s+company logo"', sec)
+                            if not m_comp:
+                                m_comp = re.search(r'href="/company/([^"]+)"', sec)
+                            company = m_comp.group(1).replace('-', ' ').title() if m_comp else "YC / Venture-Backed Startup"
+
+                            # 2. Extract each job in this startup block
+                            job_matches = list(re.finditer(r'<a[^>]*href="(/jobs/(\d+)-([^"]+))"[^>]*>([^<]+)</a>', sec))
+                            for idx, jm in enumerate(job_matches):
+                                full_path, job_id, job_slug, link_text = jm.groups()
+                                app_url = f"https://wellfound.com{full_path}"
+                                if app_url in seen_urls:
+                                    continue
+                                seen_urls.add(app_url)
+
+                                title = link_text.strip() or job_slug.replace("-", " ").title()
+
+                                # Card snippet between this job and the next (or next 2500 chars)
+                                start_pos = jm.end()
+                                next_pos = job_matches[idx + 1].start() if idx + 1 < len(job_matches) else start_pos + 2500
+                                card_html = sec[start_pos:next_pos]
+
+                                # 3. Parse structured metadata spans in card
+                                spans = re.findall(r'<span[^>]*class="[^"]*(?:pl-1|text-xs|font-semibold|font-medium)[^"]*"[^>]*>(.*?)</span>', card_html, re.S)
+                                clean_spans = [' '.join(re.sub(r'<[^>]+>', ' ', s).split()).replace('·', '•').strip() for s in spans]
+                                clean_spans = [s for s in clean_spans if s and len(s) > 1 and not s.isdigit()]
+
+                                job_location = "Not Specified"
+                                years_exp = None
+                                salary_str = None
+
+                                for span in clean_spans:
+                                    # Check experience: e.g. "2 years of exp", "0 years of exp"
+                                    m_exp = re.search(r'(\d+)\s+years?\s+of\s+exp', span, re.I)
+                                    if m_exp and years_exp is None:
+                                        years_exp = int(m_exp.group(1))
+                                        continue
+
+                                    # Check salary: e.g. "$20k • $25k", "₹21L • ₹28L"
+                                    if any(cur in span for cur in ['$', '₹', '€', '£']) and ('k' in span.lower() or 'l' in span.lower() or '-' in span or '–' in span):
+                                        if not salary_str:
+                                            salary_str = span.replace('•', ' - ')
+                                        continue
+
+                                    # Check location
+                                    if job_location == "Not Specified":
+                                        loc_cand = span
+                                        if '•' in loc_cand:
+                                            parts = [p.strip() for p in loc_cand.split('•')]
+                                            for p in parts:
+                                                if any(k in p.lower() for k in ['in office', 'onsite', 'remote only', 'hybrid']):
+                                                    continue
+                                                loc_cand = p
+                                                break
+
+                                        # Clean prefixes and suffixes like "+ 4", "In office", "Remote only"
+                                        loc_clean = re.sub(r'\s*\+\s*\d+.*', '', loc_cand).strip()
+                                        loc_clean = re.sub(r'^(?:In office|Onsite or remote|Remote only|Remote|Hybrid)\s*', '', loc_clean, flags=re.I).strip()
+
+                                        if "remote" in span.lower() or "worldwide" in span.lower() or "anywhere" in span.lower():
+                                            if "india" in span.lower():
+                                                job_location = "Remote - India"
+                                            elif any(fk in span.lower() for fk in ["us only", "usa", "uk", "europe", "emea", "latam", "canada"]):
+                                                job_location = span.replace('•', ' - ')
+                                            else:
+                                                job_location = "Remote"
+                                        elif len(loc_clean) >= 2 and not any(k in loc_clean.lower() for k in ["equity", "salary", "stage", "employees", "series", "ago", "recruiter", "day", "month", "year", "full-time", "part-time"]):
+                                            job_location = loc_clean or loc_cand
+
+                                # 4. Location Fallback: If no explicit location span was found on card, fallback to query location
+                                if job_location == "Not Specified":
+                                    if loc_slug in ["bangalore", "delhi-ncr"]:
+                                        job_location = f"{location.title()}, India"
+                                    elif loc_lower and loc_lower not in ["remote", "fully remote", "worldwide", "anywhere"]:
+                                        job_location = location.title()
+                                    elif salary_str and '$' in salary_str:
+                                        job_location = "Not Specified (USD Salary)"
+                                    else:
+                                        job_location = "Remote"
+
+                                # 5. Build enriched description with real experience and salary
+                                desc_parts = [f"{title} startup position at {company} in {job_location}."]
+                                if years_exp is not None:
+                                    desc_parts.append(f"Requires {years_exp} years of experience.")
+                                if salary_str:
+                                    desc_parts.append(f"Compensation: {salary_str}.")
+                                desc_parts.append("Direct link on Wellfound.")
+                                description = " ".join(desc_parts)
+
+                                fingerprint = generate_job_fingerprint(title, company, job_location)
+                                jobs.append({
+                                    "title": title,
+                                    "company": company,
+                                    "location": job_location,
+                                    "employment_type": "Full-Time" if "remote" not in job_location.lower() else "Remote",
+                                    "salary_min": None,
+                                    "salary_max": None,
+                                    "description": description,
+                                    "required_skills": [search_query] if search_query else ["Startups", "Software Engineering"],
+                                    "application_url": app_url,
+                                    "source_platform": "wellfound",
+                                    "posted_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                                    "fingerprint": fingerprint
+                                })
+                    except Exception:
+                        continue
         except Exception as e:
             print(f"[WARN] Wellfound scraper failed: {e}")
         return jobs
@@ -560,9 +728,9 @@ class JobDiscoveryEngine:
         fingerprints_seen = set()
 
         titles = job_titles if job_titles else ["Software Engineer"]
-        target_locations = [loc.strip() for loc in (locations or ["Bengaluru"]) if loc and loc.strip()]
+        target_locations = [loc.strip() for loc in (locations or ["Remote"]) if loc and loc.strip()]
         if not target_locations:
-            target_locations = ["Bengaluru"]
+            target_locations = ["Remote"]
 
         for title in titles[:4]:
             for loc in target_locations:
@@ -572,18 +740,27 @@ class JobDiscoveryEngine:
                 instahyre_jobs = await self.fetch_instahyre_jobs(title, loc)
                 wellfound_jobs = await self.fetch_wellfound_jobs(title, loc)
                 unstop_jobs = await self.fetch_unstop_jobs(title, loc)
-                remoteok_jobs = await self.fetch_remoteok_jobs(title)
-                remotive_jobs = await self.fetch_remotive_jobs(title)
-                arbeitnow_jobs = await self.fetch_arbeitnow_jobs(title)
-                jobicy_jobs = await self.fetch_jobicy_jobs(title)
                 jsearch_jobs = await self.fetch_jsearch_jobs(title, loc)
 
-                for job_list in [linkedin_jobs, indeed_jobs, foundit_jobs, instahyre_jobs, wellfound_jobs, unstop_jobs, remoteok_jobs, remotive_jobs, arbeitnow_jobs, jobicy_jobs, jsearch_jobs]:
+                for job_list in [linkedin_jobs, indeed_jobs, foundit_jobs, instahyre_jobs, wellfound_jobs, unstop_jobs, jsearch_jobs]:
                     for j in job_list:
                         fp = j["fingerprint"]
                         if fp not in fingerprints_seen:
                             fingerprints_seen.add(fp)
                             all_jobs.append(j)
+
+            # Global remote sources (queried once per title)
+            remoteok_jobs = await self.fetch_remoteok_jobs(title)
+            remotive_jobs = await self.fetch_remotive_jobs(title)
+            arbeitnow_jobs = await self.fetch_arbeitnow_jobs(title)
+            jobicy_jobs = await self.fetch_jobicy_jobs(title)
+
+            for job_list in [remoteok_jobs, remotive_jobs, arbeitnow_jobs, jobicy_jobs]:
+                for j in job_list:
+                    fp = j["fingerprint"]
+                    if fp not in fingerprints_seen:
+                        fingerprints_seen.add(fp)
+                        all_jobs.append(j)
 
         # Sort aggregate collection: Newest first (highest timestamp to lowest)
         all_jobs.sort(key=lambda j: self._parse_date(j.get("posted_date")), reverse=True)

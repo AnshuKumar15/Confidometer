@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { getDiscoveredJobs, triggerJobSearch, updateJobMatchStatus } from "@/utils/autoapply_api";
 import JobCard from "@/components/autoapply/JobCard";
+import SkipFeedbackModal from "@/components/autoapply/SkipFeedbackModal";
+import { useToast } from "@/components/Toast";
 import { Briefcase, Sparkles, CheckCircle2, Search, Filter, Layers, RefreshCw } from "lucide-react";
 
 const PLATFORMS = [
@@ -19,6 +21,7 @@ const PLATFORMS = [
 ];
 
 export default function DiscoveredJobsPage() {
+  const toast = useToast();
   const [jobs, setJobs] = useState([]);
   const [filter, setFilter] = useState("matched");
   const [platform, setPlatform] = useState("all");
@@ -28,6 +31,7 @@ export default function DiscoveredJobsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [skipTarget, setSkipTarget] = useState(null);
 
   const loadJobs = useCallback(async (isLoadMore = false) => {
     if (isLoadMore) {
@@ -102,12 +106,37 @@ export default function DiscoveredJobsPage() {
     }
   };
 
-  const handleSkip = async (matchId) => {
+  const handleSkip = (itemOrId) => {
+    const item = typeof itemOrId === "object" ? itemOrId : jobs.find((j) => j.id === itemOrId);
+    setSkipTarget(item || { id: itemOrId });
+  };
+
+  const handleConfirmSkip = async (reasons) => {
+    if (!skipTarget) return;
+    const matchId = skipTarget.id;
     try {
-      await updateJobMatchStatus(matchId, "skipped");
+      const reasonsArray = Array.isArray(reasons) ? reasons : [reasons];
+      await updateJobMatchStatus(matchId, "skipped", reasonsArray);
       setJobs((prev) => prev.filter((item) => item.id !== matchId));
+
+      if (reasonsArray.some((r) => r.toLowerCase().includes("no longer") || r.toLowerCase().includes("expired"))) {
+        toast.info("Marked as closed. ApplyBuddy will not recommend this listing.");
+      } else if (reasonsArray.length > 1) {
+        toast.success(`Recorded feedback (${reasonsArray.length} issues). ApplyBuddy is tuning your future recommendations!`);
+      } else if (reasonsArray[0]?.toLowerCase().includes("location")) {
+        toast.success("Location feedback recorded. ApplyBuddy will prioritize your preferred cities.");
+      } else if (reasonsArray[0]?.toLowerCase().includes("skill")) {
+        toast.success("Skill feedback recorded. Tuning recommendations for your tech stack.");
+      } else if (reasonsArray[0]?.toLowerCase().includes("experience")) {
+        toast.success("Experience feedback noted. Calibrating seniority filter.");
+      } else {
+        toast.info("Job skipped.");
+      }
     } catch (err) {
       console.error("Failed to skip job:", err);
+      toast.error("Failed to skip job. Please try again.");
+    } finally {
+      setSkipTarget(null);
     }
   };
 
@@ -201,12 +230,19 @@ export default function DiscoveredJobsPage() {
 
       {/* Results Header */}
       {!loading && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.82rem", color: "var(--muted)" }}>
-          <span>
-            Showing <strong style={{ color: "var(--text)" }}>{jobs.length}</strong> {filter} opportunities
-            {platform !== "all" && <span> on <strong style={{ color: "var(--teal)" }}>{platform.toUpperCase()}</strong></span>}
-            {search && <span> matching &ldquo;<strong style={{ color: "var(--teal)" }}>{search}</strong>&rdquo;</span>}
-          </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.82rem", color: "var(--muted)" }}>
+            <span>
+              Showing <strong style={{ color: "var(--text)" }}>{jobs.length}</strong> {filter} opportunities
+              {platform !== "all" && <span> on <strong style={{ color: "var(--teal)" }}>{platform.toUpperCase()}</strong></span>}
+              {search && <span> matching &ldquo;<strong style={{ color: "var(--teal)" }}>{search}</strong>&rdquo;</span>}
+            </span>
+          </div>
+          {(platform === "indeed" || platform === "foundit") && (
+            <div style={{ padding: "8px 14px", borderRadius: 8, background: "rgba(56, 189, 248, 0.06)", border: "1px solid rgba(56, 189, 248, 0.18)", fontSize: "0.8rem", color: "var(--muted)" }}>
+              💡 <strong style={{ color: "var(--text)" }}>Note:</strong> Indeed and Foundit feeds use RapidAPI JSearch. If results are limited, your RapidAPI monthly free plan quota (50 req/mo) may have been reached. Update your key anytime in <a href="/autoapply/settings" style={{ color: "var(--teal)", textDecoration: "underline", fontWeight: 700 }}>Settings</a>.
+            </div>
+          )}
         </div>
       )}
 
@@ -253,6 +289,14 @@ export default function DiscoveredJobsPage() {
           )}
         </>
       )}
+
+      {/* Skip Feedback Modal */}
+      <SkipFeedbackModal
+        isOpen={!!skipTarget}
+        targetItem={skipTarget}
+        onClose={() => setSkipTarget(null)}
+        onConfirmSkip={handleConfirmSkip}
+      />
     </div>
   );
 }

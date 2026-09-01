@@ -9,6 +9,7 @@ from app.models.autoapply_models import (
 )
 from app.services.job_discovery import JobDiscoveryEngine
 from app.services.job_matcher import JobMatcher
+from app.services.feedback_learner import FeedbackLearner
 from app.services.cover_letter_generator import generate_cover_letter
 from app.services.form_filler import generate_form_answers
 
@@ -41,7 +42,7 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
 
     prefs_dict = {
         "job_titles": prefs_model.job_titles or ["Software Engineer", "AI Engineer", "Developer"],
-        "locations": prefs_model.locations or ["Bengaluru"],
+        "locations": prefs_model.locations or ["Remote"],
         "work_modes": prefs_model.work_modes or [],
         "min_salary": prefs_model.min_salary,
         "preferred_salary": prefs_model.preferred_salary,
@@ -66,7 +67,7 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
     existing_jobs = db.query(DiscoveredJob).filter(DiscoveredJob.fingerprint.in_(all_fps)).all()
     existing_jobs_by_fp = {job.fingerprint: job for job in existing_jobs}
 
-    # 3. Bulk insert new jobs in batches of 50
+    # 3. Bulk insert new jobs in batches of 50, and enrich existing job locations
     new_job_instances = []
     seen_fps_in_batch = set()
     for job_data in discovered_jobs:
@@ -74,6 +75,16 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         if fp not in existing_jobs_by_fp and fp not in seen_fps_in_batch:
             seen_fps_in_batch.add(fp)
             new_job_instances.append(DiscoveredJob(**job_data))
+        elif fp in existing_jobs_by_fp:
+            existing_job = existing_jobs_by_fp[fp]
+            new_loc = job_data.get("location") or ""
+            curr_loc = existing_job.location or ""
+            if "not specified" in curr_loc.lower() and "not specified" not in new_loc.lower():
+                existing_job.location = new_loc
+            elif "remote" in curr_loc.lower() and "remote" not in new_loc.lower() and len(new_loc.strip()) > 1 and "not specified" not in new_loc.lower():
+                existing_job.location = f"{new_loc}, Remote"
+            elif "remote" not in curr_loc.lower() and "remote" in new_loc.lower() and "not specified" not in curr_loc.lower() and "remote" not in curr_loc.lower():
+                existing_job.location = f"{curr_loc}, Remote"
 
     if new_job_instances:
         for i in range(0, len(new_job_instances), 50):
@@ -83,6 +94,8 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
             for j in chunk:
                 existing_jobs_by_fp[j.fingerprint] = j
         new_jobs_count = len(new_job_instances)
+    else:
+        db.commit()
 
     # 4. Batch lookup: Find all existing matches for this user in one query
     all_job_ids = [job.id for job in existing_jobs_by_fp.values() if job.id]
@@ -94,7 +107,8 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         ).all()
         existing_matched_job_ids = {r[0] for r in existing_matches}
 
-    # 5. Evaluate matches in-memory and batch insert
+    # 5. Evaluate matches in-memory and batch insert (guided by candidate skip feedback)
+    skip_signals = FeedbackLearner.get_user_feedback_signals(user_id, db)
     new_match_instances = []
     for job_data in discovered_jobs:
         fp = job_data["fingerprint"]
@@ -104,7 +118,7 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
 
         existing_matched_job_ids.add(db_job.id)
 
-        match_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_data)
+        match_res = JobMatcher.evaluate_match_fast(profile_dict, prefs_dict, job_data, skip_signals=skip_signals)
         # If the matcher explicitly skipped the job (e.g. location/experience mismatch), preserve skipped
         if match_res.get("status") == "skipped":
             pass

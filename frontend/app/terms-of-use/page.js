@@ -121,8 +121,11 @@ export default function TermsOfUsePage() {
               })}
             </nav>
             <div className="privacy-toc-footer">
-              <Link href="/privacy-policy" className="button ghost" style={{ width: "100%", justifyContent: "center", fontSize: "0.85rem" }}>
+              <Link href="/privacy-policy" className="button ghost" style={{ width: "100%", justifyContent: "center", fontSize: "0.85rem", marginBottom: "8px" }}>
                 View Privacy Policy
+              </Link>
+              <Link href="/faq" className="button ghost" style={{ width: "100%", justifyContent: "center", fontSize: "0.85rem" }}>
+                View FAQ
               </Link>
             </div>
           </div>

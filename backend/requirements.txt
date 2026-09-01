@@ -20,3 +20,4 @@ librosa
 httpx
 beautifulsoup4
 groq
+slowapi

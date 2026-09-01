@@ -90,6 +90,12 @@ async function request(path, { method = "GET", body, auth = false, headers = {} 
   if (!res.ok) {
     const contentType = res.headers.get("content-type") || "";
 
+    // Handle rate limiting (429) gracefully
+    if (res.status === 429) {
+      const retryAfter = res.headers.get("Retry-After") || "60";
+      throw new Error(`Too many requests. Please wait ${retryAfter}s and try again.`);
+    }
+
     // If unauthorized, clear local session (unless it's the login request itself)
     if (res.status === 401 && path !== "/auth/login") {
       clearSession();

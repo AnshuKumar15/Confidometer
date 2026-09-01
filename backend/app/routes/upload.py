@@ -1,6 +1,6 @@
 import os
 import json
-from fastapi import APIRouter, UploadFile, File, Depends, Form
+from fastapi import APIRouter, UploadFile, File, Depends, Form, Request
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -8,6 +8,7 @@ from app.models.speech import Speech
 from app.utils.security import get_current_user
 from fastapi import BackgroundTasks
 from app.services.processor import process_speech
+from app.rate_limiter import limiter, RATE_UPLOAD
 
 router = APIRouter()
 
@@ -16,7 +17,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/")
+@limiter.limit(RATE_UPLOAD)
 async def upload_video(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session_id: Optional[str] = Form(None),

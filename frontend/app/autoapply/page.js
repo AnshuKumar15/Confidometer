@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getProfile, getDashboardStats, triggerJobSearch } from "@/utils/autoapply_api";
-import { Sparkles, Bot, Briefcase, CheckCircle, ArrowRight, Settings, BarChart2, ShieldCheck, Zap, Sliders } from "lucide-react";
+import {
+  Sparkles, Bot, Briefcase, CheckCircle, ArrowRight,
+  Settings, BarChart2, ShieldCheck, Zap, Sliders
+} from "lucide-react";
 import StatCard from "@/components/autoapply/StatCard";
 
 export default function AutoApplyHub() {
@@ -58,42 +61,62 @@ export default function AutoApplyHub() {
 
   if (!onboarded) {
     return (
-      <div className="aa-container" style={{ textAlign: "center", padding: "60px 16px" }}>
-        <div className="aa-badge aa-badge-score-high" style={{ padding: "6px 16px", marginBottom: 20 }}>
-          <Sparkles size={14} /> Next-Gen AI Recruiter Engine
-        </div>
-
-        <h1 className="aa-title" style={{ fontSize: "3.2rem" }}>
-          Apply to 100s of Jobs <br />
-          <span className="aa-gradient-text">On Autopilot 24/7</span>
-        </h1>
-
-        <p className="aa-subtitle" style={{ maxWidth: 640, margin: "0 auto 36px" }}>
-          Upload your resume once. Configure your dream roles and salary. Let your personal AI recruiter continuously discover, match, and apply to top opportunities on your behalf.
-        </p>
-
-        <div style={{ display: "flex", justifyContent: "center", gap: 16 }}>
-          <Link href="/autoapply/onboarding" className="aa-btn aa-btn-primary" style={{ padding: "14px 32px", fontSize: "1.05rem" }}>
-            Start One-Time Onboarding <ArrowRight size={18} />
-          </Link>
-        </div>
-
-        {/* Feature Grid */}
-        <div className="aa-grid-3" style={{ marginTop: 60, textAlign: "left" }}>
-          <div className="aa-card">
-            <Bot size={32} color="var(--teal)" style={{ marginBottom: 16 }} />
-            <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0" }}>Smart Match Scoring</h3>
-            <p className="aa-subtitle" style={{ fontSize: "0.88rem" }}>Evaluates skills, experience, and location with high-precision AI matching.</p>
+      <div
+        className="aa-container"
+        style={{
+          textAlign: "center",
+          padding: "40px 16px 20px",
+          minHeight: "calc(100vh - 140px)",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          maxWidth: 1040,
+          margin: "0 auto"
+        }}
+      >
+        <div>
+          <div className="aa-badge aa-badge-score-high" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 16px", marginBottom: 18 }}>
+            <Sparkles size={14} /> AI Job Discovery & Application Copilot
           </div>
-          <div className="aa-card">
-            <Zap size={32} color="var(--cyan)" style={{ marginBottom: 16 }} />
-            <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0" }}>Custom Cover Letters</h3>
-            <p className="aa-subtitle" style={{ fontSize: "0.88rem" }}>Generates tailored, company-specific cover letters automatically.</p>
+
+          <h1 className="aa-title" style={{ fontSize: "3.2rem", lineHeight: 1.15, margin: "0 auto 16px", maxWidth: 840 }}>
+            Discover Top Opportunities & <br />
+            <span className="aa-gradient-text">Apply with Precision AI</span>
+          </h1>
+
+          <p className="aa-subtitle" style={{ maxWidth: 640, margin: "0 auto 32px", fontSize: "1.02rem", lineHeight: 1.6 }}>
+            Upload your resume once. ApplyBuddy continuously scans top hiring platforms, evaluates compatibility against your skills, prepares tailored application materials, and organizes your job pipeline.
+          </p>
+
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <Link href="/autoapply/onboarding" className="aa-btn aa-btn-primary" style={{ padding: "14px 32px", fontSize: "1.05rem", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              Start One-Time Onboarding <ArrowRight size={18} />
+            </Link>
           </div>
-          <div className="aa-card">
-            <ShieldCheck size={32} color="var(--amber)" style={{ marginBottom: 16 }} />
-            <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0" }}>Total Transparency</h3>
-            <p className="aa-subtitle" style={{ fontSize: "0.88rem" }}>Full audit trail and controls over match thresholds and blocked companies.</p>
+
+          {/* Feature Grid: Exactly 3 Cards */}
+          <div className="aa-grid-3" style={{ marginTop: 52, textAlign: "left" }}>
+            <div className="aa-card" style={{ padding: "26px 24px" }}>
+              <Bot size={32} color="var(--teal)" style={{ marginBottom: 14 }} />
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0", color: "var(--text)" }}>Smart Match Scoring</h3>
+              <p className="aa-subtitle" style={{ fontSize: "0.88rem", margin: 0, lineHeight: 1.5 }}>
+                Evaluates job postings against your resume, highlighting matching strengths and identifying missing skill requirements.
+              </p>
+            </div>
+            <div className="aa-card" style={{ padding: "26px 24px" }}>
+              <Zap size={32} color="var(--cyan)" style={{ marginBottom: 14 }} />
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0", color: "var(--text)" }}>Custom Cover Letters</h3>
+              <p className="aa-subtitle" style={{ fontSize: "0.88rem", margin: 0, lineHeight: 1.5 }}>
+                Generates tailored, company-specific cover letters and intelligent answers to common screening questionnaires automatically.
+              </p>
+            </div>
+            <div className="aa-card" style={{ padding: "26px 24px" }}>
+              <ShieldCheck size={32} color="var(--amber)" style={{ marginBottom: 14 }} />
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 800, margin: "0 0 8px 0", color: "var(--text)" }}>Verified Links & Control</h3>
+              <p className="aa-subtitle" style={{ fontSize: "0.88rem", margin: 0, lineHeight: 1.5 }}>
+                Direct access to verified application postings with complete control over match thresholds, blacklists, and pipeline tracking.
+              </p>
+            </div>
           </div>
         </div>
       </div>

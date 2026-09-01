@@ -48,6 +48,20 @@ export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied })
                     0-1 Yr
                   </span>
                 </>
+              ) : matchItem.match_reasons?.some((r) => r.toLowerCase().includes("mid-level") || r.toLowerCase().includes("2-4")) ? (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag matched" style={{ fontSize: "0.74rem" }}>
+                    2-4 Yrs
+                  </span>
+                </>
+              ) : matchItem.match_reasons?.some((r) => r.toLowerCase().includes("senior") || r.toLowerCase().includes("5-9")) ? (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag matched" style={{ fontSize: "0.74rem" }}>
+                    Senior
+                  </span>
+                </>
               ) : null}
               {job.posted_date && (
                 <>
@@ -142,7 +156,7 @@ export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied })
           </button>
 
           {onSkip && status !== "skipped" && (
-            <button onClick={() => onSkip(id)} className="aa-btn aa-btn-secondary" style={{ padding: "6px 12px", fontSize: "0.8rem" }}>
+            <button onClick={() => onSkip(matchItem)} className="aa-btn aa-btn-secondary" style={{ padding: "6px 12px", fontSize: "0.8rem" }}>
               Skip
             </button>
           )}
