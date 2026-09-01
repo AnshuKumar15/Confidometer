@@ -2156,31 +2156,42 @@ body.interview-active .upload-page::before {
 /* ━━━━ ACTIVE INTERVIEW SCREEN LAYOUT ━━━━ */
 .interview-live-container {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 22px;
+  grid-template-columns: minmax(320px, 380px) 1fr;
+  gap: 20px;
   margin-top: 14px;
   min-height: 580px;
+  transition: grid-template-columns 0.3s ease;
+}
+
+.interview-live-container.cam-hidden {
+  grid-template-columns: 1fr;
 }
 
 /* ━━━━ VIDEO STREAM BOX & OVERLAYS ━━━━ */
 .live-stream-box {
   position: relative;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid rgba(45, 212, 191, 0.22);
-  aspect-ratio: 4/3;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  aspect-ratio: 16 / 9;
+  max-height: 210px;
   background: #0f172a;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .split-cam-box {
   position: relative;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(45, 212, 191, 0.22);
-  aspect-ratio: 4/3;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  aspect-ratio: 16 / 9;
+  max-height: 145px;
+  width: 100%;
+  flex-shrink: 0;
   background: #0f172a;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .live-interview-webcam,
@@ -2200,14 +2211,111 @@ body.interview-active .upload-page::before {
 /* Top cam status tags */
 .cam-overlay-top {
   position: absolute;
-  top: 14px;
-  left: 14px;
-  right: 14px;
+  top: 8px;
+  left: 8px;
+  right: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   z-index: 5;
   pointer-events: none;
+}
+
+.cam-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.cam-feed-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+
+.cam-rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+  animation: pulse 1.5s infinite;
+}
+
+.cam-hide-btn,
+.cam-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  transition: all 0.2s ease;
+}
+
+.cam-hide-btn:hover,
+.cam-toggle-btn:hover {
+  background: rgba(45, 212, 191, 0.2);
+  border-color: #2dd4bf;
+  color: #2dd4bf;
+  transform: translateY(-1px);
+}
+
+/* Collapsed Camera Strip */
+.cam-collapsed-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.cam-collapsed-bar.standard {
+  margin-bottom: 12px;
+}
+
+.cam-collapsed-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cam-collapsed-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cam-collapsed-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .cam-feed-badge {
@@ -4479,26 +4587,30 @@ body.interview-active .upload-page::before {
 .split-left-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   height: 100%;
   overflow: hidden;
 }
 
 .split-cam-box {
   position: relative;
-  border-radius: var(--radius-md);
+  border-radius: 12px;
   overflow: hidden;
   flex-shrink: 0;
-  aspect-ratio: 4 / 3;
-  max-height: 240px;
+  aspect-ratio: 16 / 9;
+  max-height: 145px;
+  width: 100%;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  background: #0f172a;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
 }
 
 .split-webcam {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scaleX(-1);
   display: block;
-  border-radius: var(--radius-md);
 }
 
 .split-chat-box {

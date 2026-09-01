@@ -12,7 +12,8 @@ import {
   Camera, Mic, Play, Square, FileText, CheckCircle,
   Building2, Briefcase, Clock, Brain, MessageSquare,
   Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
-  Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft
+  Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft,
+  Eye, EyeOff
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -116,6 +117,7 @@ export default function UploadPage() {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [hideCamera, setHideCamera] = useState(false);
 
   function requestFinishInterview() {
     if (isComplete) {
@@ -408,7 +410,7 @@ export default function UploadPage() {
     if (videoRef.current && mediaStream && !videoRef.current.srcObject) {
       videoRef.current.srcObject = mediaStream;
     }
-  }, [mediaStream, isInterviewing]);
+  }, [mediaStream, isInterviewing, hideCamera]);
 
   // Clean up stream on unmount
   useEffect(() => {
@@ -1346,24 +1348,69 @@ export default function UploadPage() {
             <div className="interview-split-container">
               {/* ── Left Panel: Camera + Liza Dialogue (width: 35%) ── */}
               <div className="split-left-panel">
-                <div className="split-cam-box glass">
-                  {isDsaRound && (
-                    <div className="cam-overlay-top" style={{ justifyContent: "flex-end" }}>
-                      <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
-                        <Timer size={14} />
-                        <span>{formatDuration(dsaTimeLeft)}</span>
+                {hideCamera ? (
+                  <div className="cam-collapsed-bar glass">
+                    <div className="cam-collapsed-left">
+                      <span className="cam-rec-dot" />
+                      <span className="cam-collapsed-label">Camera Active</span>
+                      {isDsaRound && (
+                        <span className={`cam-collapsed-timer ${timerUrgency}`}>
+                          <Timer size={12} /> {formatDuration(dsaTimeLeft)}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="cam-toggle-btn"
+                      onClick={() => setHideCamera(false)}
+                      title="Show camera preview"
+                    >
+                      <Eye size={13} />
+                      <span>Show Video</span>
+                    </button>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      style={{ display: "none" }}
+                    />
+                  </div>
+                ) : (
+                  <div className="split-cam-box glass">
+                    <div className="cam-overlay-top">
+                      <div className="cam-feed-badge">
+                        <span className="cam-rec-dot" />
+                        <span>Live</span>
+                      </div>
+                      <div className="cam-overlay-actions">
+                        {isDsaRound && (
+                          <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
+                            <Timer size={12} />
+                            <span>{formatDuration(dsaTimeLeft)}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="cam-hide-btn"
+                          onClick={() => setHideCamera(true)}
+                          title="Hide camera preview"
+                        >
+                          <EyeOff size={12} />
+                          <span>Hide</span>
+                        </button>
                       </div>
                     </div>
-                  )}
 
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="split-webcam"
-                  />
-                </div>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="split-webcam"
+                    />
+                  </div>
+                )}
 
                 <div className="split-chat-box glass">
                   <div className="chat-aside-header">
@@ -1693,16 +1740,57 @@ export default function UploadPage() {
             </div>
           ) : (
             /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
-            <div className="interview-live-container">
-              <div className="live-stream-box glass">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="live-interview-webcam"
-                />
-              </div>
+            <div className={`interview-live-container ${hideCamera ? "cam-hidden" : ""}`}>
+              {hideCamera ? (
+                <div className="cam-collapsed-bar standard glass">
+                  <div className="cam-collapsed-left">
+                    <span className="cam-rec-dot" />
+                    <span className="cam-collapsed-label">Camera Tracking Active (Preview Hidden)</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="cam-toggle-btn"
+                    onClick={() => setHideCamera(false)}
+                    title="Show live camera preview"
+                  >
+                    <Eye size={13} />
+                    <span>Show Camera</span>
+                  </button>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ display: "none" }}
+                  />
+                </div>
+              ) : (
+                <div className="live-stream-box glass">
+                  <div className="cam-overlay-top">
+                    <div className="cam-feed-badge">
+                      <span className="cam-rec-dot" />
+                      <span>Live Feed</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="cam-hide-btn"
+                      onClick={() => setHideCamera(true)}
+                      title="Hide camera preview"
+                    >
+                      <EyeOff size={12} />
+                      <span>Hide Camera</span>
+                    </button>
+                  </div>
+
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="live-interview-webcam"
+                  />
+                </div>
+              )}
 
               <div className="interview-chat-aside glass">
                 <div className="chat-aside-header">

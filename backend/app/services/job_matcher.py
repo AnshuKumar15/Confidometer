@@ -159,16 +159,8 @@ class JobMatcher:
                     )
 
             # Open experience role (no explicit years and not senior)
-            # If user has repeatedly skipped jobs due to experience mismatch, enforce strict mode
-            if exp_strict_mode:
-                return (
-                    0.0,
-                    None,
-                    f"Experience mismatch: Role does not specify early-career/entry requirements ({job_title}) and was filtered based on your skip feedback."
-                )
-
             return (
-                70.0,
+                75.0,
                 "Open experience requirement (unspecified in posting) – compatible with early-career profile.",
                 None
             )
@@ -262,39 +254,47 @@ class JobMatcher:
                         "skip_reason": f"Learned company exclusion: {job.get('company')}"
                     }
 
+            pref_locs_norm = [re.sub(r'[^a-z0-9\s]', ' ', l.lower()).strip() for l in user_preferences.get("locations", []) if l]
             clean_loc = re.sub(r'[^a-z0-9\s]', ' ', location).strip()
-            for pl in penalty_locations:
-                if pl and len(pl) >= 3 and (pl in clean_loc or (clean_loc and clean_loc in pl)):
-                    rejection_reasons.append(f"Location '{job.get('location')}' matches locations you previously skipped.")
-                    return {
-                        "overall_score": 0.0,
-                        "confidence_score": 100.0,
-                        "skill_match_score": 0.0,
-                        "experience_match_score": 0.0,
-                        "missing_skills": [],
-                        "strengths": [],
-                        "match_reasons": [],
-                        "rejection_reasons": rejection_reasons,
-                        "status": "skipped",
-                        "skip_reason": f"Location mismatch (learned): '{job.get('location')}' was previously rejected by candidate."
-                    }
+            # Only test penalty locations if job location is NOT one of the candidate's chosen locations
+            is_loc_preferred = any(ploc in clean_loc or clean_loc in ploc for ploc in pref_locs_norm if len(ploc) >= 3)
+            if not is_loc_preferred:
+                for pl in penalty_locations:
+                    if pl and len(pl) >= 4 and (pl == clean_loc or pl in clean_loc):
+                        rejection_reasons.append(f"Location '{job.get('location')}' matches locations you previously skipped.")
+                        return {
+                            "overall_score": 0.0,
+                            "confidence_score": 100.0,
+                            "skill_match_score": 0.0,
+                            "experience_match_score": 0.0,
+                            "missing_skills": [],
+                            "strengths": [],
+                            "match_reasons": [],
+                            "rejection_reasons": rejection_reasons,
+                            "status": "skipped",
+                            "skip_reason": f"Location mismatch (learned): '{job.get('location')}' was previously rejected by candidate."
+                        }
 
+            pref_titles_norm = [re.sub(r'[^a-z0-9\s]', ' ', t.lower()).strip() for t in user_preferences.get("job_titles", []) if t]
             clean_job_title = re.sub(r'[^a-z0-9\s]', ' ', job_title).strip()
-            for pt in penalty_titles:
-                if pt and (pt == clean_job_title or (len(pt) >= 6 and (pt in clean_job_title or clean_job_title in pt))):
-                    rejection_reasons.append(f"Role title '{job.get('title')}' matches positions you previously skipped for experience or role mismatch.")
-                    return {
-                        "overall_score": 0.0,
-                        "confidence_score": 100.0,
-                        "skill_match_score": 0.0,
-                        "experience_match_score": 0.0,
-                        "missing_skills": [],
-                        "strengths": [],
-                        "match_reasons": [],
-                        "rejection_reasons": rejection_reasons,
-                        "status": "skipped",
-                        "skip_reason": f"Experience mismatch (learned): Role '{job.get('title')}' was previously rejected based on your feedback."
-                    }
+            # Only test penalty titles if title is not one of candidate's target job titles
+            is_title_target = any(ptarg == clean_job_title or (len(ptarg) >= 5 and ptarg in clean_job_title) for ptarg in pref_titles_norm)
+            if not is_title_target:
+                for pt in penalty_titles:
+                    if pt and pt == clean_job_title:
+                        rejection_reasons.append(f"Role title '{job.get('title')}' matches positions you previously skipped for experience or role mismatch.")
+                        return {
+                            "overall_score": 0.0,
+                            "confidence_score": 100.0,
+                            "skill_match_score": 0.0,
+                            "experience_match_score": 0.0,
+                            "missing_skills": [],
+                            "strengths": [],
+                            "match_reasons": [],
+                            "rejection_reasons": rejection_reasons,
+                            "status": "skipped",
+                            "skip_reason": f"Experience mismatch (learned): Role '{job.get('title')}' was previously rejected based on your feedback."
+                        }
 
         # 1. Blacklisted Company Check
         blacklisted = [b.lower() for b in user_preferences.get("blacklisted_companies", [])]

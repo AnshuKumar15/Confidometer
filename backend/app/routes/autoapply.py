@@ -323,16 +323,25 @@ def update_job_match_status(
             )
             db.add(log)
 
+        user_prefs = db.query(UserPreferences).filter(UserPreferences.user_id == current_user.id).first()
+        pref_locs_clean = [FeedbackLearner.normalize_str(l) for l in (user_prefs.locations or []) if l] if user_prefs else []
+        pref_titles_clean = [FeedbackLearner.normalize_str(t) for t in (user_prefs.job_titles or []) if t] if user_prefs else []
+        is_remote_pref = any("remote" in l or "worldwide" in l or "anywhere" in l for l in pref_locs_clean) or any("remote" in (m or "").lower() for m in (user_prefs.work_modes if user_prefs else []))
+
         # 2. Location mismatch
         if any(k in full_reasons_str for k in ["location", "city", "relocation", "remote", "onsite"]):
             triggered_any = True
             job_loc = (job.location or "").strip() if job else ""
             cascaded_count = 0
 
-            # Immediate cascade: Auto-skip any other active matched jobs from this same rejected location
+            # Immediate cascade: Auto-skip other active matched jobs ONLY IF location is truly an unselected foreign location
             if job and job.location:
                 norm_loc = FeedbackLearner.normalize_str(job.location)
-                if norm_loc and norm_loc not in ["not specified", "unspecified", "none", "remote", "worldwide"]:
+                is_loc_target = (
+                    any(pl in norm_loc or norm_loc in pl for pl in pref_locs_clean if len(pl) >= 3) or
+                    (is_remote_pref and any(rk in norm_loc for rk in ["remote", "worldwide", "anywhere"]))
+                )
+                if norm_loc and not is_loc_target and norm_loc not in ["not specified", "unspecified", "none", "remote", "worldwide"]:
                     other_loc_matches = db.query(JobMatch).join(DiscoveredJob).filter(
                         JobMatch.user_id == current_user.id,
                         JobMatch.id != match_record.id,
@@ -340,7 +349,7 @@ def update_job_match_status(
                     ).all()
                     for om in other_loc_matches:
                         om_loc = FeedbackLearner.normalize_str(om.job.location if om.job else "")
-                        if om_loc and (om_loc == norm_loc or (len(norm_loc) >= 4 and (norm_loc in om_loc or om_loc in norm_loc))):
+                        if om_loc and (om_loc == norm_loc or (len(norm_loc) >= 5 and (norm_loc in om_loc or om_loc in norm_loc))):
                             om.status = "skipped"
                             om.skip_reason = f"Location mismatch: Cascade skipped based on candidate feedback for '{job.location}'"
                             cascaded_count += 1
@@ -383,10 +392,11 @@ def update_job_match_status(
             job_title = job.title if job else ""
             cascaded_exp_count = 0
 
-            # Immediate cascade: Auto-skip other active matches sharing the exact same seniority or title pattern
+            # Immediate cascade: Auto-skip only unaligned senior or leadership title patterns
             if job and job.title:
                 norm_title = FeedbackLearner.normalize_str(job.title)
-                if norm_title:
+                is_title_target = any(pt == norm_title or (len(pt) >= 5 and pt == norm_title) for pt in pref_titles_clean)
+                if norm_title and not is_title_target:
                     other_exp_matches = db.query(JobMatch).join(DiscoveredJob).filter(
                         JobMatch.user_id == current_user.id,
                         JobMatch.id != match_record.id,
@@ -394,7 +404,7 @@ def update_job_match_status(
                     ).all()
                     for om in other_exp_matches:
                         om_title = FeedbackLearner.normalize_str(om.job.title if om.job else "")
-                        if om_title and (om_title == norm_title or (len(norm_title) >= 6 and (norm_title in om_title or om_title in norm_title))):
+                        if om_title and om_title == norm_title:
                             om.status = "skipped"
                             om.skip_reason = f"Experience mismatch: Cascade skipped based on candidate feedback for '{job.title}'"
                             cascaded_exp_count += 1
