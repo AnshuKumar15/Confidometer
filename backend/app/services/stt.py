@@ -11,6 +11,7 @@ This module provides real-time transcription with intelligent correction:
 import math
 from difflib import SequenceMatcher
 from dataclasses import dataclass, field
+from app.utils.hallucination_filter import is_hallucination, clean_transcript_text
 
 
 @dataclass
@@ -120,8 +121,9 @@ class SmartTranscriber:
             - "corrections": list of {index, old_text, new_text} if any corrections were made
             - "full_transcript": the complete corrected transcript so far
         """
-        text = text.strip()
-        if not text:
+        text = clean_transcript_text(text.strip())
+        recent_texts = [seg.text for seg in self.segments[-5:]]
+        if not text or is_hallucination(text, recent_texts):
             return {
                 "text": "",
                 "corrections": [],
@@ -135,58 +137,20 @@ class SmartTranscriber:
             timestamp=self._next_timestamp(),
         )
 
-        # Check recent segments for potential corrections
-        window_start = max(0, len(self.segments) - self.CORRECTION_WINDOW)
-        best_match_idx = -1
-        best_similarity = 0.0
+        # Avoid duplicating exact identical back-to-back segments from chunk overlap
+        if self.segments and self.segments[-1].text.strip().lower() == text.lower():
+            return {
+                "text": text,
+                "corrections": [],
+                "full_transcript": self.get_full_transcript(),
+            }
 
-        for i in range(window_start, len(self.segments)):
-            old_seg = self.segments[i]
-            if old_seg.corrected:
-                continue  # skip already-corrected segments
-
-            similarity = _phonetic_similarity(old_seg.text, text)
-            word_overlap = _word_overlap_ratio(old_seg.text, text)
-
-            # Combined similarity score: phonetic + word overlap
-            combined = (similarity * 0.7) + (word_overlap * 0.3)
-
-            if combined > self.SIMILARITY_THRESHOLD and combined > best_similarity:
-                best_similarity = combined
-                best_match_idx = i
-
-        if best_match_idx >= 0:
-            old_seg = self.segments[best_match_idx]
-            confidence_improvement = confidence - old_seg.confidence
-
-            if confidence_improvement > self.CONFIDENCE_IMPROVEMENT_THRESHOLD:
-                # The new segment is a higher-confidence version of the old one
-                # Correct the old segment
-                old_text = old_seg.text
-                old_seg.original_text = old_text
-                old_seg.text = text
-                old_seg.confidence = confidence
-                old_seg.corrected = True
-
-                corrections.append({
-                    "index": best_match_idx,
-                    "old_text": old_text,
-                    "new_text": text,
-                })
-
-                # Don't add the new segment as a duplicate — we've merged it
-                return {
-                    "text": text,
-                    "corrections": corrections,
-                    "full_transcript": self.get_full_transcript(),
-                }
-
-        # No correction — just append the new segment
+        # Faithfully append what the user said without rewriting or deleting earlier words
         self.segments.append(new_segment)
 
         return {
             "text": text,
-            "corrections": corrections,
+            "corrections": [],
             "full_transcript": self.get_full_transcript(),
         }
 

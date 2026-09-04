@@ -1222,7 +1222,7 @@ export default function SpeakPage() {
                   <video 
                     src={recordingBlobUrl}
                     controls
-                    className="speak-camera-stream"
+                    className="speak-playback-video"
                   />
                 ) : stream ? (
                   /* Show live stream preview */
@@ -1231,7 +1231,7 @@ export default function SpeakPage() {
                     autoPlay
                     playsInline
                     muted
-                    className="speak-camera-stream"
+                    className="speak-camera-preview"
                   />
                 ) : (
                   /* Show start placeholder before play is pressed */

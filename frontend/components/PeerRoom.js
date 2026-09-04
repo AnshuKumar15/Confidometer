@@ -85,6 +85,12 @@ export default function PeerRoom({
   const recorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
 
+  // Client-side Voice Activity Detection (VAD) for STT chunk streaming
+  const vadAudioCtxRef = useRef(null);
+  const vadIntervalRef = useRef(null);
+  const isSpeakingRef = useRef(false);
+  const lastSpeechTimeRef = useRef(0);
+
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
     const sec = s % 60;
@@ -342,9 +348,66 @@ export default function PeerRoom({
           if (timerRef.current) clearInterval(timerRef.current);
           timerRef.current = setInterval(() => setElapsed((p) => p + 1), 1000);
 
-          // Start recording local stream
+          // Start recording local stream with client-side VAD
           if (localStreamRef.current) {
             try {
+              // Reset any previous VAD instance
+              if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+              if (vadAudioCtxRef.current) {
+                vadAudioCtxRef.current.close().catch(() => {});
+                vadAudioCtxRef.current = null;
+              }
+
+              // Initialize Web Audio API AnalyserNode for VAD
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {
+                const audioCtx = new AudioCtx();
+                const source = audioCtx.createMediaStreamSource(localStreamRef.current);
+                const analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 512;
+                source.connect(analyser);
+                vadAudioCtxRef.current = audioCtx;
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                let consecutiveSpeechFrames = 0;
+
+                vadIntervalRef.current = setInterval(() => {
+                  if (!analyser) return;
+                  analyser.getByteFrequencyData(dataArray);
+
+                  // Voice frequency band: 100Hz - 3400Hz (bins 1 to 38 for fftSize=512 at 48kHz)
+                  let voiceSum = 0;
+                  const voiceBins = Math.min(38, dataArray.length);
+                  for (let i = 1; i < voiceBins; i++) {
+                    voiceSum += dataArray[i];
+                  }
+                  const voiceAvg = voiceSum / (voiceBins - 1);
+
+                  // High-frequency noise reference band (bins 60 to 180, ~5.6kHz to ~16.8kHz)
+                  let noiseSum = 0;
+                  let noiseCount = 0;
+                  for (let i = 60; i < Math.min(180, dataArray.length); i++) {
+                    noiseSum += dataArray[i];
+                    noiseCount++;
+                  }
+                  const noiseAvg = noiseCount > 0 ? noiseSum / noiseCount : 0;
+
+                  // Distinguish human vocalization (conversational speech > 14)
+                  const isSpeech = voiceAvg > 14;
+
+                  if (isSpeech) {
+                    consecutiveSpeechFrames++;
+                    if (consecutiveSpeechFrames >= 2) {
+                      isSpeakingRef.current = true;
+                      lastSpeechTimeRef.current = Date.now();
+                    }
+                  } else {
+                    consecutiveSpeechFrames = 0;
+                    isSpeakingRef.current = false;
+                  }
+                }, 150);
+              }
+
               const preferredMime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
                 ? "video/webm;codecs=vp9,opus"
                 : "video/webm";
@@ -355,9 +418,14 @@ export default function PeerRoom({
 
               recorder.ondataavailable = (e) => {
                 if (e.data?.size > 0) {
+                  // Always preserve the complete recording for feedback analysis
                   recordedChunksRef.current.push(e.data);
 
-                  if (myRoleRef.current === "interviewee" && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  // VAD gate: only stream chunks to STT if user is actively speaking or recently spoke (<1200ms ago)
+                  const timeSinceLastSpeech = Date.now() - lastSpeechTimeRef.current;
+                  const hasRecentSpeech = isSpeakingRef.current || timeSinceLastSpeech < 1200;
+
+                  if (hasRecentSpeech && myRoleRef.current === "interviewee" && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     e.data.arrayBuffer().then((buf) => {
                       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                         wsRef.current.send(buf);
@@ -370,7 +438,7 @@ export default function PeerRoom({
               recorder.start(1000);
               recorderRef.current = recorder;
             } catch (e) {
-              console.warn("MediaRecorder failed:", e);
+              console.warn("MediaRecorder / VAD setup failed:", e);
             }
           }
 
@@ -477,6 +545,11 @@ export default function PeerRoom({
     return () => {
       ws.close();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+      if (vadAudioCtxRef.current) {
+        vadAudioCtxRef.current.close().catch(() => {});
+        vadAudioCtxRef.current = null;
+      }
       if (pcRef.current) {
         pcRef.current.close();
         pcRef.current = null;
@@ -514,6 +587,11 @@ export default function PeerRoom({
   }, [status, myRole, roomId]);
 
   function handleEndInterview() {
+    if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+    if (vadAudioCtxRef.current) {
+      vadAudioCtxRef.current.close().catch(() => {});
+      vadAudioCtxRef.current = null;
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "end_interview" }));
     }
@@ -533,6 +611,11 @@ export default function PeerRoom({
   }
 
   function handleLeave() {
+    if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+    if (vadAudioCtxRef.current) {
+      vadAudioCtxRef.current.close().catch(() => {});
+      vadAudioCtxRef.current = null;
+    }
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }

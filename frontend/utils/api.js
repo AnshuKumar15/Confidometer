@@ -224,6 +224,16 @@ export async function fetchTTSAudio(text) {
   return `${getApiBase()}/agent/tts?text=${encodeURIComponent(text)}`;
 }
 
+export function transcribeSpeech(audioBlob) {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "speech.webm");
+  return request("/agent/transcribe", {
+    method: "POST",
+    body: formData,
+    auth: true
+  });
+}
+
 
 export function getUserHistory() {
   return request("/analysis/history", { auth: true });

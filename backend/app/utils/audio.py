@@ -1,9 +1,12 @@
 from moviepy import VideoFileClip
 import os
+import wave
 import subprocess
 import tempfile
 import threading
 import imageio_ffmpeg
+from app.utils.vad import is_speech_chunk
+from app.utils.hallucination_filter import is_hallucination, clean_transcript_text
 
 # Check for Groq API Key
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -197,6 +200,21 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
             print(f"[WARN] ffmpeg chunk conversion failed: {conv_result.stderr}")
             return {"text": "", "segments": [], "language": "en"}
 
+        # 1. Quick audio energy check (silence gate)
+        try:
+            import audioop
+            with wave.open(tmp_wav.name, "rb") as wf:
+                raw_frames = wf.readframes(wf.getnframes())
+                rms = audioop.rms(raw_frames, 2)
+            if rms < 200:  # Gated digital silence threshold
+                return {"text": "", "segments": [], "language": "en"}
+        except Exception:
+            pass
+
+        # 2. Multi-feature acoustic Voice Activity Detection (RMS + ZCR + Spectral Flatness)
+        if not is_speech_chunk(tmp_wav.name):
+            return {"text": "", "segments": [], "language": "en"}
+
         # Try Groq API for sub-100ms real-time chunk transcription
         if groq_client:
             try:
@@ -204,7 +222,6 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
                     transcription = groq_client.audio.transcriptions.create(
                         file=("chunk.wav", file.read()),
                         model="whisper-large-v3-turbo",
-                        prompt="Interview response. Natural conversational English.",
                         response_format="verbose_json",
                         language="en",
                         temperature=0.0
@@ -214,13 +231,29 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
                     segments = []
                     for seg in raw_segments:
                         seg_dict = seg if isinstance(seg, dict) else seg.__dict__ if hasattr(seg, "__dict__") else {}
+                        no_speech = seg_dict.get("no_speech_prob", 0.0)
+                        avg_logprob = seg_dict.get("avg_logprob", 0.0)
+                        # Filter out silent/hallucinated segments with tightened bounds
+                        if no_speech > 0.4 or avg_logprob < -1.0:
+                            continue
                         segments.append({
                             "text": seg_dict.get("text", ""),
-                            "avg_logprob": seg_dict.get("avg_logprob", 0.0),
-                            "no_speech_prob": seg_dict.get("no_speech_prob", 0.0),
+                            "avg_logprob": avg_logprob,
+                            "no_speech_prob": no_speech,
                         })
+                    
+                    if not segments:
+                        return {"text": "", "segments": [], "language": "en"}
+
+                    filtered_text = " ".join(s["text"].strip() for s in segments if s["text"].strip())
+                    filtered_text = clean_transcript_text(filtered_text)
+
+                    # Post-transcription hallucination validation
+                    if is_hallucination(filtered_text):
+                        return {"text": "", "segments": [], "language": "en"}
+
                     return {
-                        "text": text.strip(),
+                        "text": filtered_text.strip(),
                         "segments": segments,
                         "language": getattr(transcription, "language", "en") or "en",
                     }
@@ -240,12 +273,15 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
                 temperature=0.0,
                 language="en",
                 condition_on_previous_text=False,
-                no_speech_threshold=0.5,
-                initial_prompt="Interview response. Natural conversational English.",
+                no_speech_threshold=0.4,
             )
 
+        local_text = clean_transcript_text(result.get("text", "").strip())
+        if is_hallucination(local_text):
+            return {"text": "", "segments": [], "language": "en"}
+
         return {
-            "text": result.get("text", "").strip(),
+            "text": local_text,
             "segments": [
                 {
                     "text": seg.get("text", ""),
@@ -253,6 +289,7 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
                     "no_speech_prob": seg.get("no_speech_prob", 0.0),
                 }
                 for seg in result.get("segments", [])
+                if seg.get("no_speech_prob", 0.0) <= 0.4 and seg.get("avg_logprob", -1.0) >= -1.0
             ],
             "language": result.get("language", "en"),
         }

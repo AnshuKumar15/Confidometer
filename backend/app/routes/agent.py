@@ -2,8 +2,9 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, W
 from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question, generate_dsa_question
 from app.utils.security import get_current_user
-from app.utils.audio import transcribe_chunk
+from app.utils.audio import transcribe_chunk, groq_client
 from app.services.stt import SmartTranscriber, _extract_confidence
+from app.utils.hallucination_filter import is_hallucination, clean_transcript_text
 from app.rate_limiter import limiter, RATE_EXPENSIVE
 import os
 import uuid
@@ -505,9 +506,10 @@ async def websocket_stt(websocket: WebSocket, session_id: str = Query("")):
             )
 
             chunk_text = whisper_result.get("text", "").strip()
+            recent_texts = [s.text for s in transcriber.segments[-4:]]
 
-            if not chunk_text:
-                # No speech detected in this chunk
+            if not chunk_text or is_hallucination(chunk_text, recent_texts):
+                # No speech detected or hallucination filtered in this chunk
                 await websocket.send_json({
                     "type": "interim",
                     "text": "",
@@ -554,4 +556,25 @@ async def reset_stt_session(request: Request, session_id: str = Form(...)):
     if session_id in _stt_sessions:
         _stt_sessions[session_id].reset()
     return {"status": "ok"}
+
+
+@router.post("/transcribe")
+async def transcribe_speech_clip(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """
+    Transcribe recorded user speech using Groq Whisper (whisper-large-v3-turbo).
+    Routes through multi-layer VAD, RMS energy gating, and hallucination filters.
+    """
+    audio_bytes = await file.read()
+    if not audio_bytes or len(audio_bytes) < 1500:
+        return {"text": ""}
+
+    loop = asyncio.get_event_loop()
+    whisper_result = await loop.run_in_executor(
+        None, transcribe_chunk, audio_bytes
+    )
+    return {"text": whisper_result.get("text", "").strip()}
+
 

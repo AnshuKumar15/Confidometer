@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
-import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, createSTTWebSocket } from "@/utils/api";
+import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, transcribeSpeech } from "@/utils/api";
 import { isAuthed } from "@/utils/auth";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/components/Toast";
@@ -13,7 +13,7 @@ import {
   Building2, Briefcase, Clock, Brain, MessageSquare,
   Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
   Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft,
-  Eye, EyeOff
+  Eye, EyeOff, Maximize2, Minimize2, GripVertical
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -114,6 +114,7 @@ export default function UploadPage() {
   const [messages, setMessages] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
   const [isRecordingResponse, setIsRecordingResponse] = useState(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -177,6 +178,111 @@ export default function UploadPage() {
   const handleMouseUp = () => {
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
+  };
+
+  // ── Main Layout Split (30% Agent / 70% Editor) & Moveable Divider ──
+  const [mainSplitRatio, setMainSplitRatio] = useState(30);
+  const [isEditorFullscreen, setIsEditorFullscreen] = useState(false);
+  const mainSplitContainerRef = useRef(null);
+  const isDraggingMainSplit = useRef(false);
+
+  const handleMainMouseDown = (e) => {
+    e.preventDefault();
+    isDraggingMainSplit.current = true;
+    document.addEventListener("mousemove", handleMainMouseMove);
+    document.addEventListener("mouseup", handleMainMouseUp);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  };
+
+  const handleMainMouseMove = (e) => {
+    if (!isDraggingMainSplit.current || !mainSplitContainerRef.current) return;
+    const rect = mainSplitContainerRef.current.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    let percentage = (offsetX / rect.width) * 100;
+
+    // If dragged almost completely to the left (< 8%), snap to fullscreen editor
+    if (percentage < 8) {
+      setIsEditorFullscreen(true);
+      setMainSplitRatio(0);
+      return;
+    }
+
+    setIsEditorFullscreen(false);
+    if (percentage < 15) percentage = 15;
+    if (percentage > 70) percentage = 70;
+    setMainSplitRatio(percentage);
+    window.dispatchEvent(new Event("resize"));
+  };
+
+  const handleMainMouseUp = () => {
+    isDraggingMainSplit.current = false;
+    document.removeEventListener("mousemove", handleMainMouseMove);
+    document.removeEventListener("mouseup", handleMainMouseUp);
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+    window.dispatchEvent(new Event("resize"));
+  };
+
+  const toggleEditorFullscreen = () => {
+    setIsEditorFullscreen((prev) => {
+      const next = !prev;
+      if (!next && (mainSplitRatio === 0 || mainSplitRatio < 15)) {
+        setMainSplitRatio(30);
+      }
+      setTimeout(() => {
+        window.dispatchEvent(new Event("resize"));
+      }, 50);
+      return next;
+    });
+  };
+
+  // ── Floating Rectangular Camera Draggable Handler ──
+  const [camPos, setCamPos] = useState(null); // null = default bottom-right
+  const isDraggingCam = useRef(false);
+  const camDragStart = useRef({ mouseX: 0, mouseY: 0, initialX: 0, initialY: 0 });
+
+  const handleCamMouseDown = (e) => {
+    e.preventDefault();
+    isDraggingCam.current = true;
+    const camEl = e.currentTarget.classList.contains("split-floating-cam")
+      ? e.currentTarget
+      : e.currentTarget.closest(".split-floating-cam");
+    if (!camEl) return;
+    const rect = camEl.getBoundingClientRect();
+    camDragStart.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      initialX: rect.left,
+      initialY: rect.top,
+    };
+    document.addEventListener("mousemove", handleCamMouseMove);
+    document.addEventListener("mouseup", handleCamMouseUp);
+    document.body.style.userSelect = "none";
+  };
+
+  const handleCamMouseMove = (e) => {
+    if (!isDraggingCam.current) return;
+    const deltaX = e.clientX - camDragStart.current.mouseX;
+    const deltaY = e.clientY - camDragStart.current.mouseY;
+    let newX = camDragStart.current.initialX + deltaX;
+    let newY = camDragStart.current.initialY + deltaY;
+
+    // Viewport bounds clamping
+    const pad = 10;
+    const maxX = window.innerWidth - 340 - pad;
+    const maxY = window.innerHeight - 200 - pad;
+    newX = Math.max(pad, Math.min(newX, maxX));
+    newY = Math.max(pad, Math.min(newY, maxY));
+
+    setCamPos({ x: newX, y: newY });
+  };
+
+  const handleCamMouseUp = () => {
+    isDraggingCam.current = false;
+    document.removeEventListener("mousemove", handleCamMouseMove);
+    document.removeEventListener("mouseup", handleCamMouseUp);
+    document.body.style.userSelect = "";
   };
 
 
@@ -253,7 +359,7 @@ export default function UploadPage() {
         !isSpeaking &&
         !autoFinishedRef.current
       ) {
-        const pendingText = (accumulatedTranscriptRef.current || interimTranscript || "").trim();
+        const pendingText = (interimTranscript || lastTranscribedTextRef.current || "").trim();
         if (pendingText) {
           submitResponse(pendingText);
         } else if (interviewDuration >= targetSeconds + 10) {
@@ -284,13 +390,7 @@ export default function UploadPage() {
 
   // DOM Refs
   const videoRef = useRef(null);
-  const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
-
-  // Server-side STT refs (WebSocket + audio capture)
-  const sttWsRef = useRef(null);        // WebSocket connection to backend Whisper STT
-  const sttRecorderRef = useRef(null);   // MediaRecorder capturing audio chunks for STT
-  const sttUsingServerRef = useRef(false); // true when using server-side STT (vs browser fallback)
 
   // Load saved state from sessionStorage on mount
   useEffect(() => {
@@ -393,7 +493,11 @@ export default function UploadPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480 },
-        audio: true
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
       setMediaStream(stream);
       setPermissionGranted(true);
@@ -407,10 +511,10 @@ export default function UploadPage() {
 
   // Handle webcam video elements on state update
   useEffect(() => {
-    if (videoRef.current && mediaStream && !videoRef.current.srcObject) {
+    if (videoRef.current && mediaStream && videoRef.current.srcObject !== mediaStream) {
       videoRef.current.srcObject = mediaStream;
     }
-  }, [mediaStream, isInterviewing, hideCamera]);
+  }, [mediaStream, isInterviewing, hideCamera, showEditor, isEditorFullscreen]);
 
   // Clean up stream on unmount
   useEffect(() => {
@@ -503,106 +607,42 @@ export default function UploadPage() {
     }
   }
 
-  // 3. Speech Recognition setup — Server-side Whisper STT with browser fallback
-  const accumulatedTranscriptRef = useRef("");
-  const silenceTimerRef = useRef(null);
-  const SILENCE_TIMEOUT_MS = 3000; // 3 seconds of silence before auto-submit
-  const STT_CHUNK_INTERVAL_MS = 3000; // send audio chunks to server every 3 seconds
+  // 3. Groq Whisper STT setup with Voice Activity Detection (VAD)
+  const sttMediaRecorderRef = useRef(null);
+  const sttChunksRef = useRef([]);
+  const vadAudioContextRef = useRef(null);
+  const vadIntervalRef = useRef(null);
+  const interimIntervalRef = useRef(null);
+  const hasSpokenRef = useRef(false);
+  const isTranscribingRef = useRef(false);
+  const isGroqActiveRef = useRef(false);
+  const lastTranscribedTextRef = useRef("");
+  const isUserEditingRef = useRef(false);
+  const typingTimeoutRef = useRef(null);
 
-  // ── Server-side STT via WebSocket + Whisper ──
-  function startServerSTT() {
-    // Need a media stream to capture audio
+  function startGroqSTT() {
     if (!mediaStream) {
-      console.warn("[STT] No media stream available, falling back to browser STT");
-      startBrowserSTT();
+      console.warn("[STT] No media stream available for Groq STT");
       return;
     }
 
-    accumulatedTranscriptRef.current = "";
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
+    stopGroqSTT();
+
+    isGroqActiveRef.current = true;
+    sttChunksRef.current = [];
+    hasSpokenRef.current = false;
+    isTranscribingRef.current = false;
+    isUserEditingRef.current = false;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
     }
-
-    // Open WebSocket to backend Whisper STT
-    const ws = createSTTWebSocket(
-      sessionIdRef.current,
-      // onResult
-      (data) => {
-        const text = data.text || "";
-        const corrections = data.corrections || [];
-        const fullTranscript = data.full_transcript || "";
-
-        if (data.type === "result" && text) {
-          // If there were corrections, use the server's full_transcript
-          // (it already has corrections applied)
-          if (corrections.length > 0) {
-            console.log("[STT] Self-correction applied:", corrections);
-            accumulatedTranscriptRef.current = fullTranscript;
-          } else {
-            // No corrections — the server's full_transcript includes the new segment
-            accumulatedTranscriptRef.current = fullTranscript;
-          }
-          setInterimTranscript(accumulatedTranscriptRef.current.trim());
-        }
-
-        // Reset silence timer on any speech activity
-        if (silenceTimerRef.current) {
-          clearTimeout(silenceTimerRef.current);
-        }
-
-        // Start silence timer — submit after silence
-        if (accumulatedTranscriptRef.current.trim()) {
-          silenceTimerRef.current = setTimeout(() => {
-            const fullText = accumulatedTranscriptRef.current.trim();
-            if (fullText) {
-              accumulatedTranscriptRef.current = "";
-              setInterimTranscript("");
-              submitResponse(fullText);
-            }
-          }, SILENCE_TIMEOUT_MS);
-        }
-      },
-      // onError
-      (errMsg) => {
-        console.warn("[STT] WebSocket error, falling back to browser STT:", errMsg);
-        cleanupServerSTT();
-        startBrowserSTT();
-      },
-      // onOpen
-      () => {
-        console.log("[STT] Server-side Whisper STT connected");
-        sttUsingServerRef.current = true;
-        setIsRecordingResponse(true);
-        setInterimTranscript("");
-        startAudioCapture();
-      },
-      // onClose
-      () => {
-        console.log("[STT] Server STT WebSocket closed");
-        // If we didn't intentionally close, submit what we have
-        if (sttUsingServerRef.current) {
-          const fullText = accumulatedTranscriptRef.current.trim();
-          if (fullText) {
-            accumulatedTranscriptRef.current = "";
-            setInterimTranscript("");
-            submitResponse(fullText);
-          }
-          sttUsingServerRef.current = false;
-          setIsRecordingResponse(false);
-        }
-      }
-    );
-
-    sttWsRef.current = ws;
-  }
-
-  function startAudioCapture() {
-    // Use the existing media stream's audio tracks to capture audio chunks
-    if (!mediaStream) return;
+    lastTranscribedTextRef.current = "";
+    setInterimTranscript("");
+    setIsRecordingResponse(true);
+    setIsUserSpeaking(false);
 
     try {
-      // Create an audio-only stream from the existing media stream
       const audioTracks = mediaStream.getAudioTracks();
       if (!audioTracks.length) {
         console.warn("[STT] No audio tracks in media stream");
@@ -611,185 +651,205 @@ export default function UploadPage() {
 
       const audioStream = new MediaStream(audioTracks);
 
-      // Use a separate MediaRecorder for STT chunks
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
           : "";
 
-      if (!mimeType) {
-        console.warn("[STT] No supported audio MIME type for MediaRecorder");
-        return;
-      }
-
       const recorder = new MediaRecorder(audioStream, {
-        mimeType,
-        audioBitsPerSecond: 64000, // lower bitrate is fine for speech
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 64000,
       });
 
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0 && sttWsRef.current) {
-          sttWsRef.current.send(event.data);
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          sttChunksRef.current.push(e.data);
         }
       };
 
-      recorder.onerror = (e) => {
-        console.warn("[STT] MediaRecorder error:", e);
-      };
+      recorder.start(1000);
+      sttMediaRecorderRef.current = recorder;
 
-      // Request data every STT_CHUNK_INTERVAL_MS
-      recorder.start(STT_CHUNK_INTERVAL_MS);
-      sttRecorderRef.current = recorder;
-
-      console.log(`[STT] Audio capture started (${mimeType}, chunks every ${STT_CHUNK_INTERVAL_MS}ms)`);
-    } catch (e) {
-      console.warn("[STT] Failed to start audio capture:", e);
-    }
-  }
-
-  function cleanupServerSTT() {
-    // Stop the audio capture recorder
-    if (sttRecorderRef.current) {
+      // Web Audio API VAD (Voice Activity Detection)
       try {
-        if (sttRecorderRef.current.state !== "inactive") {
-          sttRecorderRef.current.stop();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const audioCtx = new AudioCtx();
+          const source = audioCtx.createMediaStreamSource(audioStream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+          vadAudioContextRef.current = audioCtx;
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          let silenceStart = null;
+          let speechFrames = 0;
+
+          vadIntervalRef.current = setInterval(() => {
+            if (!analyser) return;
+            analyser.getByteFrequencyData(dataArray);
+
+            // Voice frequency band: 100Hz - 3400Hz (bins 1 to 38 for fftSize=512 at 48kHz)
+            let voiceSum = 0;
+            const voiceBins = Math.min(38, dataArray.length);
+            for (let i = 1; i < voiceBins; i++) {
+              voiceSum += dataArray[i];
+            }
+            const voiceAvg = voiceSum / (voiceBins - 1);
+
+            // Responsive vocal threshold: voiceAvg > 14 reliably detects spoken audio
+            const isSpeechEnergy = voiceAvg > 14;
+
+            if (isSpeechEnergy) {
+              speechFrames++;
+              if (speechFrames >= 2) {
+                hasSpokenRef.current = true;
+                silenceStart = null;
+                setIsUserSpeaking(true);
+              }
+            } else {
+              speechFrames = 0;
+              setIsUserSpeaking(false);
+
+              // Auto-submit after 3 seconds of silence after the candidate has spoken
+              // (Only when the user is not actively typing/editing text in the textarea)
+              if (hasSpokenRef.current && !isUserEditingRef.current) {
+                if (!silenceStart) {
+                  silenceStart = Date.now();
+                } else if (Date.now() - silenceStart >= 3000) {
+                  silenceStart = null;
+                  finalizeAndSubmitGroqSTT();
+                }
+              }
+            }
+          }, 150);
         }
-      } catch (e) { /* ignore */ }
-      sttRecorderRef.current = null;
-    }
-
-    // Close the WebSocket
-    if (sttWsRef.current) {
-      sttWsRef.current.close();
-      sttWsRef.current = null;
-    }
-
-    sttUsingServerRef.current = false;
-  }
-
-  // ── Browser Speech Recognition fallback ──
-  function startBrowserSTT() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Speech recognition is not available. Please type your responses or use Chrome.");
-      return;
-    }
-
-    if (recognitionRef.current) {
-      recognitionRef.current.abort();
-    }
-
-    accumulatedTranscriptRef.current = "";
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onstart = () => {
-      setIsRecordingResponse(true);
-      setInterimTranscript("");
-    };
-
-    recognition.onresult = (event) => {
-      let newFinal = "";
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          newFinal += event.results[i][0].transcript;
-        } else {
-          interim += event.results[i][0].transcript;
-        }
+      } catch (vadErr) {
+        console.warn("[STT] VAD initialization failed:", vadErr);
       }
 
-      if (newFinal) {
-        accumulatedTranscriptRef.current += " " + newFinal;
-        setInterimTranscript(accumulatedTranscriptRef.current.trim());
-      } else if (interim) {
-        setInterimTranscript(
-          (accumulatedTranscriptRef.current + " " + interim).trim()
-        );
-      }
-
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-      }
-
-      silenceTimerRef.current = setTimeout(() => {
-        const fullText = accumulatedTranscriptRef.current.trim();
-        if (fullText) {
-          accumulatedTranscriptRef.current = "";
-          setInterimTranscript("");
-          submitResponse(fullText);
-        }
-      }, SILENCE_TIMEOUT_MS);
-    };
-
-    recognition.onerror = (event) => {
-      console.warn("Speech recognition error:", event.error);
-      if (event.error === "no-speech" || event.error === "network") {
-        const fullText = accumulatedTranscriptRef.current.trim();
-        if (fullText) {
-          accumulatedTranscriptRef.current = "";
-          setInterimTranscript("");
-          submitResponse(fullText);
+      // Interim transcription with Groq every 3 seconds while speaking
+      interimIntervalRef.current = setInterval(async () => {
+        if (!isGroqActiveRef.current || !hasSpokenRef.current || isTranscribingRef.current || sttChunksRef.current.length === 0) {
           return;
         }
-      }
-      setIsRecordingResponse(false);
-    };
 
-    recognition.onend = () => {
-      const fullText = accumulatedTranscriptRef.current.trim();
-      if (fullText) {
-        accumulatedTranscriptRef.current = "";
-        setInterimTranscript("");
-        submitResponse(fullText);
-      }
-      setIsRecordingResponse(false);
-    };
+        // If the user is currently typing or editing the text box, do NOT overwrite their text!
+        if (isUserEditingRef.current) {
+          return;
+        }
 
-    recognitionRef.current = recognition;
-    recognition.start();
+        try {
+          isTranscribingRef.current = true;
+          const currentBlob = new Blob(sttChunksRef.current, { type: mimeType || "audio/webm" });
+          if (currentBlob.size > 1500) {
+            const data = await transcribeSpeech(currentBlob);
+            // Only update if session is STILL active and user didn't start typing
+            if (isGroqActiveRef.current && !isUserEditingRef.current && data?.text?.trim()) {
+              lastTranscribedTextRef.current = data.text.trim();
+              setInterimTranscript(data.text.trim());
+            }
+          }
+        } catch (err) {
+          console.warn("[STT] Interim Groq transcription error:", err);
+        } finally {
+          isTranscribingRef.current = false;
+        }
+      }, 3000);
+
+      console.log(`[STT] Groq Whisper STT session active (whisper-large-v3-turbo, ${mimeType})`);
+    } catch (e) {
+      console.error("[STT] Failed to start Groq STT:", e);
+      setIsRecordingResponse(false);
+    }
+  }
+
+  function stopGroqSTT() {
+    isGroqActiveRef.current = false;
+    lastTranscribedTextRef.current = "";
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (vadIntervalRef.current) {
+      clearInterval(vadIntervalRef.current);
+      vadIntervalRef.current = null;
+    }
+    if (interimIntervalRef.current) {
+      clearInterval(interimIntervalRef.current);
+      interimIntervalRef.current = null;
+    }
+    if (vadAudioContextRef.current) {
+      try {
+        vadAudioContextRef.current.close();
+      } catch (e) {}
+      vadAudioContextRef.current = null;
+    }
+    if (sttMediaRecorderRef.current) {
+      try {
+        if (sttMediaRecorderRef.current.state !== "inactive") {
+          sttMediaRecorderRef.current.stop();
+        }
+      } catch (e) {}
+      sttMediaRecorderRef.current = null;
+    }
+    setIsRecordingResponse(false);
+    setIsUserSpeaking(false);
+  }
+
+  async function finalizeAndSubmitGroqSTT(explicitText = null) {
+    if (isSubmittingResponseRef.current) return;
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
+    let textToSubmit = (explicitText !== null ? explicitText : (interimTranscript || lastTranscribedTextRef.current || "")).trim();
+
+    const chunks = [...sttChunksRef.current];
+    const candidateHasSpoken = hasSpokenRef.current;
+    const userWasEditing = isUserEditingRef.current;
+    stopGroqSTT();
+
+    // If candidate spoke and we recorded chunks, and user was not typing manual edits:
+    if (!userWasEditing && !textToSubmit && chunks.length > 0 && candidateHasSpoken) {
+      try {
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+        const finalBlob = new Blob(chunks, { type: mimeType });
+        if (finalBlob.size > 1500) {
+          const res = await transcribeSpeech(finalBlob);
+          if (res?.text?.trim()) {
+            textToSubmit = res.text.trim();
+          }
+        }
+      } catch (err) {
+        console.warn("[STT] Final Groq transcription error:", err);
+      }
+    }
+
+    if (textToSubmit && textToSubmit.length >= 2) {
+      isUserEditingRef.current = false;
+      lastTranscribedTextRef.current = "";
+      setInterimTranscript("");
+      submitResponse(textToSubmit);
+    } else {
+      // If no valid text detected, restart listening so user can speak or type
+      isUserEditingRef.current = false;
+      startGroqSTT();
+    }
   }
 
   function startListening() {
-    // Default to browser Speech Recognition for zero-latency local development experience
-    const SpeechRecognition = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (SpeechRecognition) {
-      console.log("[STT] Using browser Speech Recognition for zero-latency");
-      startBrowserSTT();
-    } else {
-      console.log("[STT] Browser Speech Recognition not supported, falling back to server Whisper STT");
-      try {
-        startServerSTT();
-      } catch (e) {
-        console.warn("[STT] Server STT failed to start:", e);
-      }
-    }
+    console.log("[STT] Starting Groq Whisper STT (whisper-large-v3-turbo)");
+    startGroqSTT();
   }
 
   function stopListening() {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    accumulatedTranscriptRef.current = "";
-
-    // Stop server-side STT if active
-    if (sttUsingServerRef.current) {
-      cleanupServerSTT();
-    }
-
-    // Stop browser STT if active
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
+    stopGroqSTT();
+    setInterimTranscript("");
   }
 
   // 4. Start the Interview Session
@@ -904,6 +964,8 @@ export default function UploadPage() {
 
     isSubmittingResponseRef.current = true;
     setIsAiThinking(true);
+    setInterimTranscript("");
+    lastTranscribedTextRef.current = "";
     const currentStamp = getElapsedTimestamp();
     const userMsg = { role: "user", text: transcriptText, timestamp: currentStamp };
     if (code) userMsg.code = code;
@@ -1330,6 +1392,18 @@ export default function UploadPage() {
                 </div>
               </div>
 
+              <div className="hud-stat-divider" />
+
+              <button
+                type="button"
+                className={`hud-cam-toggle-btn ${hideCamera ? "cam-off" : "cam-on"}`}
+                onClick={() => setHideCamera((prev) => !prev)}
+                title={hideCamera ? "Show video preview" : "Hide video preview"}
+              >
+                {hideCamera ? <EyeOff size={13} /> : <Eye size={13} />}
+                <span>{hideCamera ? "Show Video" : "Hide Video"}</span>
+              </button>
+
               <button
                 type="button"
                 className="button subtle hud-finish-btn"
@@ -1345,73 +1419,15 @@ export default function UploadPage() {
 
           {showSplitScreen ? (
             /* ═══════════════ SPLIT-SCREEN MODE (DSA / Coding Side-by-Side) ═══════════════ */
-            <div className="interview-split-container">
-              {/* ── Left Panel: Camera + Liza Dialogue (width: 35%) ── */}
-              <div className="split-left-panel">
-                {hideCamera ? (
-                  <div className="cam-collapsed-bar glass">
-                    <div className="cam-collapsed-left">
-                      <span className="cam-rec-dot" />
-                      <span className="cam-collapsed-label">Camera Active</span>
-                      {isDsaRound && (
-                        <span className={`cam-collapsed-timer ${timerUrgency}`}>
-                          <Timer size={12} /> {formatDuration(dsaTimeLeft)}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="cam-toggle-btn"
-                      onClick={() => setHideCamera(false)}
-                      title="Show camera preview"
-                    >
-                      <Eye size={13} />
-                      <span>Show Video</span>
-                    </button>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      style={{ display: "none" }}
-                    />
-                  </div>
-                ) : (
-                  <div className="split-cam-box glass">
-                    <div className="cam-overlay-top">
-                      <div className="cam-feed-badge">
-                        <span className="cam-rec-dot" />
-                        <span>Live</span>
-                      </div>
-                      <div className="cam-overlay-actions">
-                        {isDsaRound && (
-                          <div className={`live-timer-badge dsa-timer ${timerUrgency}`}>
-                            <Timer size={12} />
-                            <span>{formatDuration(dsaTimeLeft)}</span>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className="cam-hide-btn"
-                          onClick={() => setHideCamera(true)}
-                          title="Hide camera preview"
-                        >
-                          <EyeOff size={12} />
-                          <span>Hide</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="split-webcam"
-                    />
-                  </div>
-                )}
-
+            <div className="interview-split-container" ref={mainSplitContainerRef}>
+              {/* ── Left Panel: Liza Dialogue (Agent, default 30%) ── */}
+              <div
+                className="split-left-panel"
+                style={{
+                  width: isEditorFullscreen ? "0%" : `${mainSplitRatio}%`,
+                  display: isEditorFullscreen ? "none" : "flex",
+                }}
+              >
                 <div className="split-chat-box glass">
                   <div className="chat-aside-header">
                     <div className="chat-header-title">
@@ -1419,8 +1435,8 @@ export default function UploadPage() {
                       <h3>Liza Chat</h3>
                     </div>
                     <div className="chat-status-pill">
-                      <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? "listening" : "idle"}`} />
-                      <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                      <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? (isUserSpeaking ? "listening speaking" : "listening") : "idle"}`} />
+                      <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : "Ready"}</span>
                     </div>
                   </div>
                   <div className="messages-log">
@@ -1439,15 +1455,6 @@ export default function UploadPage() {
                         )}
                       </div>
                     ))}
-                    {interimTranscript && !isRecordingResponse && (
-                      <div className="chat-bubble user interim">
-                        <div className="chat-bubble-header">
-                          <div className="bubble-avatar"><User size={13} /></div>
-                          <span className="role-tag">Hearing...</span>
-                        </div>
-                        <p>{interimTranscript}</p>
-                      </div>
-                    )}
                     <div ref={messagesEndRef} />
                   </div>
 
@@ -1459,18 +1466,12 @@ export default function UploadPage() {
                         value={interimTranscript}
                         onChange={(e) => {
                           setInterimTranscript(e.target.value);
-                          accumulatedTranscriptRef.current = e.target.value;
-                          if (silenceTimerRef.current) {
-                            clearTimeout(silenceTimerRef.current);
-                            silenceTimerRef.current = null;
-                          }
+                          lastTranscribedTextRef.current = e.target.value;
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && interimTranscript.trim()) {
-                            const text = interimTranscript.trim();
-                            accumulatedTranscriptRef.current = "";
-                            setInterimTranscript("");
-                            submitResponse(text);
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            finalizeAndSubmitGroqSTT(interimTranscript);
                           }
                         }}
                         placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : "Listening paused. Click 'Speak' or type here..."}
@@ -1507,12 +1508,7 @@ export default function UploadPage() {
                         type="button"
                         className="button primary submit-btn pulse-shimmer"
                         onClick={() => {
-                          const text = interimTranscript.trim();
-                          if (text) {
-                            accumulatedTranscriptRef.current = "";
-                            setInterimTranscript("");
-                            submitResponse(text);
-                          }
+                          finalizeAndSubmitGroqSTT(interimTranscript);
                         }}
                         disabled={loading || !interimTranscript.trim()}
                         style={{ flex: 1 }}
@@ -1525,12 +1521,39 @@ export default function UploadPage() {
                 </div>
               </div>
 
-              {/* ── Right Panel: Workspace Side-by-Side (width: 65%) ── */}
-              <div className="split-right-panel glass">
-                {/* Header: Question switcher tabs & Language Selector */}
+              {/* ── Moveable Divider between Agent & Editor ── */}
+              {!isEditorFullscreen && (
+                <div
+                  className="main-split-resizer"
+                  onMouseDown={handleMainMouseDown}
+                  title="Drag to resize Agent & Editor"
+                >
+                  <div className="resizer-handle-dots" />
+                </div>
+              )}
+
+              {/* ── Right Panel: Workspace Side-by-Side (Editor, default 70%) ── */}
+              <div
+                className="split-right-panel glass"
+                style={{
+                  width: isEditorFullscreen ? "100%" : `${100 - mainSplitRatio}%`,
+                }}
+              >
+                {/* Header: Question switcher tabs, Fullscreen Toggle & Language Selector */}
                 <div className="dsa-workspace-header">
                   {isDsaRound && dsaQuestions && (
                     <div className="dsa-questions-tabs">
+                      {isEditorFullscreen && (
+                        <button
+                          type="button"
+                          className="dsa-restore-chat-tab-btn"
+                          onClick={toggleEditorFullscreen}
+                          title="Show Liza Chat (Exit Fullscreen)"
+                        >
+                          <MessageSquare size={13} />
+                          <span>Liza Chat</span>
+                        </button>
+                      )}
                       {dsaQuestions.map((q, idx) => (
                         <button
                           key={idx}
@@ -1546,11 +1569,32 @@ export default function UploadPage() {
 
                   {!isDsaRound && (
                     <div className="dsa-questions-tabs">
+                      {isEditorFullscreen && (
+                        <button
+                          type="button"
+                          className="dsa-restore-chat-tab-btn"
+                          onClick={toggleEditorFullscreen}
+                          title="Show Liza Chat (Exit Fullscreen)"
+                        >
+                          <MessageSquare size={13} />
+                          <span>Liza Chat</span>
+                        </button>
+                      )}
                       <span className="dsa-active-title">Coding Sandbox</span>
                     </div>
                   )}
 
                   <div className="workspace-header-actions" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className={`editor-fullscreen-toggle-btn ${isEditorFullscreen ? "active" : ""}`}
+                      onClick={toggleEditorFullscreen}
+                      title={isEditorFullscreen ? "Exit Fullscreen (Split Screen)" : "Expand Editor to Fullscreen"}
+                    >
+                      {isEditorFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                      <span>{isEditorFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
+                    </button>
+
                     <div className="editor-lang-selector">
                       <select
                         value={editorLanguage}
@@ -1737,6 +1781,43 @@ export default function UploadPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ── Compact Rectangular Floating Camera in Bottom-Right ── */}
+              {!hideCamera ? (
+                <div
+                  className="split-floating-cam glass"
+                  style={
+                    camPos
+                      ? {
+                          top: `${camPos.y}px`,
+                          left: `${camPos.x}px`,
+                          bottom: "auto",
+                          right: "auto",
+                        }
+                      : undefined
+                  }
+                  onMouseDown={handleCamMouseDown}
+                  title="Drag to reposition camera preview"
+                >
+                  <div className="floating-cam-video-wrap">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="floating-webcam-video"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ display: "none" }}
+                />
+              )}
             </div>
           ) : (
             /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
@@ -1751,10 +1832,10 @@ export default function UploadPage() {
                     type="button"
                     className="cam-toggle-btn"
                     onClick={() => setHideCamera(false)}
-                    title="Show live camera preview"
+                    title="Show live video preview"
                   >
                     <Eye size={13} />
-                    <span>Show Camera</span>
+                    <span>Show Video</span>
                   </button>
                   <video
                     ref={videoRef}
@@ -1775,10 +1856,10 @@ export default function UploadPage() {
                       type="button"
                       className="cam-hide-btn"
                       onClick={() => setHideCamera(true)}
-                      title="Hide camera preview"
+                      title="Hide video preview"
                     >
                       <EyeOff size={12} />
-                      <span>Hide Camera</span>
+                      <span>Hide Video</span>
                     </button>
                   </div>
 
@@ -1799,8 +1880,8 @@ export default function UploadPage() {
                     <h3>Interview Dialogue</h3>
                   </div>
                   <div className="chat-status-pill">
-                    <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? "listening" : "idle"}`} />
-                    <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? "Listening" : "Ready"}</span>
+                    <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? (isUserSpeaking ? "listening speaking" : "listening") : "idle"}`} />
+                    <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : "Ready"}</span>
                   </div>
                 </div>
 
@@ -1820,16 +1901,6 @@ export default function UploadPage() {
                       )}
                     </div>
                   ))}
-
-                  {interimTranscript && !isRecordingResponse && (
-                    <div className="chat-bubble user interim">
-                      <div className="chat-bubble-header">
-                        <div className="bubble-avatar"><User size={13} /></div>
-                        <span className="role-tag">Hearing...</span>
-                      </div>
-                      <p>{interimTranscript}</p>
-                    </div>
-                  )}
 
                   {/* Liza Thinking indicator */}
                   {isSpeaking === false && isSubmittingResponseRef.current && (
@@ -1862,23 +1933,30 @@ export default function UploadPage() {
                         ref={responseInputRef}
                         className="response-text-input"
                         value={interimTranscript}
+                        onFocus={() => {
+                          // Allow the user to make changes by typing without speech overwriting
+                          isUserEditingRef.current = true;
+                          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                        }}
                         onChange={(e) => {
-                          setInterimTranscript(e.target.value);
-                          accumulatedTranscriptRef.current = e.target.value;
-                          if (silenceTimerRef.current) {
-                            clearTimeout(silenceTimerRef.current);
-                            silenceTimerRef.current = null;
+                          const val = e.target.value;
+                          isUserEditingRef.current = true;
+                          setInterimTranscript(val);
+                          lastTranscribedTextRef.current = val;
+
+                          // Auto-submit 3 seconds after user stops typing (if text is present)
+                          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                          if (val.trim().length >= 2) {
+                            typingTimeoutRef.current = setTimeout(() => {
+                              finalizeAndSubmitGroqSTT(val);
+                            }, 3000);
                           }
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
-                            if (interimTranscript.trim()) {
-                              const text = interimTranscript.trim();
-                              accumulatedTranscriptRef.current = "";
-                              setInterimTranscript("");
-                              submitResponse(text);
-                            }
+                            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                            finalizeAndSubmitGroqSTT(interimTranscript);
                           }
                         }}
                         placeholder={
@@ -1925,12 +2003,7 @@ export default function UploadPage() {
                       type="button"
                       className="button primary submit-btn pulse-shimmer"
                       onClick={() => {
-                        const text = interimTranscript.trim();
-                        if (text) {
-                          accumulatedTranscriptRef.current = "";
-                          setInterimTranscript("");
-                          submitResponse(text);
-                        }
+                        finalizeAndSubmitGroqSTT(interimTranscript);
                       }}
                       disabled={loading || !interimTranscript.trim()}
                       style={{ flex: 1 }}

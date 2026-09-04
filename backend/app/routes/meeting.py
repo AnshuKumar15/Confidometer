@@ -18,6 +18,7 @@ from app.utils.resume import extract_text_from_resume
 from app.services.llm import generate_interview_question
 from app.utils.audio import transcribe_chunk
 from app.services.stt import SmartTranscriber, _extract_confidence
+from app.utils.hallucination_filter import is_hallucination
 
 router = APIRouter()
 
@@ -343,26 +344,28 @@ async def peer_signaling(
                     None, transcribe_chunk, audio_bytes
                 )
                 chunk_text = whisper_result.get("text", "").strip()
+                transcriber: SmartTranscriber = room["transcriber"]
+                recent_texts = [s.text for s in transcriber.segments[-4:]]
 
-                if chunk_text:
+                if chunk_text and not is_hallucination(chunk_text, recent_texts):
                     confidence = _extract_confidence(whisper_result)
-                    transcriber: SmartTranscriber = room["transcriber"]
                     result = transcriber.add_segment(chunk_text, confidence)
-                    full_tx = result["full_transcript"]
+                    if result["text"]:
+                        full_tx = result["full_transcript"]
 
-                    update_msg = {
-                        "type": "live_transcript",
-                        "text": result["text"],
-                        "full_transcript": full_tx,
-                    }
-                    try:
-                        await websocket.send_json(update_msg)
-                    except Exception:
-                        pass
-                    try:
-                        await peer_ws.send_json(update_msg)
-                    except Exception:
-                        pass
+                        update_msg = {
+                            "type": "live_transcript",
+                            "text": result["text"],
+                            "full_transcript": full_tx,
+                        }
+                        try:
+                            await websocket.send_json(update_msg)
+                        except Exception:
+                            pass
+                        try:
+                            await peer_ws.send_json(update_msg)
+                        except Exception:
+                            pass
 
             # 2. Handle text/JSON signaling messages
             elif "text" in message:

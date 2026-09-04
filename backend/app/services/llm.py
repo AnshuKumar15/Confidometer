@@ -183,7 +183,9 @@ def _build_system_prompt_technical(
         "8. Reference their resume skills, languages, achievements, and experiences naturally when asking questions.\n"
         f"{'9. Tailor question difficulty and style to the company (' + company_name + ') interview standards. Ask questions similar to what ' + company_name + ' would ask in a real interview.' + chr(10) if company_name else ''}"
         "10. If the candidate asks a clarifying question or cross-question (e.g. asking about the role, repeating the question, or asking for clarification), politely answer or clarify their question, and then repeat/re-ask the current interview question. Do not skip to the next interview question until they have actually answered the current one.\n"
-        "11. Continue asking diverse technical questions until the full interview duration has elapsed."
+        "11. CRITICAL — NO TEACHING: If the candidate says 'I don't know', 'I'm not sure', or gives a clearly wrong/incomplete answer, do NOT explain the concept, teach them, or give a lengthy explanation. A real interviewer never teaches during the interview. Instead, acknowledge briefly in ONE short sentence (e.g. 'No worries, let's move on.', 'That's okay.', 'Alright, let's try another topic.') and immediately ask the NEXT question. Never spend more than one sentence acknowledging a missed answer.\n"
+        "12. Keep all your responses SHORT and conversational. Your total response must not exceed 3-4 sentences. One brief acknowledgment of the previous answer + one new question.\n"
+        "13. Continue asking diverse technical questions until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -213,7 +215,8 @@ def _build_system_prompt_hr(
         "4. Keep questions conversational, empathetic, and relevant to the role and company.\n"
         "5. Ask exactly ONE question at a time. Keep responses concise (2-3 sentences).\n"
         "6. If the candidate asks questions, answer helpfully and redirect back to your question.\n"
-        "7. Continue conducting the HR round until the full interview duration has elapsed."
+        "7. CRITICAL — NO TEACHING: If the candidate says 'I don't know' or gives an incomplete answer, do NOT explain the concept or teach them. Acknowledge briefly in ONE sentence (e.g. 'No worries, let's move on.') and immediately ask the next question. Never lecture or give lengthy explanations.\n"
+        "8. Continue conducting the HR round until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -244,7 +247,8 @@ def _build_system_prompt_behavioural(
         "5. After each answer, probe deeper with follow-ups like 'What was the quantifiable result?', 'What did you learn from that experience?', 'What would you do differently today?'.\n"
         "6. Ask exactly ONE question at a time. Keep responses concise.\n"
         "7. If the candidate asks questions, answer helpfully and redirect back.\n"
-        "8. Continue the behavioural assessment until the full interview duration has elapsed."
+        "8. CRITICAL — NO TEACHING: If the candidate says 'I don't know' or cannot recall a situation, do NOT explain what a good answer would look like or teach them. Acknowledge briefly in ONE sentence (e.g. 'That's alright, let's try another scenario.') and immediately ask the next question.\n"
+        "9. Continue the behavioural assessment until the full interview duration has elapsed."
     )
 
     if stress_mode:
@@ -297,7 +301,8 @@ def _build_system_prompt_dsa(user_name, role, company_name, experience_level, re
         "2. Be supportive, offer hints if they ask, and encourage them to think out loud.\n"
         "3. Keep your responses SHORT and conversational (1-3 sentences max).\n"
         "4. Do NOT give away the solution. If they ask for a hint, give a small nudge toward the right approach.\n"
-        "5. You are here to simulate a real coding interview — talk naturally, respond to what they say.\n"
+        "5. CRITICAL — NO TEACHING: If the candidate says 'I don't know' or is stuck, do NOT explain the full algorithm or teach the concept. Give a brief 1-sentence hint at most and let them work through it.\n"
+        "6. You are here to simulate a real coding interview — talk naturally, respond to what they say.\n"
     )
 
     if dsa_context:
