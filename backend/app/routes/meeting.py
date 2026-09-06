@@ -237,6 +237,7 @@ async def peer_signaling(
             "phase": "warmup",
             "history": [],
             "transcriber": SmartTranscriber(),
+            "candidate_transcript": "",
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
@@ -280,7 +281,8 @@ async def peer_signaling(
         return
 
     ws_to_room[ws_id] = room_id
-    print(f"[MEETING] Authenticated user {effective_user_name} ({auth_user.email}) joined room {room_id} as {role}")
+    auth_email = auth_user.email if auth_user else "guest"
+    print(f"[MEETING] User {effective_user_name} ({auth_email}) joined room {room_id} as {role}")
 
     try:
         # Check if both peers are now present
@@ -325,15 +327,16 @@ async def peer_signaling(
             if room["interviewer"]["ws_id"] == ws_id:
                 peer_ws = room["interviewee"]["ws"]
                 is_interviewer = True
+                speaker_role = "interviewer"
+                speaker_name = room["interviewer"]["name"]
             else:
                 peer_ws = room["interviewer"]["ws"]
                 is_interviewer = False
+                speaker_role = "interviewee"
+                speaker_name = room["interviewee"]["name"]
 
-            # 1. Handle binary audio chunks from interviewee
+            # 1. Handle binary audio chunks from either participant
             if "bytes" in message:
-                if is_interviewer:
-                    continue  # Interviewer audio is WebRTC direct only
-
                 audio_bytes = message["bytes"]
                 if not audio_bytes or len(audio_bytes) < 100:
                     continue
@@ -349,23 +352,25 @@ async def peer_signaling(
 
                 if chunk_text and not is_hallucination(chunk_text, recent_texts):
                     confidence = _extract_confidence(whisper_result)
-                    result = transcriber.add_segment(chunk_text, confidence)
-                    if result["text"]:
-                        full_tx = result["full_transcript"]
+                    if not is_interviewer:
+                        room["candidate_transcript"] = chunk_text
+                        transcriber.add_segment(chunk_text, confidence)
 
-                        update_msg = {
-                            "type": "live_transcript",
-                            "text": result["text"],
-                            "full_transcript": full_tx,
-                        }
-                        try:
-                            await websocket.send_json(update_msg)
-                        except Exception:
-                            pass
-                        try:
-                            await peer_ws.send_json(update_msg)
-                        except Exception:
-                            pass
+                    update_msg = {
+                        "type": "live_transcript",
+                        "text": chunk_text,
+                        "full_transcript": chunk_text,
+                        "role": speaker_role,
+                        "speaker_name": speaker_name,
+                    }
+                    try:
+                        await websocket.send_json(update_msg)
+                    except Exception:
+                        pass
+                    try:
+                        await peer_ws.send_json(update_msg)
+                    except Exception:
+                        pass
 
             # 2. Handle text/JSON signaling messages
             elif "text" in message:
@@ -376,7 +381,31 @@ async def peer_signaling(
 
                 msg_type = data.get("type", "")
 
-                if msg_type == "offer":
+                if msg_type == "speech_update":
+                    chunk_text = data.get("text", "").strip()
+                    if chunk_text:
+                        if not is_interviewer:
+                            room["candidate_transcript"] = chunk_text
+                            transcriber: SmartTranscriber = room["transcriber"]
+                            transcriber.add_segment(chunk_text, 0.95)
+
+                        update_msg = {
+                            "type": "live_transcript",
+                            "text": chunk_text,
+                            "full_transcript": chunk_text,
+                            "role": speaker_role,
+                            "speaker_name": speaker_name,
+                        }
+                        try:
+                            await websocket.send_json(update_msg)
+                        except Exception:
+                            pass
+                        try:
+                            await peer_ws.send_json(update_msg)
+                        except Exception:
+                            pass
+
+                elif msg_type == "offer":
                     await peer_ws.send_json({"type": "offer", "sdp": data.get("sdp", "")})
 
                 elif msg_type == "answer":
@@ -420,6 +449,8 @@ async def peer_signaling(
                         q1 = f"Hi {room['interviewee']['name']}, could you please tell me about yourself, your background, and walk me through some of the key projects you've worked on recently?"
 
                     room["phase"] = "interview"
+                    room["candidate_transcript"] = ""
+                    room["transcriber"].reset()
                     room["history"].append({"role": "model", "text": q1})
 
                     # Notify both peers
@@ -438,7 +469,9 @@ async def peer_signaling(
 
                     # Retrieve transcript of candidate's response
                     transcriber: SmartTranscriber = room["transcriber"]
-                    candidate_response = transcriber.get_full_transcript().strip()
+                    candidate_response = room.get("candidate_transcript", "").strip()
+                    if not candidate_response:
+                        candidate_response = transcriber.get_full_transcript().strip()
                     if not candidate_response:
                         candidate_response = "[The candidate completed speaking without audio transcription.]"
 
@@ -447,6 +480,7 @@ async def peer_signaling(
 
                     # Reset transcriber for the next question block
                     transcriber.reset()
+                    room["candidate_transcript"] = ""
 
                     role_name = room["role_name"]
                     interviewee_name = room["interviewee"]["name"]

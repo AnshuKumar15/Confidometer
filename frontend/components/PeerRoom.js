@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Camera, CameraOff, Mic, MicOff, PhoneOff, MessageSquare, Clock, FileText, Check } from "lucide-react";
-import { getApiBase, getWsBase, uploadVideo } from "@/utils/api";
+import { getApiBase, getWsBase, uploadVideo, transcribeSpeech } from "@/utils/api";
 import { getToken } from "@/utils/auth";
 
 // Multi-region STUN + Free OpenRelay TURN servers for production NAT traversal
@@ -85,11 +85,19 @@ export default function PeerRoom({
   const recorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
 
-  // Client-side Voice Activity Detection (VAD) for STT chunk streaming
+  // Client-side Voice Activity Detection (VAD) and Dedicated STT Audio Pipeline
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const vadAudioCtxRef = useRef(null);
   const vadIntervalRef = useRef(null);
   const isSpeakingRef = useRef(false);
   const lastSpeechTimeRef = useRef(0);
+  const sttRecorderRef = useRef(null);
+  const sttChunksRef = useRef([]);
+  const sttIntervalRef = useRef(null);
+  const isTranscribingRef = useRef(false);
+  const accumulatedTranscriptRef = useRef("");
+  const latestUtteranceRef = useRef("");
+  const hasSpokenInUtteranceRef = useRef(false);
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60);
@@ -348,17 +356,16 @@ export default function PeerRoom({
           if (timerRef.current) clearInterval(timerRef.current);
           timerRef.current = setInterval(() => setElapsed((p) => p + 1), 1000);
 
-          // Start recording local stream with client-side VAD
+          // ── Setup Media Recording & Dedicated STT Audio Pipeline ──
           if (localStreamRef.current) {
+            // 1. Web Audio API AnalyserNode for Client-side VAD
             try {
-              // Reset any previous VAD instance
               if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
               if (vadAudioCtxRef.current) {
                 vadAudioCtxRef.current.close().catch(() => {});
                 vadAudioCtxRef.current = null;
               }
 
-              // Initialize Web Audio API AnalyserNode for VAD
               const AudioCtx = window.AudioContext || window.webkitAudioContext;
               if (AudioCtx) {
                 const audioCtx = new AudioCtx();
@@ -383,62 +390,132 @@ export default function PeerRoom({
                   }
                   const voiceAvg = voiceSum / (voiceBins - 1);
 
-                  // High-frequency noise reference band (bins 60 to 180, ~5.6kHz to ~16.8kHz)
-                  let noiseSum = 0;
-                  let noiseCount = 0;
-                  for (let i = 60; i < Math.min(180, dataArray.length); i++) {
-                    noiseSum += dataArray[i];
-                    noiseCount++;
-                  }
-                  const noiseAvg = noiseCount > 0 ? noiseSum / noiseCount : 0;
-
-                  // Distinguish human vocalization (conversational speech > 14)
                   const isSpeech = voiceAvg > 14;
 
                   if (isSpeech) {
                     consecutiveSpeechFrames++;
                     if (consecutiveSpeechFrames >= 2) {
                       isSpeakingRef.current = true;
+                      setIsSpeaking(true);
                       lastSpeechTimeRef.current = Date.now();
+                      hasSpokenInUtteranceRef.current = true;
                     }
                   } else {
                     consecutiveSpeechFrames = 0;
                     isSpeakingRef.current = false;
+                    setIsSpeaking(false);
                   }
                 }, 150);
               }
+            } catch (e) {
+              console.warn("VAD setup failed:", e);
+            }
 
+            // 2. Full-session Video MediaRecorder for post-interview diagnostic analysis
+            try {
               const preferredMime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
                 ? "video/webm;codecs=vp9,opus"
                 : "video/webm";
 
-              const recorder = new MediaRecorder(localStreamRef.current, {
+              const videoRecorder = new MediaRecorder(localStreamRef.current, {
                 mimeType: preferredMime,
               });
 
-              recorder.ondataavailable = (e) => {
+              videoRecorder.ondataavailable = (e) => {
                 if (e.data?.size > 0) {
-                  // Always preserve the complete recording for feedback analysis
                   recordedChunksRef.current.push(e.data);
-
-                  // VAD gate: only stream chunks to STT if user is actively speaking or recently spoke (<1200ms ago)
-                  const timeSinceLastSpeech = Date.now() - lastSpeechTimeRef.current;
-                  const hasRecentSpeech = isSpeakingRef.current || timeSinceLastSpeech < 1200;
-
-                  if (hasRecentSpeech && myRoleRef.current === "interviewee" && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    e.data.arrayBuffer().then((buf) => {
-                      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                        wsRef.current.send(buf);
-                      }
-                    });
-                  }
                 }
               };
 
-              recorder.start(1000);
-              recorderRef.current = recorder;
+              videoRecorder.start(1000);
+              recorderRef.current = videoRecorder;
             } catch (e) {
-              console.warn("MediaRecorder / VAD setup failed:", e);
+              console.warn("Video MediaRecorder setup failed:", e);
+            }
+
+            // 3. Dedicated Audio-Only STT MediaRecorder & Groq Whisper pipeline
+            try {
+              const audioTracks = localStreamRef.current.getAudioTracks();
+              if (audioTracks.length > 0) {
+                const audioStream = new MediaStream(audioTracks);
+                const audioMime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+                  ? "audio/webm;codecs=opus"
+                  : MediaRecorder.isTypeSupported("audio/webm")
+                  ? "audio/webm"
+                  : "";
+
+                const sttRecorder = new MediaRecorder(audioStream, {
+                  ...(audioMime ? { mimeType: audioMime } : {}),
+                  audioBitsPerSecond: 64000,
+                });
+
+                sttRecorder.ondataavailable = (e) => {
+                  if (e.data && e.data.size > 0) {
+                    sttChunksRef.current.push(e.data);
+                  }
+                };
+
+                sttRecorder.start(500);
+                sttRecorderRef.current = sttRecorder;
+
+                if (sttIntervalRef.current) clearInterval(sttIntervalRef.current);
+                sttIntervalRef.current = setInterval(async () => {
+                  if (isTranscribingRef.current || sttChunksRef.current.length === 0) {
+                    return;
+                  }
+
+                  const timeSinceLastSpeech = Date.now() - lastSpeechTimeRef.current;
+                  const hasRecentSpeech = isSpeakingRef.current || (hasSpokenInUtteranceRef.current && timeSinceLastSpeech < 1800);
+
+                  if (!hasRecentSpeech) {
+                    // Silence detected after speech: commit sentence and restart STT recorder for fresh container header
+                    if (hasSpokenInUtteranceRef.current && latestUtteranceRef.current) {
+                      accumulatedTranscriptRef.current = (accumulatedTranscriptRef.current + " " + latestUtteranceRef.current).trim();
+                      latestUtteranceRef.current = "";
+                      hasSpokenInUtteranceRef.current = false;
+                      sttChunksRef.current = [];
+
+                      if (sttRecorderRef.current && sttRecorderRef.current.state === "recording") {
+                        try {
+                          sttRecorderRef.current.stop();
+                          sttRecorderRef.current.start(500);
+                        } catch (e) {}
+                      }
+                    }
+                    return;
+                  }
+
+                  try {
+                    isTranscribingRef.current = true;
+                    const currentBlob = new Blob(sttChunksRef.current, { type: audioMime || "audio/webm" });
+                    if (currentBlob.size > 1200) {
+                      const data = await transcribeSpeech(currentBlob);
+                      if (data?.text?.trim()) {
+                        const freshText = data.text.trim();
+                        latestUtteranceRef.current = freshText;
+                        hasSpokenInUtteranceRef.current = true;
+
+                        const combinedText = (accumulatedTranscriptRef.current + " " + freshText).trim();
+                        setLiveTranscript(`${userName}: "${combinedText}"`);
+
+                        // Relay speech update to peer via WebSocket
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                          wsRef.current.send(JSON.stringify({
+                            type: "speech_update",
+                            text: combinedText
+                          }));
+                        }
+                      }
+                    }
+                  } catch (err) {
+                    console.warn("[STT] Live transcription error:", err);
+                  } finally {
+                    isTranscribingRef.current = false;
+                  }
+                }, 2200);
+              }
+            } catch (e) {
+              console.warn("STT MediaRecorder setup failed:", e);
             }
           }
 
@@ -497,24 +574,63 @@ export default function PeerRoom({
           break;
 
         case "live_transcript":
-          setLiveTranscript(data.full_transcript || "");
+          if (data.speaker_name && data.full_transcript) {
+            setLiveTranscript(`${data.speaker_name}: "${data.full_transcript}"`);
+          } else {
+            setLiveTranscript(data.full_transcript || data.text || "");
+          }
           break;
 
         case "next_question":
           setCurrentQuestion(data.question || "");
+          accumulatedTranscriptRef.current = "";
+          latestUtteranceRef.current = "";
+          hasSpokenInUtteranceRef.current = false;
+          sttChunksRef.current = [];
           setLiveTranscript("");
+          if (sttRecorderRef.current && sttRecorderRef.current.state === "recording") {
+            try {
+              sttRecorderRef.current.stop();
+              sttRecorderRef.current.start(500);
+            } catch (e) {}
+          }
           break;
 
         case "next_question_ready":
+          accumulatedTranscriptRef.current = "";
+          latestUtteranceRef.current = "";
+          hasSpokenInUtteranceRef.current = false;
+          sttChunksRef.current = [];
           setLiveTranscript("");
+          if (sttRecorderRef.current && sttRecorderRef.current.state === "recording") {
+            try {
+              sttRecorderRef.current.stop();
+              sttRecorderRef.current.start(500);
+            } catch (e) {}
+          }
           break;
 
         case "phase_change":
           setRoomPhase(data.phase);
+          accumulatedTranscriptRef.current = "";
+          latestUtteranceRef.current = "";
+          hasSpokenInUtteranceRef.current = false;
+          sttChunksRef.current = [];
+          setLiveTranscript("");
+          if (sttRecorderRef.current && sttRecorderRef.current.state === "recording") {
+            try {
+              sttRecorderRef.current.stop();
+              sttRecorderRef.current.start(500);
+            } catch (e) {}
+          }
           if (data.phase === "interview") {
             setCurrentQuestion(data.question || "");
           } else if (data.phase === "feedback") {
             setStatus("feedback");
+            if (sttIntervalRef.current) clearInterval(sttIntervalRef.current);
+            if (sttRecorderRef.current && sttRecorderRef.current.state !== "inactive") {
+              try { sttRecorderRef.current.stop(); } catch (e) {}
+            }
             if (recorderRef.current && recorderRef.current.state !== "inactive") {
               recorderRef.current.stop();
             }
@@ -542,8 +658,23 @@ export default function PeerRoom({
       }
     };
 
+  const stopSTTPipeline = () => {
+    if (sttIntervalRef.current) {
+      clearInterval(sttIntervalRef.current);
+      sttIntervalRef.current = null;
+    }
+    if (sttRecorderRef.current && sttRecorderRef.current.state !== "inactive") {
+      try { sttRecorderRef.current.stop(); } catch (e) {}
+      sttRecorderRef.current = null;
+    }
+    sttChunksRef.current = [];
+    isSpeakingRef.current = false;
+    setIsSpeaking(false);
+  };
+
     return () => {
       ws.close();
+      stopSTTPipeline();
       if (timerRef.current) clearInterval(timerRef.current);
       if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
       if (vadAudioCtxRef.current) {
@@ -587,6 +718,7 @@ export default function PeerRoom({
   }, [status, myRole, roomId]);
 
   function handleEndInterview() {
+    stopSTTPipeline();
     if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
     if (vadAudioCtxRef.current) {
       vadAudioCtxRef.current.close().catch(() => {});
@@ -611,6 +743,7 @@ export default function PeerRoom({
   }
 
   function handleLeave() {
+    stopSTTPipeline();
     if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
     if (vadAudioCtxRef.current) {
       vadAudioCtxRef.current.close().catch(() => {});
@@ -831,48 +964,53 @@ export default function PeerRoom({
             </div>
           ) : (
             /* FORMAL INTERVIEW PHASE */
-            <>
-              {/* Question / Guide Panel */}
-              <div className="peer-question-panel glass" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.2)" }}>
-                {myRole === "interviewer" ? (
-                  <>
-                    <h3 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--teal)", margin: "0 0 10px 0" }}>
-                      🎯 Active Interview Question to Ask:
-                    </h3>
-                    <p style={{ fontSize: "1.1rem", lineHeight: "1.6", margin: "10px 0 20px 0", color: "#e2e8f0" }}>
-                      {currentQuestion || "Generating question..."}
-                    </p>
-                    <button 
-                      onClick={requestNextQuestion} 
-                      className="button primary" 
-                      disabled={!currentQuestion}
-                    >
-                      Generate Follow-up Question
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <h3 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--cyan)", margin: "0 0 10px 0" }}>
-                      🎙️ Verbal response active:
-                    </h3>
-                    <p style={{ color: "var(--muted)", margin: "10px 0" }}>
-                      Listen carefully to the interviewer's prompt and explain your thoughts verbally. Your voice is being transcribed.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {/* Live Speech-to-Text display */}
-              <div className="peer-transcript-panel glass" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.2)" }}>
-                <h3 style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 10px 0" }}>
-                  📝 Live Transcription:
-                </h3>
-                <p style={{ fontStyle: "italic", margin: "10px 0", minHeight: "36px", color: "#94a3b8" }}>
-                  {liveTranscript || <span style={{ color: "rgba(255,255,255,0.2)" }}>Speech transcription appears here in real time...</span>}
-                </p>
-              </div>
-            </>
+            <div className="peer-question-panel glass" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.2)" }}>
+              {myRole === "interviewer" ? (
+                <>
+                  <h3 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--teal)", margin: "0 0 10px 0" }}>
+                    🎯 Active Interview Question to Ask:
+                  </h3>
+                  <p style={{ fontSize: "1.1rem", lineHeight: "1.6", margin: "10px 0 20px 0", color: "#e2e8f0" }}>
+                    {currentQuestion || "Generating question..."}
+                  </p>
+                  <button 
+                    onClick={requestNextQuestion} 
+                    className="button primary" 
+                    disabled={!currentQuestion}
+                  >
+                    Generate Follow-up Question
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--cyan)", margin: "0 0 10px 0" }}>
+                    🎙️ Verbal response active:
+                  </h3>
+                  <p style={{ color: "var(--muted)", margin: "10px 0" }}>
+                    Listen carefully to the interviewer's prompt and explain your thoughts verbally. Your voice is being transcribed.
+                  </p>
+                </>
+              )}
+            </div>
           )}
+
+          {/* Live Speech-to-Text display (active in both warmup and formal interview) */}
+          <div className="peer-transcript-panel glass" style={{ padding: "20px", borderRadius: "12px", border: "1px solid var(--line)", background: "rgba(15, 23, 42, 0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <h3 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
+                📝 Live Transcription:
+              </h3>
+              {isSpeaking && (
+                <span className="badge" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", fontSize: "0.8rem", padding: "4px 10px", borderRadius: "20px" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                  Voice Detected
+                </span>
+              )}
+            </div>
+            <p style={{ fontStyle: "italic", margin: "10px 0", minHeight: "36px", color: liveTranscript ? "#e2e8f0" : "#94a3b8", lineHeight: "1.6" }}>
+              {liveTranscript || <span style={{ color: "rgba(255,255,255,0.3)" }}>Speech transcription appears here in real time as either participant speaks...</span>}
+            </p>
+          </div>
         </div>
       )}
 
