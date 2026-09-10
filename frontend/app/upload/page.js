@@ -1242,19 +1242,27 @@ export default function UploadPage() {
                 </label>
 
                 {interviewType !== "dsa" && (
-                  <label>
-                    Interview Duration
-                    <select
-                      value={duration}
-                      onChange={(e) => setDuration(Number(e.target.value))}
-                      disabled={loading}
-                    >
-                      <option value={5}>5 Minutes</option>
-                      <option value={10}>10 Minutes</option>
-                      <option value={20}>20 Minutes</option>
-                      <option value={30}>30 Minutes</option>
-                    </select>
-                  </label>
+                  <div className="duration-selector-zone">
+                    <span className="label-text">Interview Duration</span>
+                    <div className="duration-boxes-grid" role="group" aria-label="Interview Duration">
+                      {[5, 10, 20, 30].map((mins) => {
+                        const isSelected = duration === mins;
+                        return (
+                          <button
+                            key={mins}
+                            type="button"
+                            className={`duration-box-btn ${isSelected ? "active" : ""}`}
+                            onClick={() => setDuration(mins)}
+                            disabled={loading}
+                            aria-pressed={isSelected}
+                          >
+                            <Clock size={14} className="duration-box-icon" />
+                            <span className="duration-box-label">{mins} min</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
 
 

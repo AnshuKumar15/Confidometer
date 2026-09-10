@@ -79,7 +79,7 @@ export default function AutoApplyHub() {
             <Sparkles size={14} /> AI Job Discovery & Application Copilot
           </div>
 
-          <h1 className="aa-title" style={{ fontSize: "3.2rem", lineHeight: 1.15, margin: "0 auto 16px", maxWidth: 840 }}>
+          <h1 className="aa-title" style={{ fontSize: "clamp(2rem, 6vw, 3.2rem)", lineHeight: 1.15, margin: "0 auto 16px", maxWidth: 840 }}>
             Discover Top Opportunities & <br />
             <span className="aa-gradient-text">Apply with Precision AI</span>
           </h1>
@@ -89,7 +89,7 @@ export default function AutoApplyHub() {
           </p>
 
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <Link href="/autoapply/onboarding" className="aa-btn aa-btn-primary" style={{ padding: "14px 32px", fontSize: "1.05rem", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Link href="/autoapply/onboarding" className="aa-btn aa-btn-primary" style={{ padding: "14px 28px", fontSize: "1.05rem", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, maxWidth: "100%" }}>
               Start One-Time Onboarding <ArrowRight size={18} />
             </Link>
           </div>

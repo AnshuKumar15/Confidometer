@@ -45,7 +45,7 @@ export default function HistoryPage() {
                 <h3>Speech #{item.speechId}</h3>
                 <p>{item.createdAt}</p>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="history-row-actions">
                 <Link href={`/dashboard?speechId=${item.speechId}`} className="button subtle">
                   Open Dashboard
                 </Link>

@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Clock,
   Settings,
-  HelpCircle,
   LogOut,
   ChevronDown,
   ListTodo,
@@ -90,8 +89,16 @@ export default function Navbar() {
     }
   };
 
-  // Track scroll to show/hide navbar
+  const isHomePage = pathname === "/";
+
+  // Track scroll to show/hide navbar (kept fixed on home page only)
   useEffect(() => {
+    // If on home page, keep navbar always fixed and visible while scrolling
+    if (isHomePage) {
+      setNavVisible(true);
+      return;
+    }
+
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
 
@@ -108,7 +115,7 @@ export default function Navbar() {
 
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
+  }, [lastScrollY, isHomePage]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -148,10 +155,10 @@ export default function Navbar() {
   }
 
   return (
-    <header className={`nav-wrap ${navVisible ? "" : "nav-hidden"}`}>
-      <nav className="nav glass">
-        <Link href="/" className="brand" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
-          <BrandLogo size={32} showText={true} />
+    <header className={`nav-wrap ${isHomePage ? "nav-wrap-fixed" : (navVisible ? "" : "nav-hidden")}`}>
+      <nav className="nav">
+        <Link href="/" className="brand">
+          <BrandLogo size={30} showText={true} />
         </Link>
 
         <div className="nav-links">
@@ -167,16 +174,14 @@ export default function Navbar() {
 
         <div className="nav-actions">
           {!authed ? (
-            <div style={{ display: "flex", gap: "10px" }}>
-              <Link href="/login" className="button subtle">
-                Sign in
-              </Link>
-              <Link href="/register" className="button primary">
-                Sign up
+            <div className="nav-auth-group">
+              <Link href="/register" className="nav-signup-btn">
+                Sign up - It's Free!
               </Link>
             </div>
           ) : (
-            <div className="profile-wrapper" ref={dropdownRef}>
+            <div className="nav-auth-group">
+              <div className="profile-wrapper" ref={dropdownRef}>
               <button
                 type="button"
                 className="profile-trigger"
@@ -295,6 +300,7 @@ export default function Navbar() {
                   </button>
                 </div>
               )}
+              </div>
             </div>
           )}
 

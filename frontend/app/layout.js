@@ -1,5 +1,6 @@
 import { Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
 import "@/styles/globals.css";
+import "@/styles/landing-page.css";
 import Navbar from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";

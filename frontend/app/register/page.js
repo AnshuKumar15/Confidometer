@@ -7,6 +7,7 @@ import { Eye, EyeOff, Info } from "lucide-react";
 import { saveSession } from "@/utils/auth";
 import { register, login } from "@/utils/api";
 import { useToast } from "@/components/Toast";
+import BrandLogo from "@/components/BrandLogo";
 
 function RegisterForm() {
   const router = useRouter();
@@ -134,6 +135,11 @@ function RegisterForm() {
   return (
     <div className="auth-wrap">
       <form className="auth-card glass" onSubmit={handleSubmit}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "20px" }}>
+          <Link href="/" style={{ textDecoration: "none" }}>
+            <BrandLogo size={36} showText={true} />
+          </Link>
+        </div>
         <h1>Create your account</h1>
         <p>Sign up to start your interview preparation and AI confidence analysis.</p>
 

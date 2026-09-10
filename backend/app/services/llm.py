@@ -571,7 +571,7 @@ def generate_interview_question(
         )
 
         model = genai.GenerativeModel(
-            model_name="gemini-3.1-flash-lite",
+            model_name="gemini-3.5-flash-lite",
             system_instruction=system_instruction
         )
         
@@ -726,8 +726,8 @@ IMPORTANT RULES:
 3. Boilerplate code should have the correct function signature with a placeholder comment.
 4. Return ONLY valid JSON. No markdown fences, no explanation, no extra text."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
+        model = genai.GenerativeModel(model_name="gemini-3.7-flash")
+        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=30.0)
         raw = response.text.strip()
 
         result = _extract_json_from_text(raw)
@@ -1005,7 +1005,7 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."""
 
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-3.7-flash")
         response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=30.0)
         raw = response.text.strip()
 
@@ -1123,7 +1123,7 @@ TASK:
 
 IMPORTANT: Return ONLY valid JSON. No markdown wrappers, no explanations, no text before or after the JSON."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.1-flash-lite")
+        model = genai.GenerativeModel(model_name="gemini-3.5-flash-lite")
         response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
         raw = response.text.strip()
 

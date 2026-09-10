@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { 
   Play, Pause, RotateCcw, Video, Mic, VideoOff, 
-  Sparkles, Check, Globe, HelpCircle, ArrowRight 
+  Sparkles, Check, Globe, HelpCircle, ArrowRight, Square 
 } from "lucide-react";
 import "./styles.css";
 
@@ -654,13 +654,14 @@ export default function SpeakPage() {
   const [scrollOffset, setScrollOffset] = useState(0);
   const [visibleActiveIndex, setVisibleActiveIndex] = useState(1);
 
-  // Slot machine pull lever state
-  const [leverPulled, setLeverPulled] = useState(false);
+  // Bongo Cat button press state
+  const [catPushed, setCatPushed] = useState(false);
 
   // Timer states
   const [isPlaying, setIsPlaying] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const [totalTime, setTotalTime] = useState(60);
+  const [hasRecorded, setHasRecorded] = useState(false);
 
   // Client-side recorded video state
   const [recordingBlobUrl, setRecordingBlobUrl] = useState(null);
@@ -773,12 +774,12 @@ export default function SpeakPage() {
   const handleSpin = () => {
     if (spinning) return;
     setSpinning(true);
-    setLeverPulled(true);
+    setCatPushed(true);
 
-    // Release lever after 350ms
+    // Release cat button slam after 400ms
     setTimeout(() => {
-      setLeverPulled(false);
-    }, 350);
+      setCatPushed(false);
+    }, 400);
 
     // 1. Resolve filtered list of topics for the target
     let finalPool = [];
@@ -902,6 +903,7 @@ export default function SpeakPage() {
     setMode("active");
     setTimeLeft(totalTime);
     setIsPlaying(false);
+    setHasRecorded(false);
     if (recordingBlobUrl) {
       URL.revokeObjectURL(recordingBlobUrl);
       setRecordingBlobUrl(null);
@@ -927,6 +929,7 @@ export default function SpeakPage() {
 
       // Play countdown
       setIsPlaying(true);
+      setHasRecorded(true);
       playStartChimeSound(); // Trigger the premium ascending bell arpeggio!
 
       // 1. Ensure stream is active
@@ -965,7 +968,7 @@ export default function SpeakPage() {
         };
 
         mediaRecorderRef.current = recorder;
-        recorder.start();
+        recorder.start(1000);
       } else if (mediaRecorderRef.current.state === "paused") {
         mediaRecorderRef.current.resume();
       }
@@ -976,6 +979,10 @@ export default function SpeakPage() {
   const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    } else if (recordedChunksRef.current.length > 0 && !recordingBlobUrl) {
+      const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      setRecordingBlobUrl(url);
     }
     stopMediaStream();
     setIsPlaying(false);
@@ -997,7 +1004,7 @@ export default function SpeakPage() {
 
   // Reset the active practice timer and clear previous recording - stays on the same topic practice view!
   // Keeps the camera stream active so they are immediately ready to start fresh
-  const handleTimerReset = () => {
+  const handleTimerReset = async () => {
     if (recordingBlobUrl) {
       URL.revokeObjectURL(recordingBlobUrl);
       setRecordingBlobUrl(null);
@@ -1009,7 +1016,9 @@ export default function SpeakPage() {
     }
     recordedChunksRef.current = [];
     setIsPlaying(false);
+    setHasRecorded(false);
     setTimeLeft(totalTime);
+    await startCameraStream();
   };
 
   // Reset/Return to spinner - completely revokes and dumps the video from memory
@@ -1020,6 +1029,7 @@ export default function SpeakPage() {
     }
     stopMediaStream();
     setIsPlaying(false);
+    setHasRecorded(false);
     setMode("setup");
     setScrollOffset(0);
     setVisibleActiveIndex(1);
@@ -1072,19 +1082,28 @@ export default function SpeakPage() {
             {/* Left Column Instructions */}
             <div className="speak-sidebar-card">
               <div className="speak-brand-logo-section">
+                <div className="speak-kicker-tag">
+                  <span className="speak-kicker-dot" />
+                  <span>Impromptu Drills</span>
+                </div>
+
                 <h1 className="speak-brand-title">
                   Get Set<br />
-                  Speak
+                  <span className="speak-brand-accent">Speak</span>
                 </h1>
+
                 <div className="speak-steps-list">
                   <div className="speak-step-item">
-                    <span className="speak-step-text">1) Get random topic</span>
+                    <span className="speak-step-num">1)</span>
+                    <span className="speak-step-text">Draw random prompt</span>
                   </div>
                   <div className="speak-step-item">
-                    <span className="speak-step-text">2) Set 1 min timer</span>
+                    <span className="speak-step-num">2)</span>
+                    <span className="speak-step-text">Set 1-min timer</span>
                   </div>
                   <div className="speak-step-item">
-                    <span className="speak-step-text">3) Record & speak !!</span>
+                    <span className="speak-step-num">3)</span>
+                    <span className="speak-step-text">Record & answer out loud</span>
                   </div>
                 </div>
               </div>
@@ -1186,25 +1205,34 @@ export default function SpeakPage() {
 
               </div>
 
-              {/* Pull Lever spinner handle on the right of the centered column */}
-              <div className="speak-lever-container">
-                <span className="speak-lever-lbl">pull lever<br />↓</span>
-                <div className="speak-lever-track" />
+              {/* Bongo Cat button trigger on the right of the centered column */}
+              <div className="speak-cat-container">
+                <span className="speak-cat-lbl">tap to spin<br />↓</span>
                 <button 
                   type="button" 
-                  className="speak-lever-handle" 
-                  style={{
-                    top: leverPulled ? "90px" : "15px"
-                  }}
+                  className={`speak-cat-button ${catPushed ? "cat-active" : ""}`}
                   onClick={handleSpin}
+                  onMouseDown={() => setCatPushed(true)}
+                  onMouseUp={() => !spinning && setCatPushed(false)}
+                  onTouchStart={() => setCatPushed(true)}
+                  onTouchEnd={() => !spinning && setCatPushed(false)}
                   disabled={spinning}
-                  title="Pull lever to spin"
+                  title="Tap cat to push button and draw topic"
+                  aria-label="Tap cat to push button and draw topic"
                 >
-                  <span className="stripe" />
-                  <span className="stripe" />
-                  <span className="stripe" />
+                  <img 
+                    src="/bongo-cat-idle.png" 
+                    alt="Cat ready to push button" 
+                    className={`speak-cat-img speak-cat-idle ${catPushed ? "cat-hide" : "cat-show"}`}
+                    draggable={false}
+                  />
+                  <img 
+                    src="/bongo-cat-slam.png" 
+                    alt="Cat pushing button" 
+                    className={`speak-cat-img speak-cat-slam ${catPushed ? "cat-show" : "cat-hide"}`}
+                    draggable={false}
+                  />
                 </button>
-                <div className="speak-lever-dot" />
               </div>
 
             </div>
@@ -1222,6 +1250,8 @@ export default function SpeakPage() {
                   <video 
                     src={recordingBlobUrl}
                     controls
+                    autoPlay
+                    playsInline
                     className="speak-playback-video"
                   />
                 ) : stream ? (
@@ -1248,7 +1278,7 @@ export default function SpeakPage() {
                       <span className="speak-red-dot" />
                       <Mic size={14} />
                       <span>
-                        {isPlaying ? "Recording Live" : "Live"} • {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
+                        {isPlaying ? "Recording • " : ""}{Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, "0")}
                       </span>
                     </div>
                   </div>
@@ -1274,6 +1304,14 @@ export default function SpeakPage() {
                     >
                       Download Video
                     </a>
+
+                    <button 
+                      type="button" 
+                      className="speak-btn-retry" 
+                      onClick={handleTimerReset}
+                    >
+                      🔄 Retake / Practice Again
+                    </button>
                     
                     <button 
                       type="button" 
@@ -1349,6 +1387,18 @@ export default function SpeakPage() {
                     >
                       {isPlaying ? <Pause size={24} /> : <Play size={24} style={{ marginLeft: "4px" }} />}
                     </button>
+
+                    {hasRecorded && (
+                      <button 
+                        type="button" 
+                        className="speak-btn-end-early"
+                        onClick={handleStopRecording}
+                        title="End recording and see video"
+                      >
+                        <Square size={15} fill="currentColor" />
+                        <span>End</span>
+                      </button>
+                    )}
                   </div>
                 </>
               )}

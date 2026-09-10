@@ -914,7 +914,7 @@ export default function PeerRoom({
 
                   {targetDetails && (
                     <div className="target-details-card glass" style={{ padding: "16px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.02)", marginBottom: "20px" }}>
-                      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", fontSize: "0.9rem" }}>
+                      <ul className="peer-target-details-list" style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", fontSize: "0.9rem" }}>
                         <li><span style={{ color: "var(--muted)" }}>Candidate Name:</span> <strong>{peerName}</strong></li>
                         <li><span style={{ color: "var(--muted)" }}>Target Role:</span> <strong>{targetDetails.targetRole || "Software Engineer"}</strong></li>
                         <li><span style={{ color: "var(--muted)" }}>Target Company:</span> <strong>{targetDetails.targetCompany || "Tech"}</strong></li>
