@@ -155,7 +155,8 @@ export default function Navbar() {
   }
 
   return (
-    <header className={`nav-wrap ${isHomePage ? "nav-wrap-fixed" : (navVisible ? "" : "nav-hidden")}`}>
+    <>
+      <header className={`nav-wrap ${isHomePage ? "nav-wrap-fixed" : (navVisible ? "" : "nav-hidden")}`}>
       <nav className="nav">
         <Link href="/" className="brand">
           <BrandLogo size={30} showText={true} />
@@ -316,9 +317,10 @@ export default function Navbar() {
           </button>
         </div>
       </nav>
+    </header>
 
-      {/* ── Mobile Menu Slide-Over Drawer ── */}
-      {mobileMenuOpen && (
+    {/* ── Mobile Menu Slide-Over Drawer ── */}
+    {mobileMenuOpen && (
         <div className="mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}>
           <div
             className="mobile-menu-drawer glass-premium"
@@ -494,6 +496,6 @@ export default function Navbar() {
           </div>
         </div>
       )}
-    </header>
+    </>
   );
 }

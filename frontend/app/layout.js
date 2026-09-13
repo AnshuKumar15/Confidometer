@@ -18,9 +18,21 @@ const bodyFont = Plus_Jakarta_Sans({
 });
 
 export const metadata = {
-  title: "Confidometer - AI Interview Agent",
+  title: "Free AI mock Interviews to boost your confidence",
   description: "AI interview confidence analysis and job matching platform",
   metadataBase: new URL("https://www.confidometer.online"),
+  openGraph: {
+    title: "Free AI mock Interviews to boost your confidence",
+    description: "AI interview confidence analysis and job matching platform",
+    url: "https://www.confidometer.online",
+    siteName: "Confidometer",
+    type: "website"
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Free AI mock Interviews to boost your confidence",
+    description: "AI interview confidence analysis and job matching platform"
+  },
   icons: {
     icon: [
       { url: "/favicon.ico" },

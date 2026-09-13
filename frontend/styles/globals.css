@@ -9561,7 +9561,7 @@ body.dark-theme-bg .mobile-menu-toggle:hover {
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(8px);
-  z-index: 999;
+  z-index: 1100;
   display: flex;
   justify-content: flex-end;
   animation: fadeIn 0.25s ease;
