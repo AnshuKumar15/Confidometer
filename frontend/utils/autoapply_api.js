@@ -145,9 +145,11 @@ export function getDiscoveredJobs(filterOrOptions = {}) {
     if (filterOrOptions && filterOrOptions !== "all") params.append("status", filterOrOptions);
     params.append("limit", "100");
   } else {
-    const { status, platform, search, limit = 100, offset = 0 } = filterOrOptions;
+    const { status, platform, search, postedWithin, posted_within, limit = 100, offset = 0 } = filterOrOptions;
     if (status && status !== "all") params.append("status", status);
     if (platform && platform !== "all") params.append("platform", platform);
+    const pw = postedWithin || posted_within;
+    if (pw && pw !== "all") params.append("posted_within", pw);
     if (search && search.trim()) params.append("search", search.trim());
     if (limit) params.append("limit", limit);
     if (offset) params.append("offset", offset);

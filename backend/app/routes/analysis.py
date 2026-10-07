@@ -18,7 +18,30 @@ def get_user_history(
 ):
     """Return all completed speeches for the authenticated user, sorted by date desc."""
     speeches = (
-        db.query(Speech)
+        db.query(
+            Speech.id,
+            Speech.created_at,
+            Speech.interview_type,
+            Speech.role,
+            Speech.company_name,
+            Speech.confidence_score,
+            Speech.eye_contact_percentage,
+            Speech.voice_stability_score,
+            Speech.gesture_frequency,
+            Speech.filler_count,
+            Speech.eye_contact_score,
+            Speech.technical_knowledge_score,
+            Speech.fluency_score,
+            Speech.use_of_words_score,
+            Speech.filler_words_score,
+            Speech.explanation_quality_score,
+            Speech.negotiation_score,
+            Speech.code_quality_score,
+            Speech.optimization_score,
+            Speech.thinking_process_score,
+            Speech.communication_score,
+            Speech.sql_score,
+        )
         .filter(Speech.user_id == current_user.id, Speech.status == "completed")
         .order_by(Speech.created_at.desc())
         .all()
@@ -48,6 +71,9 @@ def get_user_history(
             "optimization_score": s.optimization_score,
             "thinking_process_score": s.thinking_process_score,
             "communication_score": s.communication_score,
+            "sql_score": s.sql_score,
+            "sql_queries": None,
+            "sql_question_details": None,
         })
 
     return results
@@ -102,6 +128,10 @@ def get_analysis(
         # DSA data
         "dsa_code": speech.dsa_code,
         "dsa_question_details": speech.dsa_question_details,
+        # SQL assessment data
+        "sql_queries": speech.sql_queries,
+        "sql_question_details": speech.sql_question_details,
+        "sql_score": speech.sql_score,
         # Context
         "role": speech.role,
         "company_name": speech.company_name,

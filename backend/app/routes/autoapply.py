@@ -1,7 +1,8 @@
 import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, and_, func, case
+from sqlalchemy.orm import Session, joinedload, defer
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from app.rate_limiter import limiter, RATE_SEARCH, RATE_UPLOAD, RATE_STANDARD
@@ -176,12 +177,19 @@ def get_discovered_jobs(
     status: Optional[str] = None,
     platform: Optional[str] = None,
     search: Optional[str] = None,
+    posted_within: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(JobMatch).join(DiscoveredJob).filter(JobMatch.user_id == current_user.id)
+    limit = min(max(1, limit), 100)
+    query = (
+        db.query(JobMatch)
+        .join(DiscoveredJob)
+        .options(joinedload(JobMatch.job).defer(DiscoveredJob.description))
+        .filter(JobMatch.user_id == current_user.id)
+    )
     if status and status != "all":
         query = query.filter(JobMatch.status == status)
     if platform and platform.lower() != "all":
@@ -199,7 +207,51 @@ def get_discovered_jobs(
             (DiscoveredJob.company.ilike(s)) |
             (DiscoveredJob.location.ilike(s))
         )
-    return query.order_by(JobMatch.overall_score.desc(), DiscoveredJob.id.desc()).offset(offset).limit(limit).all()
+    if posted_within and posted_within.strip().lower() != "all":
+        pw = posted_within.strip().lower()
+        delta = None
+        if pw in ("24h", "24hrs", "1d"):
+            delta = timedelta(hours=24)
+        elif pw in ("72h", "72hrs", "3d"):
+            delta = timedelta(hours=72)
+        elif pw in ("7d", "1w", "1week", "week"):
+            delta = timedelta(days=7)
+        elif pw in ("30d", "1m", "1month", "month"):
+            delta = timedelta(days=30)
+
+        if delta:
+            now_utc = datetime.now(timezone.utc)
+            cutoff = now_utc - delta
+            cutoff_ts = str(int(cutoff.timestamp()))
+            cutoff_date = cutoff.strftime("%Y-%m-%d")
+
+            date_condition = or_(
+                # 1. Numeric Unix timestamp in seconds (10 digits, e.g. 1788555346)
+                and_(
+                    func.length(DiscoveredJob.posted_date) == 10,
+                    ~DiscoveredJob.posted_date.like("%-%"),
+                    DiscoveredJob.posted_date >= cutoff_ts
+                ),
+                # 2. ISO / standard date string starting with YYYY-MM-DD
+                and_(
+                    DiscoveredJob.posted_date.like("20%"),
+                    DiscoveredJob.posted_date >= cutoff_date
+                ),
+                # 3. Fallback to created_at when posted_date is null or empty
+                and_(
+                    or_(DiscoveredJob.posted_date == None, DiscoveredJob.posted_date == ""),
+                    DiscoveredJob.created_at >= cutoff.replace(tzinfo=None)
+                )
+            )
+            query = query.filter(date_condition)
+
+    matches = query.order_by(JobMatch.overall_score.desc(), DiscoveredJob.id.desc()).offset(offset).limit(limit).all()
+    for m in matches:
+        if m.job:
+            m.job.__dict__["description"] = None
+            if hasattr(m.job, "_sa_instance_state"):
+                m.job._sa_instance_state.unloaded.discard("description")
+    return matches
 
 @router.post("/jobs/search")
 @limiter.limit(RATE_SEARCH)
@@ -570,36 +622,68 @@ def get_dashboard_stats(request: Request, current_user: User = Depends(get_curre
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    apps_today = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= today_start).count()
+    apps_today = 0
+    apps_week = 0
+    apps_month = 0
+    ready_apps = 0
+    submitted_apps = 0
+    interviews = 0
+    offers = 0
+    rejections = 0
+
     week_start = now - timedelta(days=7)
     month_start = now - timedelta(days=30)
-    apps_week = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= week_start).count()
-    apps_month = db.query(Application).filter(Application.user_id == user_id, Application.created_at >= month_start).count()
 
-    total_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id).count()
-    matched_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "matched").count()
-    skipped_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "skipped").count()
-    saved_jobs = db.query(JobMatch).filter(JobMatch.user_id == user_id, JobMatch.status == "saved").count()
+    # 1. Consolidate application counts into a single query
+    app_stats = db.query(
+        func.count(case((Application.created_at >= today_start, 1))).label("today"),
+        func.count(case((Application.created_at >= week_start, 1))).label("week"),
+        func.count(case((Application.created_at >= month_start, 1))).label("month"),
+        func.count(case((Application.status == "ready", 1))).label("ready"),
+        func.count(case((Application.status == "submitted", 1))).label("submitted"),
+        func.count(case((Application.status == "interview", 1))).label("interview"),
+        func.count(case((Application.status == "offer", 1))).label("offer"),
+        func.count(case((Application.status == "rejected", 1))).label("rejected"),
+    ).filter(Application.user_id == user_id).first()
 
-    ready_apps = db.query(Application).filter(Application.user_id == user_id, Application.status == "ready").count()
-    submitted_apps = db.query(Application).filter(Application.user_id == user_id, Application.status == "submitted").count()
-    interviews = db.query(Application).filter(Application.user_id == user_id, Application.status == "interview").count()
-    offers = db.query(Application).filter(Application.user_id == user_id, Application.status == "offer").count()
-    rejections = db.query(Application).filter(Application.user_id == user_id, Application.status == "rejected").count()
+    if app_stats:
+        apps_today = app_stats.today or 0
+        apps_week = app_stats.week or 0
+        apps_month = app_stats.month or 0
+        ready_apps = app_stats.ready or 0
+        submitted_apps = app_stats.submitted or 0
+        interviews = app_stats.interview or 0
+        offers = app_stats.offer or 0
+        rejections = app_stats.rejected or 0
+
     total_applied = ready_apps + submitted_apps + interviews + offers + rejections
 
-    config = db.query(AutoApplyConfig).filter(AutoApplyConfig.user_id == user_id).first()
-    enabled = config.enabled if config else False
+    # 2. Consolidate JobMatch counts and average score into a single query
+    match_stats = db.query(
+        func.count().label("total"),
+        func.count(case((JobMatch.status == "matched", 1))).label("matched"),
+        func.count(case((JobMatch.status == "skipped", 1))).label("skipped"),
+        func.count(case((JobMatch.status == "saved", 1))).label("saved"),
+        func.avg(JobMatch.overall_score).label("avg_score")
+    ).filter(JobMatch.user_id == user_id).first()
 
-    # Average match score
-    matches = db.query(JobMatch.overall_score).filter(JobMatch.user_id == user_id).all()
-    scores = [m[0] for m in matches if m[0] is not None]
-    avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+    total_jobs = (match_stats.total if match_stats else 0) or 0
+    matched_jobs = (match_stats.matched if match_stats else 0) or 0
+    skipped_jobs = (match_stats.skipped if match_stats else 0) or 0
+    saved_jobs = (match_stats.saved if match_stats else 0) or 0
+    avg_score = round(float(match_stats.avg_score or 0.0), 1) if (match_stats and match_stats.avg_score) else 0.0
 
-    # Aggregate real missing skills from user's matched jobs
+    # 3. Fast boolean check for automation config
+    config = db.query(AutoApplyConfig.enabled).filter(AutoApplyConfig.user_id == user_id).first()
+    enabled = config[0] if config else False
+
+    # 4. Aggregate missing skills (limit to 50 matched jobs to avoid large memory/payload overhead)
     from collections import Counter
     missing_counter = Counter()
-    match_skills = db.query(JobMatch.missing_skills).filter(JobMatch.user_id == user_id, JobMatch.status == "matched").all()
+    match_skills = db.query(JobMatch.missing_skills).filter(
+        JobMatch.user_id == user_id, 
+        JobMatch.status == "matched"
+    ).limit(50).all()
     for (m_list,) in match_skills:
         if isinstance(m_list, list):
             for s in m_list:

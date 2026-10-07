@@ -5,7 +5,7 @@ import { getDiscoveredJobs, triggerJobSearch, updateJobMatchStatus } from "@/uti
 import JobCard from "@/components/autoapply/JobCard";
 import SkipFeedbackModal from "@/components/autoapply/SkipFeedbackModal";
 import { useToast } from "@/components/Toast";
-import { Briefcase, Sparkles, CheckCircle2, Search, Filter, Layers, RefreshCw } from "lucide-react";
+import { Briefcase, Sparkles, CheckCircle2, Search, Filter, Layers, RefreshCw, Clock } from "lucide-react";
 
 const PLATFORMS = [
   { key: "all", label: "All Platforms" },
@@ -20,11 +20,20 @@ const PLATFORMS = [
   { key: "foundit", label: "Foundit" },
 ];
 
+const DATE_FILTERS = [
+  { key: "all", label: "All Time" },
+  { key: "24h", label: "Last 24 Hours" },
+  { key: "72h", label: "Last 72 Hours" },
+  { key: "7d", label: "Last 1 Week" },
+  { key: "30d", label: "Last 1 Month" },
+];
+
 export default function DiscoveredJobsPage() {
   const toast = useToast();
   const [jobs, setJobs] = useState([]);
   const [filter, setFilter] = useState("matched");
   const [platform, setPlatform] = useState("all");
+  const [postedWithin, setPostedWithin] = useState("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -46,6 +55,7 @@ export default function DiscoveredJobsPage() {
         status: filter,
         platform: platform,
         search: search,
+        postedWithin: postedWithin,
         limit: 50,
         offset: currentOffset,
       });
@@ -63,11 +73,11 @@ export default function DiscoveredJobsPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [filter, platform, search, jobs.length]);
+  }, [filter, platform, search, postedWithin, jobs.length]);
 
   useEffect(() => {
     loadJobs(false);
-  }, [filter, platform, search]);
+  }, [filter, platform, search, postedWithin]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -228,6 +238,37 @@ export default function DiscoveredJobsPage() {
         })}
       </div>
 
+      {/* Date Posted Filter Pills */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 6 }}>
+        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <Clock size={13} color="var(--cyan)" /> Date Posted:
+        </span>
+        {DATE_FILTERS.map((df) => {
+          const isActive = postedWithin === df.key;
+          return (
+            <button
+              key={df.key}
+              onClick={() => setPostedWithin(df.key)}
+              className="aa-badge-tag"
+              style={{
+                cursor: "pointer",
+                border: isActive ? "1px solid var(--cyan)" : "1px solid var(--line)",
+                background: isActive ? "rgba(6, 182, 212, 0.16)" : "transparent",
+                color: isActive ? "var(--cyan)" : "var(--muted)",
+                fontWeight: isActive ? 700 : 500,
+                padding: "4px 12px",
+                borderRadius: 20,
+                fontSize: "0.78rem",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s ease"
+              }}
+            >
+              {df.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Results Header */}
       {!loading && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -235,6 +276,7 @@ export default function DiscoveredJobsPage() {
             <span>
               Showing <strong style={{ color: "var(--text)" }}>{jobs.length}</strong> {filter} opportunities
               {platform !== "all" && <span> on <strong style={{ color: "var(--teal)" }}>{platform.toUpperCase()}</strong></span>}
+              {postedWithin !== "all" && <span> posted within <strong style={{ color: "var(--cyan)" }}>{DATE_FILTERS.find((d) => d.key === postedWithin)?.label.replace("Last ", "")}</strong></span>}
               {search && <span> matching &ldquo;<strong style={{ color: "var(--teal)" }}>{search}</strong>&rdquo;</span>}
             </span>
           </div>
@@ -260,8 +302,8 @@ export default function DiscoveredJobsPage() {
           <p className="aa-subtitle" style={{ fontSize: "0.88rem" }}>
             {filter === "applied"
               ? "Tick off 'Mark Applied' on any job card to save it here in your applied jobs tracker."
-              : platform !== "all"
-              ? `No jobs found for ${platform.toUpperCase()}. Try selecting 'All Platforms' or click 'Discover New Jobs'.`
+              : postedWithin !== "all" || platform !== "all"
+              ? `No jobs found matching your filters. Try selecting a wider date range or 'All Platforms'.`
               : "Click 'Discover New Jobs' to trigger an instant discovery cycle across all sources."}
           </p>
         </div>

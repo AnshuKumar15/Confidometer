@@ -40,8 +40,7 @@ class JobMatcher:
         return "0-1 year"
 
     @staticmethod
-    @staticmethod
-    def _evaluate_experience(user_exp_raw: str, job_title: str, job_desc: str, exp_strict_mode: bool = False) -> tuple:
+    def _evaluate_experience(user_exp_raw: str, job_title: str, job_desc: str, exp_strict_mode: bool = False, min_exp_structured: Optional[int] = None, max_exp_structured: Optional[int] = None) -> tuple:
         """
         Evaluate candidate experience level vs job requirements.
         Returns: (score: float, match_reason: Optional[str], skip_reason: Optional[str])
@@ -83,40 +82,44 @@ class JobMatcher:
         is_entry_title = any(re.search(r"\b" + re.escape(kw) + r"\b", clean_title) for kw in entry_kws)
 
         # 5. Detect numerical years of experience REQUIRED from applicant
-        # Filter out company history/founding years like 'founded 10 years ago' or 'for over 15 years in business'
-        sanitized_text = re.sub(
-            r'\b(?:founded|established|in business|ago|history of|for over|over|past|last)\s*\d+\s*(?:years?|yrs?)',
-            ' ',
-            full_text,
-            flags=re.I
-        )
+        if min_exp_structured is not None and isinstance(min_exp_structured, int):
+            has_explicit_exp = True
+            min_years = min_exp_structured
+        else:
+            # Filter out company history/founding years like 'founded 10 years ago' or 'for over 15 years in business'
+            sanitized_text = re.sub(
+                r'\b(?:founded|established|in business|ago|history of|for over|over|past|last)\s*\d+\s*(?:years?|yrs?)',
+                ' ',
+                full_text,
+                flags=re.I
+            )
 
-        # Target explicit experience mentions rather than unrelated durations (support hyphenated words like hands-on, full-time)
-        exp_patterns = [
-            # Range with experience/working/building context: e.g. "6-8 years working with", "3-5 years of software engineering experience"
-            r'(\d+)\s*(?:-|to)\s*(\d+)\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|working|building|developing|in\b)',
-            # Plus/single with experience context: e.g. "6+ years of experience in backend development", "2+ years of production experience"
-            r'(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|production|working|hands-on|commercial)',
-            # Prefix phrases: "minimum 3 years", "at least 4 yrs industry exp", "requires 2+ years"
-            r'(?:minimum|at\s*least|min|requires?|requires\s+a\s+minimum\s+of)\s*(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)',
-            # "experience: 5 to 7 years in Node.js"
-            r'(?:experience|exp)[\s:]+(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)',
-            # "8+ yrs relevant experience building scalable systems"
-            r'(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:relevant|practical|hands-on|industry|production|commercial)?\s*(?:experience|exp)'
-        ]
+            # Target explicit experience mentions rather than unrelated durations (support hyphenated words like hands-on, full-time)
+            exp_patterns = [
+                # Range with experience/working/building context: e.g. "6-8 years working with", "3-5 years of software engineering experience"
+                r'(\d+)\s*(?:-|to)\s*(\d+)\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|working|building|developing|in\b)',
+                # Plus/single with experience context: e.g. "6+ years of experience in backend development", "2+ years of production experience"
+                r'(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|production|working|hands-on|commercial)',
+                # Prefix phrases: "minimum 3 years", "at least 4 yrs industry exp", "requires 2+ years"
+                r'(?:minimum|at\s*least|min|requires?|requires\s+a\s+minimum\s+of)\s*(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)',
+                # "experience: 5 to 7 years in Node.js"
+                r'(?:experience|exp)[\s:]+(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:-|to)?\s*(\d+)?\s*(?:years?|yrs?)',
+                # "8+ yrs relevant experience building scalable systems"
+                r'(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:relevant|practical|hands-on|industry|production|commercial)?\s*(?:experience|exp)'
+            ]
 
-        min_years_candidates = []
-        for pat in exp_patterns:
-            for m in re.finditer(pat, sanitized_text, re.I):
-                g = m.groups()
-                if g and g[0] and g[0].isdigit():
-                    v = int(g[0])
-                    # Note: 0 is explicitly allowed to support '0-2 years' or '0 years of exp'
-                    if 0 <= v <= 25:
-                        min_years_candidates.append(v)
+            min_years_candidates = []
+            for pat in exp_patterns:
+                for m in re.finditer(pat, sanitized_text, re.I):
+                    g = m.groups()
+                    if g and g[0] and g[0].isdigit():
+                        v = int(g[0])
+                        # Note: 0 is explicitly allowed to support '0-2 years' or '0 years of exp'
+                        if 0 <= v <= 25:
+                            min_years_candidates.append(v)
 
-        has_explicit_exp = len(min_years_candidates) > 0
-        min_years = min(min_years_candidates) if has_explicit_exp else (4 if (is_senior_title or is_level_above_1) else 0)
+            has_explicit_exp = len(min_years_candidates) > 0
+            min_years = min(min_years_candidates) if has_explicit_exp else (4 if (is_senior_title or is_level_above_1) else 0)
 
         # Handle 0-1 year (Freshers / Entry Level)
         if user_exp == "0-1 year":
@@ -336,7 +339,12 @@ class JobMatcher:
         user_exp = user_preferences.get("experience_level") or "0-1 year"
         exp_strict = bool(skip_signals.get("exp_strict_mode")) if skip_signals else False
         exp_score, exp_match_reason, exp_skip_reason = JobMatcher._evaluate_experience(
-            user_exp, job.get("title", ""), job.get("description", ""), exp_strict_mode=exp_strict
+            user_exp,
+            job.get("title", ""),
+            job.get("description", ""),
+            exp_strict_mode=exp_strict,
+            min_exp_structured=job.get("min_experience"),
+            max_exp_structured=job.get("max_experience")
         )
         if exp_score == 0.0 and exp_skip_reason:
             rejection_reasons.append(exp_skip_reason)
@@ -406,7 +414,15 @@ class JobMatcher:
                 }
 
         is_user_remote_allowed = any("remote" in l or "worldwide" in l or "anywhere" in l for l in pref_locations_clean) or any("remote" in m for m in pref_modes_clean)
-        job_is_remote = any(k in loc_clean for k in ["remote", "anywhere", "worldwide", "work from home", "wfh", "telecommute"])
+        
+        # Check structured work_mode first, otherwise fallback to location string detection
+        structured_work_mode = (job.get("work_mode") or "").lower().strip()
+        if structured_work_mode == "remote":
+            job_is_remote = True
+        elif structured_work_mode == "onsite":
+            job_is_remote = False
+        else:
+            job_is_remote = any(k in loc_clean for k in ["remote", "anywhere", "worldwide", "work from home", "wfh", "telecommute"])
 
         # City aliases dictionary (expandable, bidirectionally normalized)
         CITY_ALIASES = {

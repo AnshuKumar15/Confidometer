@@ -113,6 +113,10 @@ class DiscoveredJob(Base):
     posted_date = Column(String, nullable=True)
     deadline = Column(String, nullable=True)
 
+    min_experience = Column(Integer, nullable=True)    # Minimum years required (e.g. 3)
+    max_experience = Column(Integer, nullable=True)    # Maximum years required (e.g. 5)
+    work_mode = Column(String, nullable=True)          # "remote", "hybrid", "onsite"
+
     fingerprint = Column(String, unique=True, index=True) # Hash for deduplication
     status = Column(String, default="active")            # "active", "expired"
 

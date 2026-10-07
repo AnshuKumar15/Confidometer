@@ -155,7 +155,16 @@ def get_trends(
 
     # Fetch all completed speeches
     speeches = (
-        db.query(Speech)
+        db.query(
+            Speech.id,
+            Speech.created_at,
+            Speech.interview_type,
+            Speech.confidence_score,
+            Speech.eye_contact_percentage,
+            Speech.fluency_score,
+            Speech.filler_count,
+            Speech.voice_stability_score,
+        )
         .filter(Speech.user_id == user.id, Speech.status == "completed")
         .order_by(Speech.created_at.asc())
         .all()

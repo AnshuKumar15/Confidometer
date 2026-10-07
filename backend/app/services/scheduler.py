@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -67,24 +68,33 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
     existing_jobs = db.query(DiscoveredJob).filter(DiscoveredJob.fingerprint.in_(all_fps)).all()
     existing_jobs_by_fp = {job.fingerprint: job for job in existing_jobs}
 
-    # 3. Bulk insert new jobs in batches of 50, and enrich existing job locations
+    # 3. Bulk insert new jobs in batches of 50, and enrich existing job records
     new_job_instances = []
     seen_fps_in_batch = set()
+    valid_cols = {c.name for c in DiscoveredJob.__table__.columns}
     for job_data in discovered_jobs:
         fp = job_data["fingerprint"]
         if fp not in existing_jobs_by_fp and fp not in seen_fps_in_batch:
             seen_fps_in_batch.add(fp)
-            new_job_instances.append(DiscoveredJob(**job_data))
+            clean_job_data = {k: v for k, v in job_data.items() if k in valid_cols}
+            new_job_instances.append(DiscoveredJob(**clean_job_data))
         elif fp in existing_jobs_by_fp:
             existing_job = existing_jobs_by_fp[fp]
             new_loc = job_data.get("location") or ""
             curr_loc = existing_job.location or ""
-            if "not specified" in curr_loc.lower() and "not specified" not in new_loc.lower():
+            # Only update location if existing is "Not Specified" and new is more specific
+            if ("not specified" in curr_loc.lower() or not curr_loc.strip()) and ("not specified" not in new_loc.lower() and new_loc.strip()):
                 existing_job.location = new_loc
-            elif "remote" in curr_loc.lower() and "remote" not in new_loc.lower() and len(new_loc.strip()) > 1 and "not specified" not in new_loc.lower():
-                existing_job.location = f"{new_loc}, Remote"
-            elif "remote" not in curr_loc.lower() and "remote" in new_loc.lower() and "not specified" not in curr_loc.lower() and "remote" not in curr_loc.lower():
-                existing_job.location = f"{curr_loc}, Remote"
+
+            # Enrich structured fields from new discovery if existing is missing
+            if existing_job.min_experience is None and job_data.get("min_experience") is not None:
+                existing_job.min_experience = job_data.get("min_experience")
+            if existing_job.max_experience is None and job_data.get("max_experience") is not None:
+                existing_job.max_experience = job_data.get("max_experience")
+            if not existing_job.work_mode and job_data.get("work_mode"):
+                existing_job.work_mode = job_data.get("work_mode")
+            if not existing_job.posted_date and job_data.get("posted_date"):
+                existing_job.posted_date = job_data.get("posted_date")
 
     if new_job_instances:
         for i in range(0, len(new_job_instances), 50):
@@ -163,23 +173,42 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         db.commit()
 
 async def scheduler_loop():
-    """Background loop that executes every N minutes."""
+    """Background loop that executes every N minutes (default: 60 minutes).
+    Includes a fast pre-check so if no users have autoapply enabled, no heavy work
+    or unnecessary queries are performed, allowing Neon compute to auto-suspend.
+    """
     global _running
     logger.info("[AutoApply] Scheduler loop started.")
+    interval_minutes = int(os.getenv("AUTOAPPLY_INTERVAL_MINUTES", "60"))
+
     while _running:
+        db = None
         try:
             db = SessionLocal()
-            active_configs = db.query(AutoApplyConfig).filter(AutoApplyConfig.enabled == True).all()
-            for config in active_configs:
-                await run_autoapply_cycle_for_user(db, config)
-            db.close()
+            # Fast pre-check: only query the primary key to see if any user has enabled autoapply
+            has_active = db.query(AutoApplyConfig.id).filter(AutoApplyConfig.enabled == True).first()
+            if has_active:
+                active_configs = db.query(AutoApplyConfig).filter(AutoApplyConfig.enabled == True).all()
+                for config in active_configs:
+                    await run_autoapply_cycle_for_user(db, config)
+            else:
+                logger.debug("[AutoApply] No active autoapply configs found. Skipping cycle.")
         except Exception as e:
             logger.error(f"[AutoApply] Error in scheduler loop: {e}")
+        finally:
+            if db:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
-        await asyncio.sleep(60 * 15) # Run cycle every 15 minutes
+        await asyncio.sleep(60 * interval_minutes)
 
 def start_scheduler():
     global _running, _scheduler_task
+    if os.getenv("AUTOAPPLY_SCHEDULER_ENABLED", "true").lower() in ("false", "0", "no"):
+        logger.info("[AutoApply] Scheduler is disabled via AUTOAPPLY_SCHEDULER_ENABLED env var.")
+        return
     if not _running:
         _running = True
         try:

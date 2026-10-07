@@ -322,6 +322,69 @@ def _build_system_prompt_dsa(user_name, role, company_name, experience_level, re
     return base
 
 
+def _build_system_prompt_sql(user_name, role, company_name, experience_level, resume_text, sql_context=None):
+    company_context = f"The target company is '{company_name}'.\n" if company_name else ""
+    experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
+
+    base = (
+        f"You are a sharp, conversational database and SQL engineering interviewer named 'Liza' conducting a live SQL assessment round for '{user_name}' applying for '{role}'.\n"
+        f"{company_context}"
+        f"{experience_context}"
+        "\nCRITICAL INTERVIEW RULES:\n"
+        "1. This is EXCLUSIVELY a SQL and database assessment round. The candidate has an in-browser code editor and interactive SQLite console to solve 3 SQL challenges.\n"
+        "2. NEVER ask generic behavioral questions (such as 'tell me about yourself', 'walk me through your resume', or 'tell me about programming languages/frameworks').\n"
+        "3. All your interactions MUST revolve strictly around SQL queries, database schema, clauses (SELECT, WHERE, JOIN, GROUP BY, HAVING, subqueries, CTEs, window functions), query performance, and the SQL questions in this round.\n"
+        "4. Be supportive, inquisitive, and encourage the candidate to discuss their approach, query design, and how they handle edge cases (NULLs, duplicates, empty datasets).\n"
+        "5. Keep your responses CONCISE and natural (2-3 sentences max).\n"
+        "6. If the candidate asks for help or hints, provide a brief conceptual hint without giving away the complete SQL solution.\n"
+    )
+
+    if sql_context:
+        action = sql_context.get("action", "")
+        current_q = sql_context.get("current_question", {})
+        code = sql_context.get("submitted_code", "")
+        q_idx = sql_context.get("question_index", 0)
+        all_q = sql_context.get("all_questions", [])
+
+        if current_q:
+            q_title = current_q.get("title", f"Question {q_idx + 1}")
+            topic = current_q.get("topic", "SQL")
+            diff = current_q.get("difficulty", "Easy")
+            desc = current_q.get("description", "")
+            schema = current_q.get("schema_sql", "")
+            base += (
+                f"\nCURRENT QUESTION CONTEXT:\n"
+                f"- The candidate is currently working on Question {q_idx + 1} of {len(all_q) or 3}: '{q_title}' (Topic: {topic}, Difficulty: {diff})\n"
+                f"- Problem Prompt: {desc}\n"
+            )
+            if schema:
+                base += f"- Schema / Tables: {schema[:400]}\n"
+
+        if code and code.strip():
+            base += f"- Candidate's Current SQL Query Draft:\n```sql\n{code.strip()}\n```\n"
+
+        if action == "explain":
+            base += (
+                "\n7. The candidate just submitted or tested their query and wants to explain their approach. "
+                "Acknowledge their query, ask them to explain their logic (e.g. why they chose specific JOINs, filters, or aggregations), "
+                "and ask how it handles potential edge cases. Keep response to 2-3 sentences max.\n"
+            )
+        else:
+            base += (
+                "\n7. The candidate is conversing with you while viewing this SQL question. "
+                "Respond directly in the context of this SQL question and database engineering. "
+                "If they ask whether this is a normal interview or express confusion, clearly explain that this is their hands-on SQL assessment round where they solve the 3 challenges in the editor. "
+                "Encourage them to work through the current problem and ask about their query approach.\n"
+            )
+    else:
+        base += (
+            "\n7. Remind the candidate that they have 3 SQL challenges to solve in the interactive workspace. "
+            "Ask them what approach they plan to take for their SQL queries.\n"
+        )
+
+    return base
+
+
 def _build_system_prompt_peer(user_name, role, company_name, experience_level, resume_text, job_description, interview_type="technical"):
     company_info = f"Target Company: {company_name}\n" if company_name else ""
     exp_info = f"Candidate Experience Level: {experience_level}\n" if experience_level else ""
@@ -352,6 +415,7 @@ def generate_interview_question(
     user_name: str = "Anshu", company_name: str = "",
     experience_level: str = "", job_description: str = "",
     interview_type: str = "technical", dsa_context: dict = None,
+    sql_context: dict = None,
     is_time_up: bool = False, stress_mode: bool = False,
     is_peer: bool = False,
     duration_minutes: int = 10,
@@ -372,7 +436,7 @@ def generate_interview_question(
         return f"Hi {user_name}, could you tell me a bit about yourself, your background, and walk me through some of the key projects you've worked on recently{role_part}{greeting_company}?"
 
     # Short-circuit AI Liza greeting (Turn 1 for solo AI interview mode)
-    if not conversation_history and interview_type != "dsa" and not is_peer:
+    if not conversation_history and interview_type != "dsa" and interview_type != "sql" and not is_peer:
         greeting_role = role if role else "specified"
         company_part = f" at {company_name}" if company_name else ""
         round_label = {
@@ -383,7 +447,7 @@ def generate_interview_question(
         }.get(interview_type, "interview")
         return f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?"
 
-    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False):
+    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False, interview_type="technical", sql_context=None, dsa_context=None):
         if is_peer:
             peer_questions = [
                 f"Hi {name}, could you tell me about yourself, your background, and the key projects you have worked on?",
@@ -397,6 +461,52 @@ def generate_interview_question(
             if answered_turns < len(peer_questions):
                 return peer_questions[answered_turns]
             return f"Thank you for sharing your experience, {name}. Do you have any questions for me?"
+
+        # SQL Assessment Mock Response Flow
+        if interview_type == "sql":
+            current_q = sql_context.get("current_question", {}) if sql_context else {}
+            q_title = current_q.get("title", "Question 1") if current_q else "Question 1"
+            q_idx = sql_context.get("question_index", 0) if sql_context else 0
+
+            if is_time_up:
+                return f"Time is up for the SQL assessment, {name}! Great effort solving the queries. We will compile your evaluation report now."
+
+            last_msg = history[-1] if history else None
+            last_text = (last_msg.get("text", "") if last_msg else "").lower()
+
+            if any(term in last_text for term in ["normal", "regular", "sql", "is this", "isn't this", "isnt this", "what is this"]):
+                return (
+                    f"This is your dedicated SQL assessment round, {name}! You have 3 database challenges to solve in the interactive SQLite workspace. "
+                    f"You are currently on Question {q_idx + 1}: '{q_title}'. Write your query in the editor, test it against the database, and let me know your approach!"
+                )
+
+            if sql_context and sql_context.get("action") == "explain":
+                return (
+                    f"Nice work submitting your query for '{q_title}', {name}. Can you walk me through your query logic, "
+                    f"the clauses or JOINs you chose, and how your query handles edge cases like NULL values?"
+                )
+
+            sql_prompts = [
+                f"Welcome to your SQL assessment, {name}! Take a look at Question {q_idx + 1}: '{q_title}' and its schema. What is your initial approach for this query?",
+                f"For Question {q_idx + 1} ('{q_title}'), what clauses (like SELECT, WHERE, or JOIN) are you planning to use to solve it?",
+                f"Once you run and verify your query in the console, feel free to explain your reasoning or click 'Explain Query to Liza'.",
+                f"How does your query perform with large datasets, and would an index help optimize this retrieval?",
+            ]
+            answered_turns = sum(1 for m in history if m.get("role") == "user")
+            return sql_prompts[min(answered_turns, len(sql_prompts) - 1)]
+
+        # DSA Assessment Mock Response Flow
+        if interview_type == "dsa":
+            current_q = dsa_context.get("current_question", {}) if dsa_context else {}
+            q_title = current_q.get("title", "the coding problem") if current_q else "the coding problem"
+
+            if is_time_up:
+                return f"Time is up for the DSA round, {name}! Great effort on your algorithms. We will compile your evaluation report now."
+
+            if dsa_context and dsa_context.get("action") == "explain":
+                return f"I see your code submission for '{q_title}', {name}. Can you walk me through your time and space complexity, and how your solution handles edge cases?"
+
+            return f"Take your time writing your solution for '{q_title}', {name}. Feel free to talk through your algorithmic logic or ask for a hint if you're stuck."
 
         # 1. Count how many of the user turns were NOT questions/clarification requests
         answered_turns = 0
@@ -503,7 +613,7 @@ def generate_interview_question(
     # 1. Fallback to mock if API key is not present
     if not api_key:
         print("[LLM INFO] No GEMINI_API_KEY found. Falling back to rule-based questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context)
 
     # 2. Use Gemini API
     try:
@@ -515,6 +625,10 @@ def generate_interview_question(
         elif interview_type == "dsa":
             system_instruction = _build_system_prompt_dsa(
                 user_name, role, company_name, experience_level, resume_text, dsa_context
+            )
+        elif interview_type == "sql":
+            system_instruction = _build_system_prompt_sql(
+                user_name, role, company_name, experience_level, resume_text, sql_context
             )
         elif interview_type == "hr":
             system_instruction = _build_system_prompt_hr(
@@ -584,6 +698,16 @@ def generate_interview_question(
                 "role": "user",
                 "parts": [f"Generate a technical interview question for me (the interviewer) to ask candidate {user_name} based on their resume, the {role} position, and their previous answers. Do not say you are Liza or introduce yourself as an AI."]
             })
+        elif interview_type == "sql":
+            contents.append({
+                "role": "user",
+                "parts": [f"I am candidate {user_name}. I am in the live SQL assessment solving challenges in the SQL editor."]
+            })
+        elif interview_type == "dsa":
+            contents.append({
+                "role": "user",
+                "parts": [f"I am candidate {user_name}. I am in the live DSA coding round solving challenges in the editor."]
+            })
         else:
             # Prepend hidden user prompt at the very beginning of the history to trigger the solo greeting/intro instruction
             contents.append({
@@ -602,7 +726,7 @@ def generate_interview_question(
                 "parts": [text]
             })
 
-        response = gemini_circuit_breaker.call_sync(model.generate_content, contents, timeout=15.0)
+        response = gemini_circuit_breaker.call_sync(model.generate_content, contents, timeout=30.0)
         result_text = response.text.strip()
         # Clean any accidental quotes or Liza references in peer mode
         if is_peer:
@@ -612,7 +736,7 @@ def generate_interview_question(
         return result_text
     except Exception as e:
         print(f"[LLM ERROR] Gemini API call failed: {e}. Falling back to mock questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -673,6 +797,36 @@ MOCK_DSA_QUESTIONS = {
 }
 
 
+def _call_gemini_with_fallback(models: list, prompt: str, system_instruction: str = None, timeout: float = 30.0) -> str:
+    """
+    Attempts generation across a prioritized list of models.
+    Automatically catches 429 quota exhaustion (e.g. 20 requests/day on 3.7-flash free tier)
+    and fails over seamlessly to the next model in the list.
+    """
+    last_exc = None
+    for model_name in models:
+        try:
+            kwargs = {"model_name": model_name}
+            if system_instruction:
+                kwargs["system_instruction"] = system_instruction
+            model = genai.GenerativeModel(**kwargs)
+            response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=timeout)
+            if response and response.text:
+                return response.text.strip()
+        except Exception as e:
+            last_exc = e
+            err_str = str(e)
+            if "429" in err_str or "quota" in err_str.lower() or "ResourceExhausted" in err_str:
+                print(f"[LLM FALLBACK] Quota exceeded on {model_name}, failing over to next model...")
+                continue
+            print(f"[LLM RETRY] Error on {model_name}: {e}. Retrying with next model...")
+            continue
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("All models failed to generate content.")
+
+
 def generate_dsa_question(
     company_name: str = "",
     role: str = "",
@@ -726,9 +880,11 @@ IMPORTANT RULES:
 3. Boilerplate code should have the correct function signature with a placeholder comment.
 4. Return ONLY valid JSON. No markdown fences, no explanation, no extra text."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.7-flash")
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=30.0)
-        raw = response.text.strip()
+        raw = _call_gemini_with_fallback(
+            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            prompt=prompt,
+            timeout=30.0
+        )
 
         result = _extract_json_from_text(raw)
 
@@ -743,6 +899,65 @@ IMPORTANT RULES:
     except Exception as e:
         print(f"[DSA GEN ERROR] {e}. Falling back to mock.")
         return MOCK_DSA_QUESTIONS.get(difficulty, MOCK_DSA_QUESTIONS["Easy"])
+
+
+def generate_dynamic_sql_question(
+    difficulty: str = "Intermediate",
+    topic: str = None,
+    role: str = "Software Engineer",
+    company_name: str = "",
+    experience_level: str = "",
+    previous_questions: list = None,
+) -> dict:
+    """
+    Generate a fresh, unique SQL assessment question using Gemini with schema, sample data,
+    and reference solution, with fallback to curated bank.
+    """
+    from app.services.sql_questions import get_sql_questions
+    api_key = os.environ.get("GEMINI_API_KEY")
+
+    topics_list = [topic] if topic else []
+    fallback_q = get_sql_questions(difficulty=difficulty, topics=topics_list, count=1)
+    fallback = fallback_q[0] if fallback_q else None
+
+    if not api_key:
+        return fallback
+
+    try:
+        topic_clause = f"Focus strictly on the SQL topic: '{topic}'." if topic else "Pick from SELECT, WHERE, JOIN, GROUP BY, HAVING, Subqueries, CTEs, or Window Functions."
+        prompt = f"""You are a SQL coding assessment designer. Generate ONE brand-new, realistic SQL challenge of difficulty '{difficulty}'.
+{topic_clause}
+The candidate is interviewing for '{role}'.
+
+Return ONLY valid JSON with exactly these keys:
+- "id": a unique identifier string (e.g. "dyn_sql_101")
+- "topic": one of "SELECT", "WHERE", "JOIN", "GROUP BY", "HAVING", "Subqueries", "CTEs", "Window Functions", "Aggregates", "ORDER BY / LIMIT"
+- "difficulty": "{difficulty}"
+- "title": a clear problem title (string)
+- "description": full scenario & problem statement in Markdown (string)
+- "schema_sql": valid SQLite-compatible CREATE TABLE and INSERT statements to seed 1-2 small tables with 3-5 rows each
+- "expected_query": the reference correct SQL query solution
+- "expected_columns": list of column name strings expected from the query
+- "expected_rows": list of row lists matching the expected query output
+- "hints": list of 1-2 conceptual hints
+
+IMPORTANT:
+1. Ensure the schema_sql and expected_query are 100% valid SQLite syntax.
+2. Return ONLY valid JSON, no surrounding text."""
+
+        raw = _call_gemini_with_fallback(
+            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            prompt=prompt,
+            timeout=30.0
+        )
+        result = _extract_json_from_text(raw)
+        required = {"id", "topic", "difficulty", "title", "description", "schema_sql", "expected_query"}
+        if required.issubset(result.keys()):
+            return result
+        return fallback
+    except Exception as e:
+        print(f"[SQL DYN GEN ERROR] {e}. Falling back to curated bank.")
+        return fallback
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1005,9 +1220,11 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.7-flash")
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=30.0)
-        raw = response.text.strip()
+        raw = _call_gemini_with_fallback(
+            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            prompt=prompt,
+            timeout=30.0
+        )
 
         result = _extract_json_from_text(raw)
 
@@ -1123,9 +1340,11 @@ TASK:
 
 IMPORTANT: Return ONLY valid JSON. No markdown wrappers, no explanations, no text before or after the JSON."""
 
-        model = genai.GenerativeModel(model_name="gemini-3.5-flash-lite")
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
-        raw = response.text.strip()
+        raw = _call_gemini_with_fallback(
+            models=["gemini-3.5-flash-lite", "gemini-2.5-flash"],
+            prompt=prompt,
+            timeout=15.0
+        )
 
         result = _extract_json_from_text(raw)
         

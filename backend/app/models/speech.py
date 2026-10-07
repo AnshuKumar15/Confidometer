@@ -23,6 +23,11 @@ class Speech(Base):
     dsa_code = Column(Text, nullable=True)  # Final code written by user
     dsa_question_details = Column(Text, nullable=True)  # JSON: [{number, title, difficulty, description}]
 
+    # SQL Assessment round data
+    sql_queries = Column(Text, nullable=True)  # Final SQL queries written by user
+    sql_question_details = Column(Text, nullable=True)  # JSON: [{id, title, difficulty, topic}]
+    sql_score = Column(Float, nullable=True)  # Score 0-100 based on queries passed
+
     # Raw analysis metrics
     confidence_score = Column(Float, nullable=True)
     filler_count = Column(Integer, nullable=True)

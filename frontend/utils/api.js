@@ -170,9 +170,22 @@ export function getAnalysis(speechId) {
   return request(`/analysis/${speechId}`, { auth: true });
 }
 
-export function initiateInterview(resumeFile, role, companyName = "", experienceLevel = "", jobDescription = "", interviewType = "technical", duration = 10, stressMode = false) {
+export function initiateInterview(
+  resumeFile,
+  role,
+  companyName = "",
+  experienceLevel = "",
+  jobDescription = "",
+  interviewType = "technical",
+  duration = 10,
+  stressMode = false,
+  sqlDifficulty = "Intermediate",
+  sqlTopics = ""
+) {
   const formData = new FormData();
-  formData.append("resume", resumeFile);
+  if (resumeFile) {
+    formData.append("resume", resumeFile);
+  }
   formData.append("role", role);
   if (companyName) formData.append("company_name", companyName);
   if (experienceLevel) formData.append("experience_level", experienceLevel);
@@ -180,6 +193,10 @@ export function initiateInterview(resumeFile, role, companyName = "", experience
   formData.append("interview_type", interviewType);
   formData.append("duration", duration);
   formData.append("stress_mode", stressMode);
+  if (interviewType === "sql") {
+    formData.append("sql_difficulty", sqlDifficulty);
+    formData.append("sql_topics", sqlTopics);
+  }
 
   return request("/agent/initiate", {
     method: "POST",

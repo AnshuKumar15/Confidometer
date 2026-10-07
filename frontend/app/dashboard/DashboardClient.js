@@ -16,7 +16,7 @@ import {
   Eye, Mic, Brain, MessageCircle, Volume2, ChevronDown, ChevronUp,
   CheckCircle, AlertTriangle, TrendingUp, Award, Star, Sparkles,
   Code2, Terminal, Zap, DollarSign, Flame, ArrowUpRight, ArrowDownRight,
-  Target, ShieldCheck, CheckCircle2, Lock
+  Target, ShieldCheck, CheckCircle2, Lock, Database
 } from "lucide-react";
 
 export function computeBlendedScore(item) {
@@ -77,6 +77,15 @@ export function computeBlendedScore(item) {
         0.25 * Number(item.thinking_process_score) +
         0.15 * comm
       );
+    } else {
+      contentScore = 0.40 * tech + 0.35 * expl + 0.25 * words;
+    }
+    contentWeight = 0.70;
+    deliveryWeight = 0.30;
+  } else if (itype === "sql") {
+    // 70% Content, 30% Delivery
+    if (item.sql_score != null) {
+      contentScore = 0.50 * Number(item.sql_score) + 0.25 * tech + 0.25 * expl;
     } else {
       contentScore = 0.40 * tech + 0.35 * expl + 0.25 * words;
     }
@@ -294,6 +303,7 @@ export default function DashboardClient() {
       technical: "#a78bfa",
       hr: "#2dd4bf",
       dsa: "#f59e0b",
+      sql: "#00cec9",
       behavioural: "#22d3ee",
       negotiation: "#f87171"
     };
@@ -596,12 +606,12 @@ export default function DashboardClient() {
           >
             <Eye size={16} /> Non-Technical Report
           </button>
-          {(hasCodingScores || data?.dsa_code) && (
+          {(hasCodingScores || data?.dsa_code || data?.sql_queries) && (
             <button
               className={`report-tab ${activeReportTab === "coding" ? "active" : ""}`}
               onClick={() => setActiveReportTab("coding")}
             >
-              <Code2 size={16} /> Coding Review
+              <Code2 size={16} /> {data?.interview_type === "sql" || data?.sql_queries ? "SQL Assessment" : "Coding Review"}
             </button>
           )}
         </div>
@@ -730,11 +740,11 @@ export default function DashboardClient() {
           </AnimatePresence>
         </div>
 
-        {/* Coding Review Panel (rendered outside AnimatePresence to avoid tab conflicts) */}
-        {activeReportTab === "coding" && (hasCodingScores || data?.dsa_code) && (
+        {/* Coding / SQL Review Panel (rendered outside AnimatePresence to avoid tab conflicts) */}
+        {activeReportTab === "coding" && (hasCodingScores || data?.dsa_code || data?.sql_queries) && (
           <div className="report-panel glass coding-review-panel">
-            <h3><Code2 size={18} /> Coding Review</h3>
-            <p className="report-subtitle">Code quality, optimization, and problem-solving assessment</p>
+            <h3><Code2 size={18} /> {data?.interview_type === "sql" || data?.sql_queries ? "SQL Assessment Review" : "Coding Review"}</h3>
+            <p className="report-subtitle">Query logic, optimization, and problem-solving assessment</p>
 
             {/* Coding Scores Bar Chart */}
             {hasCodingScores && (
@@ -808,6 +818,17 @@ export default function DashboardClient() {
               <div className="coding-submitted-code">
                 <span className="tech-block-label">Your Submitted Code</span>
                 <pre className="dashboard-code-block"><code>{data.dsa_code}</code></pre>
+              </div>
+            )}
+
+            {/* Submitted SQL Queries */}
+            {data?.sql_queries && (
+              <div className="coding-submitted-code" style={{ marginTop: "16px" }}>
+                <span className="tech-block-label" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <Database size={14} color="#00cec9" />
+                  <span>Submitted SQL Queries</span>
+                </span>
+                <pre className="dashboard-code-block"><code style={{ color: "#a5b4fc" }}>{data.sql_queries}</code></pre>
               </div>
             )}
           </div>

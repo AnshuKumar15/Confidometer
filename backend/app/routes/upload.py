@@ -67,6 +67,20 @@ async def upload_video(
                             code_parts.append(f"// === {q_title} ===\n{sub.get('code', '')}")
                         speech.dsa_code = "\n\n".join(code_parts)  # type: ignore
                     speech.dsa_question_details = json.dumps(dsa_state.get("questions", []))  # type: ignore
+
+                # Persist SQL assessment round data
+                sql_state = session.get("sql_state")
+                if sql_state:
+                    submissions = sql_state.get("submissions", [])
+                    if submissions:
+                        sql_parts = []
+                        for sub in submissions:
+                            qi = sub.get("question_index", 0)
+                            q_list = sql_state.get("questions", [])
+                            q_title = q_list[qi].get("title", f"Q{qi+1}") if qi < len(q_list) else f"Q{qi+1}"
+                            sql_parts.append(f"-- === {q_title} ===\n{sub.get('code', '')}")
+                        speech.sql_queries = "\n\n".join(sql_parts)  # type: ignore
+                    speech.sql_question_details = json.dumps(sql_state.get("questions", []))  # type: ignore
             else:
                 room = active_rooms.get(session_id)
                 if room:

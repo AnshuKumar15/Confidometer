@@ -66,7 +66,6 @@ def generate_form_answers(
         if gemini_key:
             try:
                 genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
                 prompt = f"""Given candidate profile:
 Name: {candidate_profile.get('name')}
 Skills: {candidate_profile.get('technical_skills')}
@@ -82,12 +81,23 @@ Question: "{q}"
 
 Answer the question succinctly and accurately on behalf of the candidate. If the answer cannot be determined with confidence, reply with "UNANSWERABLE".
 Answer:"""
-                resp = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=12.0)
-                ai_ans = resp.text.strip()
-                if "UNANSWERABLE" in ai_ans.upper():
-                    unanswered.append(q)
-                else:
+                ai_ans = None
+                models_to_try = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
+                for model_name in models_to_try:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        resp = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=12.0)
+                        if resp and resp.text:
+                            ai_ans = resp.text.strip()
+                            break
+                    except Exception as model_err:
+                        print(f"[FORM FILLER] {model_name} failed: {model_err}. Trying fallback...")
+                        continue
+
+                if ai_ans and "UNANSWERABLE" not in ai_ans.upper():
                     answers[q] = ai_ans
+                else:
+                    unanswered.append(q)
             except Exception as e:
                 print(f"[WARN] AI form filler failed for '{q}': {e}")
                 unanswered.append(q)

@@ -36,6 +36,9 @@ def check_and_add_columns():
         "interview_type": "VARCHAR",
         "dsa_code": "TEXT",
         "dsa_question_details": "TEXT",
+        "sql_queries": "TEXT",
+        "sql_question_details": "TEXT",
+        "sql_score": "FLOAT",
         "eye_contact_score": "FLOAT",
         "technical_knowledge_score": "FLOAT",
         "fluency_score": "FLOAT",
@@ -112,6 +115,62 @@ def check_and_add_columns():
                 except Exception as e:
                     print(f"[MIGRATION] Skipping column '{col_name}': {e}")
 
+    # ── Discovered Jobs table migration ──
+    if inspector.has_table("discovered_jobs"):
+        existing_job_cols = {col["name"] for col in inspector.get_columns("discovered_jobs")}
+        job_new_columns = {
+            "min_experience": "INTEGER",
+            "max_experience": "INTEGER",
+            "work_mode": "VARCHAR",
+        }
+        for col_name, col_type in job_new_columns.items():
+            if col_name not in existing_job_cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            __import__("sqlalchemy").text(
+                                f'ALTER TABLE discovered_jobs ADD COLUMN "{col_name}" {col_type}'
+                            )
+                        )
+                    print(f"[MIGRATION] Added column '{col_name}' to discovered_jobs table.")
+                except Exception as e:
+                    print(f"[MIGRATION] Skipping column '{col_name}': {e}")
+
+        # Backfill existing discovered_jobs that have NULL min_experience or work_mode
+        try:
+            from app.services.job_discovery import JobDiscoveryEngine
+            from app.database import SessionLocal
+            from app.models.autoapply_models import DiscoveredJob
+            with SessionLocal() as db:
+                unfilled_jobs = db.query(DiscoveredJob).filter(
+                    (DiscoveredJob.min_experience == None) | (DiscoveredJob.work_mode == None)
+                ).limit(500).all()
+                if unfilled_jobs:
+                    updated = False
+                    for j in unfilled_jobs:
+                        if j.min_experience is None:
+                            min_exp, max_exp = JobDiscoveryEngine._extract_experience(j.description or "", j.title or "")
+                            if min_exp is not None:
+                                j.min_experience = min_exp
+                                j.max_experience = max_exp
+                                updated = True
+                        if not j.work_mode:
+                            loc = (j.location or "").lower()
+                            if any(k in loc for k in ["remote", "work from home", "wfh", "anywhere", "worldwide"]):
+                                j.work_mode = "remote"
+                                updated = True
+                            elif "hybrid" in loc:
+                                j.work_mode = "hybrid"
+                                updated = True
+                            elif loc and loc != "not specified":
+                                j.work_mode = "onsite"
+                                updated = True
+                    if updated:
+                        db.commit()
+                        print(f"[MIGRATION] Backfilled experience/work_mode for {len(unfilled_jobs)} existing jobs.")
+        except Exception as bf_err:
+            print(f"[MIGRATION] Backfill note: {bf_err}")
+
 check_and_add_columns()
 # ── End auto-migration ──
 from app.config import settings
@@ -187,22 +246,29 @@ def root():
     return {"message": "Confidence Tracker API Running"}
 
 @app.api_route("/health", methods=["GET", "HEAD"])
-def health_check():
-    """Health check endpoint for production uptime monitors (Better Stack / UptimeRobot)."""
-    try:
-        from app.database import engine
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        db_status = "healthy"
-    except Exception as e:
-        db_status = f"unhealthy: {str(e)}"
-    
-    is_healthy = db_status == "healthy"
-    return {
-        "status": "ok" if is_healthy else "degraded",
-        "database": db_status
-    }
+def health_check(check_db: bool = False):
+    """Health check endpoint for production uptime monitors (Better Stack / UptimeRobot).
+    By default, performs a lightweight shallow check that does NOT query Neon database,
+    allowing Neon compute to scale to zero when the app is idle.
+    Pass ?check_db=true if deep database connectivity verification is explicitly needed.
+    """
+    if check_db:
+        try:
+            from app.database import engine
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_status = "healthy"
+        except Exception as e:
+            db_status = f"unhealthy: {str(e)}"
+        
+        is_healthy = db_status == "healthy"
+        return {
+            "status": "ok" if is_healthy else "degraded",
+            "database": db_status
+        }
+
+    return {"status": "ok"}
 
 from app.routes import upload
 app.include_router(upload.router, prefix="/upload", tags=["Upload"])

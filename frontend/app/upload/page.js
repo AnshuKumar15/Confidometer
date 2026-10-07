@@ -13,7 +13,8 @@ import {
   Building2, Briefcase, Clock, Brain, MessageSquare,
   Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
   Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft,
-  Eye, EyeOff, Maximize2, Minimize2, GripVertical
+  Eye, EyeOff, Maximize2, Minimize2, GripVertical, Database,
+  CheckCircle2, XCircle, Table, Copy, Check, Sun, Moon, MicOff
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -43,6 +44,13 @@ const INTERVIEW_TYPES = [
     color: "#e17055",
   },
   {
+    id: "sql",
+    label: "SQL Assessment",
+    icon: <Database size={22} />,
+    description: "3 SQL challenges · 30 min timer · Explain queries to Liza",
+    color: "#00cec9",
+  },
+  {
     id: "behavioural",
     label: "Behavioural",
     icon: <MessageSquare size={22} />,
@@ -58,6 +66,12 @@ const INTERVIEW_TYPES = [
   },
 ];
 
+const SQL_DIFFICULTIES = ["Easy", "Intermediate", "Hard"];
+const SQL_TOPICS = [
+  "SELECT", "WHERE", "JOIN", "GROUP BY", "HAVING",
+  "Subqueries", "CTEs", "Window Functions", "Aggregates", "ORDER BY / LIMIT"
+];
+
 // ── Language Options for Editor ──
 const LANGUAGES = [
   { id: "python", label: "Python", monacoId: "python" },
@@ -68,6 +82,59 @@ const LANGUAGES = [
 
 // ── DSA Timer: 30 minutes in seconds ──
 const DSA_TIMER_TOTAL = 30 * 60;
+
+// ── Syntax Highlighter for SQL Schema Display ──
+function renderSqlTokens(sql, isDark = true) {
+  if (!sql) return null;
+  const tokenRegex = /(--[^\n]*)|('(?:''|[^'])*')|(\b\d+(?:\.\d+)?\b)|(\b(?:INTEGER|TEXT|REAL|FLOAT|VARCHAR|NUMERIC|BLOB|BOOLEAN|DATE|DATETIME)\b)|(\b(?:CREATE|TABLE|PRIMARY|KEY|NOT|NULL|INSERT|INTO|VALUES|SELECT|FROM|WHERE|AND|OR|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|ASC|DESC|HAVING|AS|DROP|UPDATE|DELETE|SET|COUNT|SUM|AVG|MIN|MAX|DISTINCT|LIMIT|OFFSET|DEFAULT|FOREIGN|REFERENCES|CHECK|UNIQUE|ALTER|ADD|UNION|ALL|CASE|WHEN|THEN|ELSE|END|IN|IS|LIKE|BETWEEN|EXISTS)\b)/gi;
+
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = tokenRegex.exec(sql)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(sql.substring(lastIndex, match.index));
+    }
+    const [full, comment, str, num, dataType, kw] = match;
+    if (comment) {
+      parts.push(
+        <span key={match.index} style={{ color: isDark ? "#94a3b8" : "#64748b", fontStyle: "italic" }}>
+          {comment}
+        </span>
+      );
+    } else if (str) {
+      parts.push(
+        <span key={match.index} style={{ color: isDark ? "#34d399" : "#059669", fontWeight: 500 }}>
+          {str}
+        </span>
+      );
+    } else if (num) {
+      parts.push(
+        <span key={match.index} style={{ color: isDark ? "#fbbf24" : "#d97706" }}>
+          {num}
+        </span>
+      );
+    } else if (dataType) {
+      parts.push(
+        <span key={match.index} style={{ color: isDark ? "#c084fc" : "#7c3aed", fontWeight: 600 }}>
+          {dataType}
+        </span>
+      );
+    } else if (kw) {
+      parts.push(
+        <span key={match.index} style={{ color: isDark ? "#38bdf8" : "#0284c7", fontWeight: 600 }}>
+          {kw}
+        </span>
+      );
+    }
+    lastIndex = tokenRegex.lastIndex;
+  }
+  if (lastIndex < sql.length) {
+    parts.push(sql.substring(lastIndex));
+  }
+  return parts;
+}
 
 export default function UploadPage() {
   const { theme } = useTheme();
@@ -93,6 +160,10 @@ export default function UploadPage() {
   const [jobDescription, setJobDescription] = useState("");
   const [showJD, setShowJD] = useState(false);
   const [interviewType, setInterviewType] = useState("technical");
+  const interviewTypeRef = useRef("technical");
+  useEffect(() => {
+    interviewTypeRef.current = interviewType;
+  }, [interviewType]);
   const [duration, setDuration] = useState(10);
   const [isComplete, setIsComplete] = useState(false);
   const isCompleteRef = useRef(false);
@@ -148,6 +219,48 @@ export default function UploadPage() {
   const [dsaTimeLeft, setDsaTimeLeft] = useState(DSA_TIMER_TOTAL);
   const [dsaComplete, setDsaComplete] = useState(false);
   const dsaTimerRef = useRef(null);
+
+  // ── SQL Assessment State ──
+  const [sqlDifficulty, setSqlDifficulty] = useState("Intermediate");
+  const [sqlSelectedTopics, setSqlSelectedTopics] = useState([]);
+  const [sqlQuestions, setSqlQuestions] = useState(null); // array of 3 SQL questions
+  const [sqlActiveQIndex, setSqlActiveQIndex] = useState(0); // 0, 1, or 2
+  const [sqlDrafts, setSqlDrafts] = useState({ 0: "", 1: "", 2: "" });
+  const [sqlTimeLeft, setSqlTimeLeft] = useState(DSA_TIMER_TOTAL);
+  const [sqlComplete, setSqlComplete] = useState(false);
+  const sqlTimerRef = useRef(null);
+  const [sqlRunResults, setSqlRunResults] = useState({});
+  const [isRunningSql, setIsRunningSql] = useState(false);
+  const [sqlConsoleOpen, setSqlConsoleOpen] = useState(false);
+  const sqlDbRef = useRef(null);
+
+  // SQL Schema Card Theme & Copy State
+  const [schemaCardTheme, setSchemaCardTheme] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("sql_schema_theme");
+      if (saved === "dark" || saved === "light") return saved;
+    }
+    return "light";
+  });
+  const [schemaCopied, setSchemaCopied] = useState(false);
+
+  const toggleSchemaTheme = () => {
+    setSchemaCardTheme((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sql_schema_theme", next);
+      }
+      return next;
+    });
+  };
+
+  const handleCopySchema = (sqlText) => {
+    if (!sqlText) return;
+    navigator.clipboard.writeText(sqlText).then(() => {
+      setSchemaCopied(true);
+      setTimeout(() => setSchemaCopied(false), 2000);
+    });
+  };
 
   const [isRunningCode, setIsRunningCode] = useState(false);
   const [runResults, setRunResults] = useState(null);
@@ -320,6 +433,27 @@ export default function UploadPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInterviewing, interviewType, dsaComplete]);
 
+  // ── SQL 30-minute countdown timer ──
+  useEffect(() => {
+    if (isInterviewing && interviewType === "sql" && !sqlComplete) {
+      setSqlTimeLeft(DSA_TIMER_TOTAL);
+      sqlTimerRef.current = setInterval(() => {
+        setSqlTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(sqlTimerRef.current);
+            handleFinishInterview();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (sqlTimerRef.current) clearInterval(sqlTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInterviewing, interviewType, sqlComplete]);
+
   // ── Regular interview timer ──
   useEffect(() => {
     let timerId;
@@ -341,7 +475,7 @@ export default function UploadPage() {
       autoFinishedRef.current = false;
       return;
     }
-    if (interviewType === "dsa") return; // DSA has its own dedicated 30-min countdown
+    if (interviewType === "dsa" || interviewType === "sql") return; // Dedicated 30-min countdown
 
     const targetSeconds = duration * 60;
     if (interviewDuration >= targetSeconds) {
@@ -561,8 +695,11 @@ export default function UploadPage() {
         if (isCompleteRef.current) {
           handleFinishInterview();
         } else if (!speechCancelledRef.current) {
-          // Auto-trigger recording after AI finishes asking
-          startListening();
+          // In DSA and SQL rounds, keep mic OFF by default so user can code peacefully and tap "Speak"
+          const isCodingRound = interviewTypeRef.current === "dsa" || interviewTypeRef.current === "sql";
+          if (!isCodingRound) {
+            startListening();
+          }
         }
       };
       audio.onerror = () => {
@@ -573,7 +710,10 @@ export default function UploadPage() {
         if (isCompleteRef.current) {
           handleFinishInterview();
         } else if (!speechCancelledRef.current) {
-          startListening();
+          const isCodingRound = interviewTypeRef.current === "dsa" || interviewTypeRef.current === "sql";
+          if (!isCodingRound) {
+            startListening();
+          }
         }
       };
       await audio.play();
@@ -592,7 +732,10 @@ export default function UploadPage() {
           if (isCompleteRef.current) {
             handleFinishInterview();
           } else if (!speechCancelledRef.current) {
-            startListening();
+            const isCodingRound = interviewTypeRef.current === "dsa" || interviewTypeRef.current === "sql";
+            if (!isCodingRound) {
+              startListening();
+            }
           }
         };
         window.speechSynthesis.speak(utterance);
@@ -601,7 +744,10 @@ export default function UploadPage() {
         if (isCompleteRef.current) {
           handleFinishInterview();
         } else if (!speechCancelledRef.current) {
-          startListening();
+          const isCodingRound = interviewTypeRef.current === "dsa" || interviewTypeRef.current === "sql";
+          if (!isCodingRound) {
+            startListening();
+          }
         }
       }
     }
@@ -836,9 +982,14 @@ export default function UploadPage() {
       setInterimTranscript("");
       submitResponse(textToSubmit);
     } else {
-      // If no valid text detected, restart listening so user can speak or type
+      // If no valid text detected, in conversational rounds restart listening; in DSA/SQL rounds keep mic off
       isUserEditingRef.current = false;
-      startGroqSTT();
+      const isCodingRound = interviewTypeRef.current === "dsa" || interviewTypeRef.current === "sql";
+      if (!isCodingRound) {
+        startGroqSTT();
+      } else {
+        stopGroqSTT();
+      }
     }
   }
 
@@ -854,7 +1005,8 @@ export default function UploadPage() {
 
   // 4. Start the Interview Session
   async function handleStartInterview() {
-    if (!resumeFile) {
+    const requiresResume = interviewType !== "dsa" && interviewType !== "sql";
+    if (requiresResume && !resumeFile) {
       setError("Please upload your resume to start.");
       return;
     }
@@ -881,7 +1033,18 @@ export default function UploadPage() {
 
     try {
       // Initialize interview session on backend
-      const data = await initiateInterview(resumeFile, role, companyName, experienceLevel, jobDescription, interviewType, duration, stressMode);
+      const data = await initiateInterview(
+        resumeFile,
+        role,
+        companyName,
+        experienceLevel,
+        jobDescription,
+        interviewType,
+        duration,
+        stressMode,
+        sqlDifficulty,
+        sqlSelectedTopics.join(",")
+      );
       
       // Clear saved setup state upon successful start
       sessionStorage.removeItem("confidometer_setup_role");
@@ -918,6 +1081,21 @@ export default function UploadPage() {
         });
       }
 
+      // SQL: load 3 questions and pre-populate draft queries
+      if (interviewType === "sql" && data.sql_questions) {
+        setSqlQuestions(data.sql_questions);
+        setSqlActiveQIndex(0);
+        setShowEditor(true);
+        const q0 = data.sql_questions[0];
+        const q1 = data.sql_questions[1];
+        const q2 = data.sql_questions[2];
+        setSqlDrafts({
+          0: `-- Problem 1: ${q0?.title || "SQL Query"}\n-- Write your SQL query below:\nSELECT `,
+          1: `-- Problem 2: ${q1?.title || "Problem 2"}\n-- Write your SQL query below:\nSELECT `,
+          2: `-- Problem 3: ${q2?.title || "Problem 3"}\n-- Write your SQL query below:\nSELECT `,
+        });
+      }
+
       // Start full video recording for later analysis
       recordedChunks.current = [];
       const options = { mimeType: "video/webm;codecs=vp9,opus" };
@@ -950,7 +1128,7 @@ export default function UploadPage() {
   }
 
   // 5. Submit candidate answer and get next question
-  async function submitResponse(transcriptText, code = null, qIdx = 0) {
+  async function submitResponse(transcriptText, code = null, qIdx = null) {
     if (!transcriptText.trim() && !code) return;
     if (isSubmittingResponseRef.current) {
       console.log("[STT] Response submission already in progress, ignoring duplicate.");
@@ -976,7 +1154,9 @@ export default function UploadPage() {
 
     try {
       const elapsedSecs = getElapsedSeconds();
-      const data = await respondToAgent(sessionIdRef.current, transcriptText, code, qIdx, elapsedSecs);
+      const resolvedQIdx = qIdx !== null ? qIdx : (interviewType === "sql" ? sqlActiveQIndex : (interviewType === "dsa" ? activeQIndex : 0));
+      const resolvedCode = code !== null ? code : (interviewType === "sql" ? (sqlDrafts[resolvedQIdx] || null) : (interviewType === "dsa" ? (codeDrafts[resolvedQIdx] || null) : null));
+      const data = await respondToAgent(sessionIdRef.current, transcriptText, resolvedCode, resolvedQIdx, elapsedSecs);
       const nextQ = data.next_question;
       
       setCurrentQuestion(nextQ);
@@ -989,6 +1169,10 @@ export default function UploadPage() {
 
       if (data.dsa_complete) {
         setDsaComplete(true);
+      }
+
+      if (data.sql_complete) {
+        setSqlComplete(true);
       }
 
       if (data.requires_editor) {
@@ -1014,6 +1198,134 @@ export default function UploadPage() {
     const qTitle = activeQ ? activeQ.title : "the problem";
     const message = `I've written my solution for LeetCode ${activeQ?.number}: ${qTitle}. Here's my code.`;
     await submitResponse(message, code, activeQIndex);
+  }
+
+  // ── Client-Side SQLite Execution via sql.js (WebAssembly) ──
+  const executeSqlQuery = async (userQuery, question) => {
+    if (!userQuery || !userQuery.trim()) {
+      return { status: "error", error: "Please enter a SQL query to execute." };
+    }
+    try {
+      if (!window.initSqlJs) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/sql-wasm.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      if (!sqlDbRef.current) {
+        const SQL = await window.initSqlJs({
+          locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/${file}`
+        });
+        sqlDbRef.current = SQL;
+      }
+      const SQL = sqlDbRef.current;
+      const db = new SQL.Database();
+      if (question.schema_sql) {
+        db.run(question.schema_sql);
+      }
+      const t0 = performance.now();
+      const res = db.exec(userQuery);
+      const t1 = performance.now();
+      const executionTime = (t1 - t0).toFixed(1);
+
+      const expectedCols = question.expected_columns || [];
+      const expectedRows = question.expected_rows || [];
+
+      if (!res || res.length === 0) {
+        return {
+          status: "success",
+          columns: [],
+          rows: [],
+          executionTime,
+          passed: expectedRows.length === 0,
+          expectedColumns: expectedCols,
+          expectedRows: expectedRows,
+          message: expectedRows.length === 0 ? "Correct! Output matches expected result." : "Query executed successfully but returned 0 rows (mismatch with expected output)."
+        };
+      }
+
+      const { columns, values } = res[0];
+
+      // Check results match
+      let passed = true;
+      if (values.length !== expectedRows.length || columns.length !== expectedCols.length) {
+        passed = false;
+      } else {
+        for (let i = 0; i < values.length; i++) {
+          for (let j = 0; j < values[i].length; j++) {
+            const a = values[i][j];
+            const b = expectedRows[i][j];
+            if (a === null && b === null) continue;
+            if (a === null || b === null) { passed = false; break; }
+            if (typeof a === "number" && typeof b === "number") {
+              if (Math.abs(a - b) > 0.01) { passed = false; break; }
+            } else if (String(a).trim().toLowerCase() !== String(b).trim().toLowerCase()) {
+              passed = false; break;
+            }
+          }
+          if (!passed) break;
+        }
+      }
+
+      return {
+        status: "success",
+        columns,
+        rows: values,
+        executionTime,
+        passed,
+        expectedColumns: expectedCols,
+        expectedRows: expectedRows,
+        message: passed ? "Correct! Output matches expected result." : "Output does not match expected result."
+      };
+    } catch (err) {
+      return {
+        status: "error",
+        error: err.message,
+        passed: false
+      };
+    }
+  };
+
+  // ── Explain SQL Query to Liza ──
+  async function handleExplainSqlQuery() {
+    const query = sqlDrafts[sqlActiveQIndex]?.trim();
+    if (!query) return;
+
+    const activeQ = sqlQuestions ? sqlQuestions[sqlActiveQIndex] : null;
+    const qTitle = activeQ ? activeQ.title : `Question ${sqlActiveQIndex + 1}`;
+    const topic = activeQ ? activeQ.topic : "SQL";
+    const runRes = sqlRunResults[sqlActiveQIndex];
+    let note = "";
+    if (runRes) {
+      note = runRes.passed ? " I tested it and all test cases passed." : " I have tested my query in the editor.";
+    }
+    const message = `Here is my SQL query for '${qTitle}' (${topic}).${note} Let me walk you through my thought process and approach.`;
+    await submitResponse(message, query, sqlActiveQIndex);
+  }
+
+  // ── Run SQL Query ──
+  async function handleRunSqlQuery() {
+    const activeQ = sqlQuestions ? sqlQuestions[sqlActiveQIndex] : null;
+    if (!activeQ) return;
+    const query = sqlDrafts[sqlActiveQIndex]?.trim();
+    if (!query) return;
+
+    setIsRunningSql(true);
+    setSqlConsoleOpen(true);
+    try {
+      const result = await executeSqlQuery(query, activeQ);
+      setSqlRunResults(prev => ({ ...prev, [sqlActiveQIndex]: result }));
+    } catch (err) {
+      setSqlRunResults(prev => ({
+        ...prev,
+        [sqlActiveQIndex]: { status: "error", error: err.message, passed: false }
+      }));
+    } finally {
+      setIsRunningSql(false);
+    }
   }
 
   // ── Run Code dynamic evaluation ──
@@ -1055,6 +1367,12 @@ export default function UploadPage() {
     if (dsaTimerRef.current) {
       clearInterval(dsaTimerRef.current);
       dsaTimerRef.current = null;
+    }
+
+    // Stop SQL timer
+    if (sqlTimerRef.current) {
+      clearInterval(sqlTimerRef.current);
+      sqlTimerRef.current = null;
     }
 
     speechCancelledRef.current = true;
@@ -1123,11 +1441,14 @@ export default function UploadPage() {
 
   // ── Determine if we're in a split-screen (editor) mode ──
   const isDsaRound = interviewType === "dsa";
+  const isSqlRound = interviewType === "sql";
   const showSplitScreen = isInterviewing && showEditor;
   const activeQuestion = isDsaRound && dsaQuestions ? dsaQuestions[activeQIndex] : dsaQuestion;
+  const activeSqlQuestion = isSqlRound && sqlQuestions ? sqlQuestions[sqlActiveQIndex] : null;
 
-  // ── DSA Timer urgency class ──
-  const timerUrgency = dsaTimeLeft <= 120 ? "timer-critical" : dsaTimeLeft <= 300 ? "timer-warning" : "";
+  // ── Timer urgency class ──
+  const sqlTimerUrgency = sqlTimeLeft <= 120 ? "timer-critical" : sqlTimeLeft <= 300 ? "timer-warning" : "";
+  const timerUrgency = isSqlRound ? sqlTimerUrgency : (dsaTimeLeft <= 120 ? "timer-critical" : dsaTimeLeft <= 300 ? "timer-warning" : "");
 
   return (
     <div className={`upload-page ${isInterviewing ? "interview-active-mode" : ""}`}>
@@ -1175,12 +1496,98 @@ export default function UploadPage() {
                   <AlertTriangle size={16} />
                   <span>
                     <strong>DSA Coding Round:</strong> You will solve <strong>1 Easy</strong> and <strong>1 Medium</strong> LeetCode problem in <strong>30 minutes</strong>.
-                    The workspace supports side-by-side problem reading and code runner checks. Difficulty scales based on your chosen company.
+                    The workspace supports side-by-side problem reading and code runner checks. Difficulty scales based on your chosen company. (No resume required).
                   </span>
                 </div>
               )}
 
-              {interviewType !== "dsa" && (
+              {interviewType === "sql" && (
+                <div className="sql-setup-card glass" style={{ marginTop: "16px", padding: "16px", borderRadius: "12px", border: "1px solid rgba(0, 206, 201, 0.3)", background: "rgba(0, 206, 201, 0.04)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+                    <Database size={18} color="#00cec9" />
+                    <strong style={{ color: "#00cec9" }}>SQL Assessment Configuration</strong>
+                    <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>• 3 Questions · 30 Min Timer · In-Browser SQLite · Explain to Liza</span>
+                  </div>
+
+                  {/* Difficulty Selector */}
+                  <div style={{ marginBottom: "14px" }}>
+                    <span style={{ fontSize: "0.8rem", fontWeight: 600, display: "block", marginBottom: "6px" }}>Difficulty Level</span>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      {SQL_DIFFICULTIES.map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`difficulty-pill ${sqlDifficulty === d ? "active" : ""}`}
+                          onClick={() => setSqlDifficulty(d)}
+                          style={{
+                            padding: "6px 16px",
+                            borderRadius: "20px",
+                            border: sqlDifficulty === d ? "1px solid #00cec9" : "1px solid var(--line)",
+                            background: sqlDifficulty === d ? "rgba(0, 206, 201, 0.25)" : "rgba(255,255,255,0.03)",
+                            color: sqlDifficulty === d ? "#00cec9" : "var(--text)",
+                            fontWeight: 600,
+                            fontSize: "0.82rem",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Topics Multi-Select */}
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "0.8rem", fontWeight: 600 }}>SQL Topics (Select multiple or leave empty for random topics)</span>
+                      <button
+                        type="button"
+                        onClick={() => setSqlSelectedTopics(sqlSelectedTopics.length === SQL_TOPICS.length ? [] : [...SQL_TOPICS])}
+                        style={{ background: "none", border: "none", color: "#00cec9", fontSize: "0.75rem", cursor: "pointer", textDecoration: "underline" }}
+                      >
+                        {sqlSelectedTopics.length === SQL_TOPICS.length ? "Clear All" : "Select All"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                      {SQL_TOPICS.map((topic) => {
+                        const isSelected = sqlSelectedTopics.includes(topic);
+                        return (
+                          <button
+                            key={topic}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setSqlSelectedTopics(sqlSelectedTopics.filter(t => t !== topic));
+                              } else {
+                                setSqlSelectedTopics([...sqlSelectedTopics, topic]);
+                              }
+                            }}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "16px",
+                              border: isSelected ? "1px solid #00cec9" : "1px solid var(--line)",
+                              background: isSelected ? "rgba(0, 206, 201, 0.2)" : "rgba(255,255,255,0.02)",
+                              color: isSelected ? "#00cec9" : "var(--muted)",
+                              fontSize: "0.78rem",
+                              fontWeight: isSelected ? 600 : 400,
+                              cursor: "pointer"
+                            }}
+                          >
+                            {topic}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {sqlSelectedTopics.length === 0 && (
+                      <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "6px", display: "block" }}>
+                        ✨ No topics chosen: 3 questions will be selected randomly across all topics.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {interviewType !== "dsa" && interviewType !== "sql" && (
                 <button
                   type="button"
                   className={`stress-mode-toggle ${stressMode ? "active" : ""}`}
@@ -1206,7 +1613,7 @@ export default function UploadPage() {
                   value={role}
                   onChange={setRole}
                   suggestions={ROLE_SUGGESTIONS}
-                  placeholder="e.g. Software Engineer, Product Manager"
+                  placeholder="e.g. Software Engineer, Data Engineer"
                   disabled={loading}
                   icon={<Briefcase size={16} />}
                 />
@@ -1241,7 +1648,7 @@ export default function UploadPage() {
                   </select>
                 </label>
 
-                {interviewType !== "dsa" && (
+                {interviewType !== "dsa" && interviewType !== "sql" && (
                   <div className="duration-selector-zone">
                     <span className="label-text">Interview Duration</span>
                     <div className="duration-boxes-grid" role="group" aria-label="Interview Duration">
@@ -1265,22 +1672,23 @@ export default function UploadPage() {
                   </div>
                 )}
 
-
-                <div className="resume-selector-zone">
-                  <span className="label-text">Upload Resume (PDF/TXT)</span>
-                  <label className="resume-drag-box">
-                    <input
-                      type="file"
-                      accept=".pdf,.txt"
-                      className="hidden-input"
-                      onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
-                      disabled={loading}
-                    />
-                    <FileText size={24} />
-                    <span>{resumeFile ? resumeFile.name : "Choose resume file"}</span>
-                    {resumeFile && <CheckCircle size={16} className="valid-icon" />}
-                  </label>
-                </div>
+                {interviewType !== "dsa" && interviewType !== "sql" && (
+                  <div className="resume-selector-zone">
+                    <span className="label-text">Upload Resume (PDF/TXT)</span>
+                    <label className="resume-drag-box">
+                      <input
+                        type="file"
+                        accept=".pdf,.txt"
+                        className="hidden-input"
+                        onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+                        disabled={loading}
+                      />
+                      <FileText size={24} />
+                      <span>{resumeFile ? resumeFile.name : "Choose resume file"}</span>
+                      {resumeFile && <CheckCircle size={16} className="valid-icon" />}
+                    </label>
+                  </div>
+                )}
 
                 <div className="media-permit-row">
                   <button
@@ -1314,7 +1722,7 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {interviewType !== "dsa" && (
+            {interviewType !== "dsa" && interviewType !== "sql" && (
               <div className="jd-outer-section glass">
                 <div className="jd-header">
                   <h3>Job Description</h3>
@@ -1335,14 +1743,12 @@ export default function UploadPage() {
               type="button"
               className="button primary start-btn"
               onClick={handleStartInterview}
-              disabled={loading || !permissionGranted || !resumeFile || !role.trim()}
+              disabled={loading || !permissionGranted || (!["dsa", "sql"].includes(interviewType) && !resumeFile) || !role.trim()}
             >
               <Play size={16} />
               {loading ? "Initializing..." : `Start ${INTERVIEW_TYPES.find(t => t.id === interviewType)?.label || ""} Interview`}
             </button>
           </div>
-
-
         </div>
       ) : (
         <>
@@ -1387,14 +1793,30 @@ export default function UploadPage() {
               <div className="hud-stat-divider" />
 
               <div className="hud-stat-item">
-                <span className="hud-stat-label">Elapsed Time</span>
-                <div className={`hud-timer-wrap ${!isDsaRound && duration && interviewDuration >= (duration * 60 - 60) ? "hud-timer-wrap-warning" : ""}`}>
+                <span className="hud-stat-label">
+                  {isSqlRound || isDsaRound ? "Time Remaining" : "Elapsed Time"}
+                </span>
+                <div className={`hud-timer-wrap ${
+                  isSqlRound
+                    ? (sqlTimeLeft <= 300 ? "hud-timer-wrap-warning" : "")
+                    : isDsaRound
+                    ? (dsaTimeLeft <= 300 ? "hud-timer-wrap-warning" : "")
+                    : (duration && interviewDuration >= (duration * 60 - 60) ? "hud-timer-wrap-warning" : "")
+                }`}>
                   <Clock size={14} className="hud-timer-icon" />
-                  <span className="hud-timer-val">{formatDuration(interviewDuration)}</span>
-                  {!isDsaRound && duration && (
+                  <span className="hud-timer-val">
+                    {isSqlRound
+                      ? formatDuration(sqlTimeLeft)
+                      : isDsaRound
+                      ? formatDuration(dsaTimeLeft)
+                      : formatDuration(interviewDuration)}
+                  </span>
+                  {(isSqlRound || isDsaRound) ? (
+                    <span className="hud-timer-target">/ 30:00</span>
+                  ) : duration ? (
                     <span className="hud-timer-target">/ {duration}:00</span>
-                  )}
-                  {!isDsaRound && duration && interviewDuration >= (duration * 60 - 60) && (
+                  ) : null}
+                  {(isSqlRound ? sqlTimeLeft <= 300 : isDsaRound ? dsaTimeLeft <= 300 : duration && interviewDuration >= (duration * 60 - 60)) && (
                     <span className="hud-timer-warning-tag">Wrapping Up</span>
                   )}
                 </div>
@@ -1444,7 +1866,7 @@ export default function UploadPage() {
                     </div>
                     <div className="chat-status-pill">
                       <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? (isUserSpeaking ? "listening speaking" : "listening") : "idle"}`} />
-                      <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : "Ready"}</span>
+                      <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : (isSqlRound || isDsaRound ? "Mic Off · Tap Speak" : "Ready")}</span>
                     </div>
                   </div>
                   <div className="messages-log">
@@ -1482,7 +1904,7 @@ export default function UploadPage() {
                             finalizeAndSubmitGroqSTT(interimTranscript);
                           }
                         }}
-                        placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : "Listening paused. Click 'Speak' or type here..."}
+                        placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : (isSqlRound || isDsaRound ? "Mic is off. Tap 'Speak' to answer, or type here..." : "Listening paused. Click 'Speak' or type here...")}
                       />
                     </div>
                   )}
@@ -1504,26 +1926,38 @@ export default function UploadPage() {
                         className="button primary start-listening-btn pulse-shimmer"
                         onClick={startListening}
                         disabled={loading}
-                        style={{ flex: 1 }}
+                        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                       >
                         <Mic size={14} />
                         <span>Speak</span>
                       </button>
                     )}
 
-                    {!isSpeaking && !isAiThinking && !isComplete && (isRecordingResponse || interimTranscript.trim()) && (
-                      <button
-                        type="button"
-                        className="button primary submit-btn pulse-shimmer"
-                        onClick={() => {
-                          finalizeAndSubmitGroqSTT(interimTranscript);
-                        }}
-                        disabled={loading || !interimTranscript.trim()}
-                        style={{ flex: 1 }}
-                      >
-                        <Send size={14} />
-                        <span>Submit Answer</span>
-                      </button>
+                    {!isSpeaking && !isAiThinking && !isComplete && isRecordingResponse && (
+                      <div style={{ display: "flex", gap: "6px", flex: 1 }}>
+                        <button
+                          type="button"
+                          className="button subtle"
+                          onClick={stopListening}
+                          title="Turn off microphone"
+                          style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: "4px" }}
+                        >
+                          <MicOff size={14} color="#ef4444" />
+                          <span>Mute</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="button primary submit-btn pulse-shimmer"
+                          onClick={() => {
+                            finalizeAndSubmitGroqSTT(interimTranscript);
+                          }}
+                          disabled={loading || !interimTranscript.trim()}
+                          style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                        >
+                          <Send size={14} />
+                          <span>Submit</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1547,8 +1981,48 @@ export default function UploadPage() {
                   width: isEditorFullscreen ? "100%" : `${100 - mainSplitRatio}%`,
                 }}
               >
-                {/* Header: Question switcher tabs, Fullscreen Toggle & Language Selector */}
+                {/* Header: Question switcher tabs, Fullscreen Toggle & Language / Engine Selector */}
                 <div className="dsa-workspace-header">
+                  {isSqlRound && sqlQuestions && (
+                    <div className="dsa-questions-tabs">
+                      {isEditorFullscreen && (
+                        <button
+                          type="button"
+                          className="dsa-restore-chat-tab-btn"
+                          onClick={toggleEditorFullscreen}
+                          title="Show Liza Chat (Exit Fullscreen)"
+                        >
+                          <MessageSquare size={13} />
+                          <span>Liza Chat</span>
+                        </button>
+                      )}
+                      {sqlQuestions.map((q, idx) => {
+                        const runRes = sqlRunResults[idx];
+                        const isPassed = runRes?.passed;
+                        const isFailed = runRes && !runRes.passed;
+                        return (
+                          <button
+                            key={idx}
+                            className={`dsa-q-tab-btn ${sqlActiveQIndex === idx ? "active" : ""}`}
+                            onClick={() => {
+                              setSqlActiveQIndex(idx);
+                              setSqlConsoleOpen(false);
+                            }}
+                          >
+                            {isPassed ? (
+                              <CheckCircle2 size={13} color="#10b981" />
+                            ) : isFailed ? (
+                              <XCircle size={13} color="#ef4444" />
+                            ) : (
+                              <Database size={13} />
+                            )}
+                            <span>Q{idx + 1}: {q.topic || q.difficulty}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {isDsaRound && dsaQuestions && (
                     <div className="dsa-questions-tabs">
                       {isEditorFullscreen && (
@@ -1575,7 +2049,7 @@ export default function UploadPage() {
                     </div>
                   )}
 
-                  {!isDsaRound && (
+                  {!isDsaRound && !isSqlRound && (
                     <div className="dsa-questions-tabs">
                       {isEditorFullscreen && (
                         <button
@@ -1603,16 +2077,23 @@ export default function UploadPage() {
                       <span>{isEditorFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
                     </button>
 
-                    <div className="editor-lang-selector">
-                      <select
-                        value={editorLanguage}
-                        onChange={(e) => handleLanguageChange(e.target.value)}
-                      >
-                        {LANGUAGES.map((lang) => (
-                          <option key={lang.id} value={lang.id}>{lang.label}</option>
-                        ))}
-                      </select>
-                    </div>
+                    {isSqlRound ? (
+                      <div className="sql-engine-badge" style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 10px", borderRadius: "12px", background: "rgba(22, 160, 133, 0.12)", border: "1px solid rgba(22, 160, 133, 0.3)", fontSize: "0.75rem", color: "var(--teal)", fontWeight: 600 }}>
+                        <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10b981", display: "inline-block" }} />
+                        <span>SQLite WASM</span>
+                      </div>
+                    ) : (
+                      <div className="editor-lang-selector">
+                        <select
+                          value={editorLanguage}
+                          onChange={(e) => handleLanguageChange(e.target.value)}
+                        >
+                          {LANGUAGES.map((lang) => (
+                            <option key={lang.id} value={lang.id}>{lang.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1620,7 +2101,122 @@ export default function UploadPage() {
                 <div className="dsa-side-by-side-workspace" ref={workspaceRef}>
                   {/* Left Column: Problem statement description */}
                   <div className="dsa-problem-description-side" style={{ width: `${splitWidth}%` }}>
-                    {activeQuestion ? (
+                    {isSqlRound ? (
+                      activeSqlQuestion ? (
+                        <>
+                          <div className="dsa-q-meta-info">
+                            <span className="dsa-q-number" style={{ color: "var(--teal)" }}>Question {sqlActiveQIndex + 1}.</span>
+                            <span className="dsa-q-title">{activeSqlQuestion.title}</span>
+                            <span className={`dsa-difficulty-tag ${(activeSqlQuestion.difficulty || "").toLowerCase()}`}>
+                              {activeSqlQuestion.difficulty}
+                            </span>
+                            {activeSqlQuestion.topic && (
+                              <span style={{ fontSize: "0.72rem", padding: "2px 8px", borderRadius: "10px", background: "rgba(22, 160, 133, 0.12)", color: "var(--teal)", fontWeight: 600, border: "1px solid rgba(22, 160, 133, 0.25)" }}>
+                                {activeSqlQuestion.topic}
+                              </span>
+                            )}
+                          </div>
+                          <div className="dsa-description-panel-content">
+                            <div style={{ marginBottom: "16px", lineHeight: "1.6", color: "var(--text)" }}>
+                              <p style={{ margin: "0 0 12px 0", fontSize: "0.95rem" }}>
+                                {activeSqlQuestion.description}
+                              </p>
+                            </div>
+
+                            {/* Schema Tables Box */}
+                            {activeSqlQuestion.schema_sql && (
+                              <div className={`sql-schema-container theme-${schemaCardTheme}`}>
+                                <div className="sql-schema-header">
+                                  <div className="sql-schema-title-wrap">
+                                    <Table size={14} color="var(--teal)" />
+                                    <span className="sql-schema-title">Database Schema & Tables</span>
+                                  </div>
+                                  <div className="sql-schema-actions">
+                                    <span className="sql-schema-badge">Pre-populated in SQLite</span>
+                                    <button
+                                      type="button"
+                                      onClick={toggleSchemaTheme}
+                                      title={schemaCardTheme === "dark" ? "Switch to Light Code Theme" : "Switch to Dark Code Theme"}
+                                      className="sql-schema-btn"
+                                    >
+                                      {schemaCardTheme === "dark" ? <Sun size={12} /> : <Moon size={12} />}
+                                      <span>{schemaCardTheme === "dark" ? "Light" : "Dark"}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopySchema(activeSqlQuestion.schema_sql)}
+                                      title="Copy SQL Schema"
+                                      className="sql-schema-btn"
+                                    >
+                                      {schemaCopied ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                                      <span>{schemaCopied ? "Copied!" : "Copy"}</span>
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="sql-schema-pre-wrap">
+                                  <pre className="sql-schema-pre">
+                                    {renderSqlTokens(activeSqlQuestion.schema_sql, schemaCardTheme === "dark")}
+                                  </pre>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Expected Output Preview */}
+                            {activeSqlQuestion.expected_columns && activeSqlQuestion.expected_columns.length > 0 && (
+                              <div style={{ marginTop: "18px" }}>
+                                <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <Database size={14} color="var(--teal)" />
+                                  <span>Expected Columns & Sample Format</span>
+                                </div>
+                                <div className="sql-expected-table-container">
+                                  <table className="sql-expected-table">
+                                    <thead>
+                                      <tr>
+                                        {activeSqlQuestion.expected_columns.map((col, ci) => (
+                                          <th key={ci}>
+                                            {col}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {(activeSqlQuestion.expected_rows || []).slice(0, 3).map((row, ri) => (
+                                        <tr key={ri}>
+                                          {row.map((val, vi) => (
+                                            <td key={vi}>
+                                              {val === null ? <span className="null-val">NULL</span> : String(val)}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                                {(activeSqlQuestion.expected_rows || []).length > 3 && (
+                                  <span style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "6px", display: "block" }}>
+                                    Showing 3 of {activeSqlQuestion.expected_rows.length} expected rows
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Tips for explaining to Liza */}
+                            <div className="sql-tip-box">
+                              <span className="sql-tip-box-title">
+                                💡 Tip: Explain Your Reasoning to Liza
+                              </span>
+                              <span className="sql-tip-box-desc">
+                                Once you test and verify your query, click <strong>"Explain Query to Liza"</strong>. Walk Liza through why you chose specific clauses (e.g. JOIN types, CTEs, GROUP BY, aggregations, or NULL handling).
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="muted centered" style={{ marginTop: "40px" }}>
+                          No SQL question loaded.
+                        </p>
+                      )
+                    ) : activeQuestion ? (
                       <>
                         <div className="dsa-q-meta-info">
                           <span className="dsa-q-number">LeetCode {activeQuestion.number}.</span>
@@ -1667,17 +2263,24 @@ export default function UploadPage() {
                     <div className="monaco-editor-container">
                       <MonacoEditor
                         height="100%"
-                        language={LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python"}
+                        language={isSqlRound ? "sql" : (LANGUAGES.find(l => l.id === editorLanguage)?.monacoId || "python")}
                         theme={theme === "dark" ? "vs-dark" : "light"}
-                        value={codeDrafts[activeQIndex] || ""}
+                        value={isSqlRound ? (sqlDrafts[sqlActiveQIndex] || "") : (codeDrafts[activeQIndex] || "")}
                         onChange={(value) => {
-                          setCodeDrafts((prev) => ({
-                            ...prev,
-                            [activeQIndex]: value || ""
-                          }));
+                          if (isSqlRound) {
+                            setSqlDrafts((prev) => ({
+                              ...prev,
+                              [sqlActiveQIndex]: value || ""
+                            }));
+                          } else {
+                            setCodeDrafts((prev) => ({
+                              ...prev,
+                              [activeQIndex]: value || ""
+                            }));
+                          }
                         }}
                         options={{
-                          fontSize: 15,
+                          fontSize: 14,
                           minimap: { enabled: false },
                           scrollBeyondLastLine: false,
                           wordWrap: "on",
@@ -1687,8 +2290,131 @@ export default function UploadPage() {
                       />
                     </div>
 
+                    {/* SQL-style Console Drawer */}
+                    {isSqlRound && sqlConsoleOpen && (
+                      <div className="console-drawer glass" style={{ height: "320px" }}>
+                        <div className="console-drawer-header">
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <Database size={13} color="#00cec9" />
+                            <span>SQL Execution Console</span>
+                          </div>
+                          <button className="close-console-btn" onClick={() => setSqlConsoleOpen(false)}>×</button>
+                        </div>
+
+                        <div className="console-drawer-body">
+                          {isRunningSql ? (
+                            <div className="console-loading">
+                              <div className="console-spinner" style={{ borderTopColor: "#00cec9" }}></div>
+                              <span>Executing SQL query in SQLite WASM engine...</span>
+                            </div>
+                          ) : sqlRunResults[sqlActiveQIndex] ? (
+                            <div className="console-results">
+                              {/* Status Header */}
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  <span className={`console-status-badge ${sqlRunResults[sqlActiveQIndex].status === "error" ? "compile_error" : sqlRunResults[sqlActiveQIndex].passed ? "success" : "failed"}`}>
+                                    {sqlRunResults[sqlActiveQIndex].status === "error" ? "SQL Syntax Error" : sqlRunResults[sqlActiveQIndex].passed ? "Accepted (Output Matches)" : "Wrong Answer (Output Mismatch)"}
+                                  </span>
+                                  {sqlRunResults[sqlActiveQIndex].executionTime && (
+                                    <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>
+                                      ⏱️ {sqlRunResults[sqlActiveQIndex].executionTime} ms
+                                    </span>
+                                  )}
+                                </div>
+                                <span style={{ fontSize: "0.75rem", color: sqlRunResults[sqlActiveQIndex].passed ? "#10b981" : "var(--muted)" }}>
+                                  {sqlRunResults[sqlActiveQIndex].message}
+                                </span>
+                              </div>
+
+                              {/* Error Output */}
+                              {sqlRunResults[sqlActiveQIndex].status === "error" && (
+                                <pre className="console-compile-message">
+                                  {sqlRunResults[sqlActiveQIndex].error}
+                                </pre>
+                              )}
+
+                              {/* Success Output Tables */}
+                              {sqlRunResults[sqlActiveQIndex].status === "success" && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                                  {/* Candidate Output Table */}
+                                  <div>
+                                    <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text)", display: "block", marginBottom: "4px" }}>
+                                      Your Query Output ({sqlRunResults[sqlActiveQIndex].rows?.length || 0} rows)
+                                    </span>
+                                    {sqlRunResults[sqlActiveQIndex].rows?.length > 0 ? (
+                                      <div className="sql-output-table-wrap">
+                                        <table className="sql-output-table">
+                                          <thead>
+                                            <tr>
+                                              {sqlRunResults[sqlActiveQIndex].columns?.map((col, idx) => (
+                                                <th key={idx}>
+                                                  {col}
+                                                </th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {sqlRunResults[sqlActiveQIndex].rows?.map((row, ri) => (
+                                              <tr key={ri}>
+                                                {row.map((val, vi) => (
+                                                  <td key={vi}>
+                                                    {val === null ? <span style={{ color: "var(--muted)", fontStyle: "italic" }}>NULL</span> : String(val)}
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    ) : (
+                                      <p style={{ fontSize: "0.75rem", color: "var(--muted)", fontStyle: "italic", margin: "4px 0" }}>
+                                        Query returned 0 rows.
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* If failed, show expected rows for comparison */}
+                                  {!sqlRunResults[sqlActiveQIndex].passed && sqlRunResults[sqlActiveQIndex].expectedRows?.length > 0 && (
+                                    <div>
+                                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#f87171", display: "block", marginBottom: "4px" }}>
+                                        Expected Output ({sqlRunResults[sqlActiveQIndex].expectedRows.length} rows)
+                                      </span>
+                                      <div className="sql-output-table-wrap" style={{ borderColor: "rgba(248, 113, 113, 0.4)" }}>
+                                        <table className="sql-output-table">
+                                          <thead>
+                                            <tr>
+                                              {sqlRunResults[sqlActiveQIndex].expectedColumns?.map((col, idx) => (
+                                                <th key={idx} style={{ color: "#ef4444" }}>
+                                                  {col}
+                                                </th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {sqlRunResults[sqlActiveQIndex].expectedRows?.slice(0, 10).map((row, ri) => (
+                                              <tr key={ri}>
+                                                {row.map((val, vi) => (
+                                                  <td key={vi}>
+                                                    {val === null ? <span style={{ color: "var(--muted)", fontStyle: "italic" }}>NULL</span> : String(val)}
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+
                     {/* LeetCode-style Console Drawer */}
-                    {showConsole && (
+                    {!isSqlRound && showConsole && (
                       <div className="console-drawer glass">
                         <div className="console-drawer-header">
                           <span>Console</span>
@@ -1767,25 +2493,81 @@ export default function UploadPage() {
                       </div>
                     )}
 
-                    {/* Editor Action Bar (Run + Submit) */}
-                    <div className="editor-action-bar">
-                      <button
-                        className="button subtle run-code-btn"
-                        onClick={handleRunCode}
-                        disabled={loading || isRunningCode || !(codeDrafts[activeQIndex]?.trim())}
-                      >
-                        <Play size={14} />
-                        Run Code
-                      </button>
-                      <button
-                        className="button primary submit-code-btn"
-                        onClick={handleSubmitCode}
-                        disabled={loading || !(codeDrafts[activeQIndex]?.trim())}
-                      >
-                        <Send size={14} />
-                        Submit Code to Liza
-                      </button>
-                    </div>
+                    {/* Editor Action Bar (Run + Submit / Explain) */}
+                    {isSqlRound ? (
+                      <div className="editor-action-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            className="button subtle run-code-btn"
+                            onClick={handleRunSqlQuery}
+                            disabled={loading || isRunningSql || !(sqlDrafts[sqlActiveQIndex]?.trim())}
+                            style={{ display: "flex", alignItems: "center", gap: "6px" }}
+                          >
+                            <Play size={14} />
+                            <span>{isRunningSql ? "Running..." : "Run Query"}</span>
+                          </button>
+                          <button
+                            className="button primary"
+                            onClick={handleExplainSqlQuery}
+                            disabled={loading || !(sqlDrafts[sqlActiveQIndex]?.trim())}
+                            style={{ display: "flex", alignItems: "center", gap: "6px", background: "linear-gradient(135deg, #00cec9 0%, #0984e3 100%)", borderColor: "#00cec9" }}
+                          >
+                            <Send size={14} />
+                            <span>Explain Query to Liza</span>
+                          </button>
+                        </div>
+
+                        {/* Question Pagination */}
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="button subtle"
+                            onClick={() => {
+                              setSqlActiveQIndex(prev => Math.max(0, prev - 1));
+                              setSqlConsoleOpen(false);
+                            }}
+                            disabled={sqlActiveQIndex === 0}
+                            style={{ padding: "6px 12px", fontSize: "0.78rem" }}
+                          >
+                            ← Prev
+                          </button>
+                          <span style={{ fontSize: "0.78rem", color: "var(--muted)", fontWeight: 600 }}>
+                            {sqlActiveQIndex + 1} / {sqlQuestions?.length || 3}
+                          </span>
+                          <button
+                            type="button"
+                            className="button subtle"
+                            onClick={() => {
+                              setSqlActiveQIndex(prev => Math.min((sqlQuestions?.length || 3) - 1, prev + 1));
+                              setSqlConsoleOpen(false);
+                            }}
+                            disabled={sqlActiveQIndex >= (sqlQuestions?.length || 3) - 1}
+                            style={{ padding: "6px 12px", fontSize: "0.78rem" }}
+                          >
+                            Next →
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="editor-action-bar">
+                        <button
+                          className="button subtle run-code-btn"
+                          onClick={handleRunCode}
+                          disabled={loading || isRunningCode || !(codeDrafts[activeQIndex]?.trim())}
+                        >
+                          <Play size={14} />
+                          Run Code
+                        </button>
+                        <button
+                          className="button primary submit-code-btn"
+                          onClick={handleSubmitCode}
+                          disabled={loading || !(codeDrafts[activeQIndex]?.trim())}
+                        >
+                          <Send size={14} />
+                          Submit Code to Liza
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1889,7 +2671,7 @@ export default function UploadPage() {
                   </div>
                   <div className="chat-status-pill">
                     <span className={`chat-status-dot ${isSpeaking ? "speaking" : isAiThinking ? "thinking" : isRecordingResponse ? (isUserSpeaking ? "listening speaking" : "listening") : "idle"}`} />
-                    <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : "Ready"}</span>
+                    <span>{isSpeaking ? "AI Talking" : isAiThinking ? "AI Thinking" : isRecordingResponse ? (isUserSpeaking ? "Listening (Speaking...)" : "Listening...") : (isSqlRound || isDsaRound ? "Mic Off · Tap Speak" : "Ready")}</span>
                   </div>
                 </div>
 
@@ -1970,7 +2752,7 @@ export default function UploadPage() {
                         placeholder={
                           isRecordingResponse 
                             ? "Listening... Speak or type your response here." 
-                            : "Listening paused. Click 'Speak' or type your response here..."
+                            : (isSqlRound || isDsaRound ? "Mic is off. Tap 'Speak' to answer, or type here..." : "Listening paused. Click 'Speak' or type your response here...")
                         }
                         rows={2}
                       />
@@ -1999,26 +2781,38 @@ export default function UploadPage() {
                       className="button primary start-listening-btn pulse-shimmer"
                       onClick={startListening}
                       disabled={loading}
-                      style={{ flex: 1 }}
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                     >
                       <Mic size={16} />
                       <span>Speak</span>
                     </button>
                   )}
 
-                  {!isSpeaking && !isAiThinking && !isComplete && (isRecordingResponse || interimTranscript.trim()) && (
-                    <button
-                      type="button"
-                      className="button primary submit-btn pulse-shimmer"
-                      onClick={() => {
-                        finalizeAndSubmitGroqSTT(interimTranscript);
-                      }}
-                      disabled={loading || !interimTranscript.trim()}
-                      style={{ flex: 1 }}
-                    >
-                      <Send size={16} />
-                      <span>Submit Answer</span>
-                    </button>
+                  {!isSpeaking && !isAiThinking && !isComplete && isRecordingResponse && (
+                    <div style={{ display: "flex", gap: "6px", flex: 1 }}>
+                      <button
+                        type="button"
+                        className="button subtle"
+                        onClick={stopListening}
+                        title="Turn off microphone"
+                        style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <MicOff size={14} color="#ef4444" />
+                        <span>Mute</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="button primary submit-btn pulse-shimmer"
+                        onClick={() => {
+                          finalizeAndSubmitGroqSTT(interimTranscript);
+                        }}
+                        disabled={loading || !interimTranscript.trim()}
+                        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                      >
+                        <Send size={16} />
+                        <span>Submit</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

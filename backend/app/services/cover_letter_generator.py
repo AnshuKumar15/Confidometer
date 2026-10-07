@@ -42,8 +42,6 @@ Sincerely,
 
     try:
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
         profile_summary = {
             "name": candidate_profile.get("name"),
             "skills": candidate_profile.get("technical_skills", []),
@@ -67,8 +65,16 @@ Description Snippet: {job_description[:1500] if job_description else 'N/A'}
 Write the tailored cover letter now:
 """
 
-        response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
-        return response.text.strip()
+        models_to_try = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=15.0)
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as model_err:
+                print(f"[COVER LETTER] {model_name} failed: {model_err}. Trying fallback...")
+                continue
     except Exception as e:
         print(f"[ERROR] Cover letter generation failed: {e}")
         return f"Dear Hiring Manager at {company_name},\n\nI am applying for the {job_title} position..."

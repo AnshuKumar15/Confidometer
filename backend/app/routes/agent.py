@@ -1,6 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query, Request
+from typing import Optional
 from app.utils.resume import extract_text_from_resume
-from app.services.llm import generate_interview_question, generate_dsa_question
+from app.services.llm import generate_interview_question, generate_dsa_question, generate_dynamic_sql_question
+from app.services.sql_questions import get_sql_questions
 from app.utils.security import get_current_user
 from app.utils.audio import transcribe_chunk, groq_client
 from app.services.stt import SmartTranscriber, _extract_confidence
@@ -13,6 +15,7 @@ import asyncio
 import edge_tts
 import collections
 import re
+import random
 
 router = APIRouter()
 
@@ -93,8 +96,11 @@ def prefetch_tts(text: str):
         return
     text = clean_text_for_tts(text)
     try:
-        # Run the pre-generation in the background on the event loop
-        asyncio.create_task(_run_prefetch_tts(text))
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run_prefetch_tts(text))
+    except RuntimeError:
+        # Running from background thread without event loop; skip prefetch
+        pass
     except Exception as e:
         print(f"[TTS PREFETCH START ERROR] {e}")
 
@@ -144,37 +150,41 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def initiate_interview(
     request: Request,
     role: str = Form(...),
-    resume: UploadFile = File(...),
+    resume: Optional[UploadFile] = File(None),
     company_name: str = Form(""),
     experience_level: str = Form(""),
     job_description: str = Form(""),
     interview_type: str = Form("technical"),
     duration: int = Form(10),
     stress_mode: bool = Form(False),
+    sql_difficulty: str = Form("Intermediate"),
+    sql_topics: str = Form(""),
     current_user = Depends(get_current_user)
 ):
     try:
-        # Save resume temporarily to extract text
-        temp_path = os.path.join(UPLOAD_DIR, f"temp_{uuid.uuid4()}_{resume.filename}")
-        with open(temp_path, "wb") as f:
-            f.write(await resume.read())
+        resume_text = ""
+        # Save resume temporarily to extract text if provided
+        if resume and resume.filename:
+            temp_path = os.path.join(UPLOAD_DIR, f"temp_{uuid.uuid4()}_{resume.filename}")
+            with open(temp_path, "wb") as f:
+                f.write(await resume.read())
 
-        # Extract text
-        resume_text = extract_text_from_resume(temp_path)
-        
-        # Clean up temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+            # Extract text
+            resume_text = extract_text_from_resume(temp_path)
+            
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
         user_name = current_user.name if (hasattr(current_user, "name") and current_user.name) else "Anshu"
 
         # Normalize interview type
         interview_type = interview_type.lower().strip()
-        if interview_type not in ("technical", "hr", "dsa", "behavioural", "negotiation"):
+        if interview_type not in ("technical", "hr", "dsa", "sql", "behavioural", "negotiation"):
             interview_type = "technical"
 
-        # Stress mode only applies to non-DSA rounds
-        if interview_type == "dsa":
+        # Stress mode only applies to conversational non-technical-test rounds
+        if interview_type in ("dsa", "sql"):
             stress_mode = False
 
         # Create session
@@ -191,6 +201,7 @@ async def initiate_interview(
             "stress_mode": stress_mode,
             "history": [],
             "dsa_state": None,
+            "sql_state": None,
         }
 
         response_payload = {
@@ -236,8 +247,55 @@ async def initiate_interview(
             response_payload["first_question"] = first_question
             response_payload["dsa_questions"] = [q1, q2]
 
+        elif interview_type == "sql":
+            # ── SQL Assessment Round: 3 questions with 30-min timer ──
+            topics_list = [t.strip() for t in sql_topics.split(",") if t.strip()] if sql_topics else []
+            diff = sql_difficulty if sql_difficulty in ("Easy", "Intermediate", "Hard") else "Intermediate"
+
+            # Fetch 3 questions from curated 200-question inventory
+            questions_selected = get_sql_questions(difficulty=diff, topics=topics_list, count=3)
+
+            # 35% chance to blend in an LLM generated question for infinite variety
+            if random.random() < 0.35 and len(questions_selected) >= 3:
+                try:
+                    chosen_top = random.choice(topics_list) if topics_list else None
+                    dyn_q = generate_dynamic_sql_question(
+                        difficulty=diff,
+                        topic=chosen_top,
+                        role=role,
+                        company_name=company_name,
+                        experience_level=experience_level,
+                    )
+                    if dyn_q and dyn_q.get("schema_sql") and dyn_q.get("expected_query"):
+                        questions_selected[2] = dyn_q
+                except Exception as e:
+                    print(f"[SQL DYN FALLBACK] {e}")
+
+            sql_state = {
+                "difficulty": diff,
+                "topics": topics_list,
+                "questions": questions_selected,
+                "submissions": [],
+            }
+            active_sessions[session_id]["sql_state"] = sql_state
+
+            company_part = f" at {company_name}" if company_name else ""
+            first_question = (
+                f"Hello {user_name}! I'm Liza, your interview agent. "
+                f"Welcome to the SQL Assessment round for the {role} position{company_part}. "
+                f"You have been assigned 3 SQL challenges at {diff} difficulty to solve within 30 minutes total. "
+                f"You can write and test your queries directly in the editor, and feel free to walk me through your logic as you work. Good luck!"
+            )
+            active_sessions[session_id]["history"].append({
+                "role": "model",
+                "text": first_question
+            })
+
+            response_payload["first_question"] = first_question
+            response_payload["sql_questions"] = questions_selected
+
         else:
-            # ── Non-DSA rounds: standard greeting ──
+            # ── Non-DSA / Non-SQL rounds: standard greeting ──
             first_question = generate_interview_question(
                 resume_text, role, [],
                 user_name=user_name,
@@ -295,22 +353,25 @@ async def respond_to_agent(
     user_name = session.get("user_name", "Anshu")
     response_payload = {}
 
-    if interview_type == "dsa" and code:
-        # ── DSA code submission flow ──
+    if interview_type == "dsa":
+        # ── DSA problem discussion & code submission flow ──
         dsa_state = session.get("dsa_state", {})
         questions = dsa_state.get("questions", [])
+        current_q = questions[question_index] if (questions and question_index < len(questions)) else None
 
-        # Save/update the code submission for the specified question_index
-        dsa_state.setdefault("code_submissions", [])
-        dsa_state["code_submissions"] = [
-            sub for sub in dsa_state["code_submissions"] if sub["question_index"] != question_index
-        ]
-        dsa_state["code_submissions"].append({
-            "question_index": question_index,
-            "code": code,
-        })
+        if code:
+            dsa_state.setdefault("code_submissions", [])
+            dsa_state["code_submissions"] = [
+                sub for sub in dsa_state["code_submissions"] if sub["question_index"] != question_index
+            ]
+            dsa_state["code_submissions"].append({
+                "question_index": question_index,
+                "code": code,
+            })
+            action = "explain"
+        else:
+            action = "discuss"
 
-        # Ask the user to explain their code for the submitted question index
         next_question = generate_interview_question(
             session["resume_text"],
             session["role"],
@@ -321,10 +382,12 @@ async def respond_to_agent(
             job_description=session.get("job_description", ""),
             interview_type="dsa",
             dsa_context={
-                "action": "explain",
-                "current_question": questions[question_index] if question_index < len(questions) else None,
-                "submitted_code": code,
+                "action": action,
+                "current_question": current_q,
+                "submitted_code": code or "",
+                "question_index": question_index,
             },
+            is_time_up=is_time_up,
             duration_minutes=duration,
             elapsed_minutes=elapsed_minutes,
             questions_asked=questions_asked,
@@ -332,7 +395,53 @@ async def respond_to_agent(
 
         session["history"].append({"role": "model", "text": next_question})
         response_payload["next_question"] = next_question
-        response_payload["is_complete"] = False
+        response_payload["is_complete"] = is_time_up
+
+    elif interview_type == "sql":
+        # ── SQL assessment conversational & code submission flow ──
+        sql_state = session.get("sql_state", {})
+        questions = sql_state.get("questions", [])
+        current_q = questions[question_index] if (questions and question_index < len(questions)) else None
+
+        if code:
+            sql_state.setdefault("submissions", [])
+            sql_state["submissions"] = [
+                sub for sub in sql_state["submissions"] if sub.get("question_index") != question_index
+            ]
+            sql_state["submissions"].append({
+                "question_index": question_index,
+                "code": code,
+            })
+            action = "explain"
+        else:
+            action = "discuss"
+
+        # Ask Liza to evaluate or discuss the user's SQL query/problem
+        next_question = generate_interview_question(
+            session.get("resume_text", ""),
+            session.get("role", "Software Engineer"),
+            session["history"],
+            user_name=user_name,
+            company_name=session.get("company_name", ""),
+            experience_level=session.get("experience_level", ""),
+            job_description=session.get("job_description", ""),
+            interview_type="sql",
+            sql_context={
+                "action": action,
+                "current_question": current_q,
+                "submitted_code": code or "",
+                "question_index": question_index,
+                "all_questions": questions,
+            },
+            is_time_up=is_time_up,
+            duration_minutes=duration,
+            elapsed_minutes=elapsed_minutes,
+            questions_asked=questions_asked,
+        )
+
+        session["history"].append({"role": "model", "text": next_question})
+        response_payload["next_question"] = next_question
+        response_payload["is_complete"] = is_time_up
 
     else:
         # ── Standard conversational flow (all round types) ──

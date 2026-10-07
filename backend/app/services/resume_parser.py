@@ -114,7 +114,7 @@ def parse_resume_text(text: str) -> dict:
         genai.configure(api_key=gemini_key)
         
         # Try models in order of preference
-        models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"]
+        models_to_try = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-pro"]
         raw_output = None
 
         prompt = f"""You are an expert AI Resume Parser. Extract all details from the following resume text into a clean, valid JSON object strictly matching this schema.

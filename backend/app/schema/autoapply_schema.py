@@ -143,6 +143,9 @@ class DiscoveredJobResponse(BaseModel):
     source_platform: str
     posted_date: Optional[str] = None
     deadline: Optional[str] = None
+    min_experience: Optional[int] = None
+    max_experience: Optional[int] = None
+    work_mode: Optional[str] = None
     fingerprint: str
     status: str
     created_at: datetime

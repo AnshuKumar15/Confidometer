@@ -26,6 +26,58 @@ class JobDiscoveryEngine:
     def __init__(self, user_api_keys: Dict[str, str] = None):
         self.user_api_keys = user_api_keys or {}
 
+    @staticmethod
+    def _extract_experience(description: str, title: str = "") -> tuple:
+        """Extract (min_years, max_years) from job description/title text. Returns (None, None) if not found."""
+        full_text = f"{title or ''} {description or ''}"
+        sanitized_text = re.sub(
+            r'\b(?:founded|established|in business|ago|history of|for over|over|past|last)\s*\d+\s*(?:years?|yrs?)',
+            ' ',
+            full_text,
+            flags=re.I
+        )
+        # Check range pattern: e.g. "3-5 years", "3 to 5 yrs", "2 - 4 years of experience"
+        range_match = re.search(
+            r'(\d+)\s*(?:-|to)\s*(\d+)\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|working|building|developing|in\b)',
+            sanitized_text,
+            re.I
+        )
+        if range_match:
+            try:
+                min_y = int(range_match.group(1))
+                max_y = int(range_match.group(2))
+                if 0 <= min_y <= 25 and 0 <= max_y <= 25 and min_y <= max_y:
+                    return (min_y, max_y)
+            except (ValueError, TypeError):
+                pass
+
+        # Explicit experience patterns:
+        exp_patterns = [
+            r'(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:experience|exp|background|industry|production|working|hands-on|commercial)',
+            r'(?:minimum|at\s*least|min|requires?|requires\s+a\s+minimum\s+of)\s*(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)',
+            r'(?:experience|exp)[\s:]+(?:of\s+)?(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)',
+            r'(\d+)\s*(?:\+|plus)?\s*(?:years?|yrs?)\s+(?:of\s+)?(?:[\w\s\-]{0,25})?(?:relevant|practical|hands-on|industry|production|commercial)?\s*(?:experience|exp)'
+        ]
+        candidates = []
+        for pat in exp_patterns:
+            for m in re.finditer(pat, sanitized_text, re.I):
+                g = m.groups()
+                if g and g[0] and g[0].isdigit():
+                    v = int(g[0])
+                    if 0 <= v <= 25:
+                        candidates.append(v)
+        if candidates:
+            return (min(candidates), None)
+
+        # Seniority in title fallback
+        clean_title = re.sub(r'[^a-z0-9\s]', ' ', (title or "").lower())
+        if any(re.search(r"\b" + re.escape(kw) + r"\b", clean_title) for kw in ["intern", "internship", "fresher", "trainee", "campus", "graduate", "junior", "jr"]):
+            return (0, 1)
+        if any(re.search(r"\b" + re.escape(kw) + r"\b", clean_title) for kw in ["senior", "sr", "lead", "principal", "staff", "architect", "director", "manager", "head of", "sse"]):
+            return (5, None)
+
+        return (None, None)
+
     async def fetch_remotive_jobs(self, search_query: str = "") -> List[Dict[str, Any]]:
         """Tier 1: Remotive Public API (Remote tech jobs, no auth required)."""
         jobs = []
@@ -40,6 +92,8 @@ class JobDiscoveryEngine:
                         company = item.get("company_name", "")
                         location = item.get("candidate_required_location", "Remote")
                         fingerprint = generate_job_fingerprint(title, company, location)
+                        desc = item.get("description", "")
+                        min_exp, max_exp = self._extract_experience(desc, title)
                         jobs.append({
                             "title": title,
                             "company": company,
@@ -47,11 +101,14 @@ class JobDiscoveryEngine:
                             "employment_type": item.get("job_type", "Full-Time"),
                             "salary_min": None,
                             "salary_max": None,
-                            "description": item.get("description", ""),
+                            "description": desc,
                             "required_skills": item.get("tags", []),
                             "application_url": item.get("url", ""),
                             "source_platform": "remotive",
-                            "posted_date": item.get("publication_date", ""),
+                            "posted_date": item.get("publication_date") or None,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": "remote",
                             "fingerprint": fingerprint
                         })
         except Exception as e:
@@ -76,6 +133,9 @@ class JobDiscoveryEngine:
                             continue
 
                         fingerprint = generate_job_fingerprint(title, company, location)
+                        desc = item.get("description", "")
+                        min_exp, max_exp = self._extract_experience(desc, title)
+                        is_remote = bool(item.get("remote")) or "remote" in location.lower()
                         jobs.append({
                             "title": title,
                             "company": company,
@@ -83,16 +143,94 @@ class JobDiscoveryEngine:
                             "employment_type": "Full-Time" if not item.get("remote") else "Remote",
                             "salary_min": None,
                             "salary_max": None,
-                            "description": item.get("description", ""),
+                            "description": desc,
                             "required_skills": item.get("tags", []),
                             "application_url": item.get("url", ""),
                             "source_platform": "arbeitnow",
-                            "posted_date": str(item.get("created_at", "")),
+                            "posted_date": str(item.get("created_at")) if item.get("created_at") else None,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": "remote" if is_remote else "onsite",
                             "fingerprint": fingerprint
                         })
         except Exception as e:
             print(f"[WARN] Arbeitnow API failed: {e}")
         return jobs
+
+    def _parse_jsearch_item(self, item: dict, source_override: str = None) -> dict:
+        title = item.get("job_title", "")
+        company = item.get("employer_name", "")
+        is_remote = bool(item.get("job_is_remote"))
+        work_mode = "remote" if is_remote else "onsite"
+        
+        job_city = item.get("job_city") or ""
+        job_country = item.get("job_country") or ""
+        loc = f"{job_city}, {job_country}".strip(", ")
+        if not loc or loc.lower() in ["none, none", "none", "null, null", ""]:
+            loc = "Remote" if is_remote else "Not Specified"
+
+        fingerprint = generate_job_fingerprint(title, company, loc)
+        
+        if source_override:
+            source = source_override
+        else:
+            pub_lower = (item.get("job_publisher") or "").lower()
+            if "indeed" in pub_lower:
+                source = "indeed"
+            elif "foundit" in pub_lower or "monster" in pub_lower:
+                source = "foundit"
+            elif "linkedin" in pub_lower:
+                source = "linkedin"
+            elif "glassdoor" in pub_lower:
+                source = "glassdoor"
+            elif "ziprecruiter" in pub_lower:
+                source = "ziprecruiter"
+            else:
+                source = "indeed"
+
+        # Structured experience parsing
+        min_exp = None
+        max_exp = None
+        req_exp = item.get("job_required_experience") or {}
+        if isinstance(req_exp, dict):
+            if req_exp.get("no_experience_required") is True:
+                min_exp, max_exp = (0, 1)
+            elif req_exp.get("required_experience_in_months") is not None:
+                try:
+                    months = int(req_exp.get("required_experience_in_months"))
+                    min_exp = max(0, round(months / 12))
+                except (ValueError, TypeError):
+                    pass
+
+        if min_exp is None:
+            qual_list = (item.get("job_highlights") or {}).get("Qualifications", [])
+            if isinstance(qual_list, list) and qual_list:
+                qual_text = " ".join(qual_list)
+                min_exp, max_exp = self._extract_experience(qual_text, title)
+
+        desc = item.get("job_description", "")
+        if min_exp is None:
+            min_exp, max_exp = self._extract_experience(desc, title)
+
+        posted_date = item.get("job_posted_at_datetime_utc") or None
+
+        return {
+            "title": title,
+            "company": company,
+            "location": loc,
+            "employment_type": item.get("job_employment_type", "Full-Time"),
+            "salary_min": item.get("job_min_salary"),
+            "salary_max": item.get("job_max_salary"),
+            "description": desc,
+            "required_skills": item.get("job_required_skills") or [],
+            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
+            "source_platform": source,
+            "posted_date": posted_date,
+            "min_experience": min_exp,
+            "max_experience": max_exp,
+            "work_mode": work_mode,
+            "fingerprint": fingerprint
+        }
 
     async def fetch_jsearch_jobs(self, query: str, location: str = "") -> List[Dict[str, Any]]:
         """Tier 2: JSearch API via RapidAPI (Aggregates Indeed, LinkedIn, Glassdoor, ZipRecruiter)."""
@@ -123,39 +261,7 @@ class JobDiscoveryEngine:
                     raw_data = raw_json.get("data", [])
                     items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
                     for item in items:
-                        title = item.get("job_title", "")
-                        company = item.get("employer_name", "")
-                        loc = f"{item.get('job_city', '')}, {item.get('job_country', '')}".strip(", ")
-                        fingerprint = generate_job_fingerprint(title, company, loc)
-                        
-                        pub_lower = (item.get("job_publisher") or "").lower()
-                        if "indeed" in pub_lower:
-                            source = "indeed"
-                        elif "foundit" in pub_lower or "monster" in pub_lower:
-                            source = "foundit"
-                        elif "linkedin" in pub_lower:
-                            source = "linkedin"
-                        elif "glassdoor" in pub_lower:
-                            source = "glassdoor"
-                        elif "ziprecruiter" in pub_lower:
-                            source = "ziprecruiter"
-                        else:
-                            source = "indeed"  # Default generic aggregator postings to indeed
-
-                        jobs.append({
-                            "title": title,
-                            "company": company,
-                            "location": loc or "Remote",
-                            "employment_type": item.get("job_employment_type", "Full-Time"),
-                            "salary_min": item.get("job_min_salary"),
-                            "salary_max": item.get("job_max_salary"),
-                            "description": item.get("job_description", ""),
-                            "required_skills": item.get("job_required_skills") or [],
-                            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
-                            "source_platform": source,
-                            "posted_date": item.get("job_posted_at_datetime_utc", ""),
-                            "fingerprint": fingerprint
-                        })
+                        jobs.append(self._parse_jsearch_item(item))
         except Exception as e:
             print(f"[WARN] JSearch API failed: {e}")
         return jobs
@@ -185,28 +291,7 @@ class JobDiscoveryEngine:
                     raw_data = res.json().get("data", {})
                     items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
                     for item in items:
-                        title = item.get("job_title", "")
-                        company = item.get("employer_name", "")
-                        job_city = item.get("job_city") or ""
-                        job_country = item.get("job_country") or ""
-                        loc = f"{job_city}, {job_country}".strip(", ")
-                        if not loc or loc.lower() in ["none, none", "none", "null, null"]:
-                            loc = location or "Remote"
-                        fingerprint = generate_job_fingerprint(title, company, loc)
-                        jobs.append({
-                            "title": title,
-                            "company": company,
-                            "location": loc or "Remote",
-                            "employment_type": item.get("job_employment_type", "Full-Time"),
-                            "salary_min": item.get("job_min_salary"),
-                            "salary_max": item.get("job_max_salary"),
-                            "description": item.get("job_description", ""),
-                            "required_skills": item.get("job_required_skills") or [],
-                            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
-                            "source_platform": "indeed",
-                            "posted_date": item.get("job_posted_at_datetime_utc", ""),
-                            "fingerprint": fingerprint
-                        })
+                        jobs.append(self._parse_jsearch_item(item, source_override="indeed"))
                 elif res.status_code == 429:
                     print("[INFO] RapidAPI JSearch monthly quota exceeded (HTTP 429). Rotate or upgrade RapidAPI key in Settings to fetch live Indeed postings.")
         except Exception as e:
@@ -238,28 +323,7 @@ class JobDiscoveryEngine:
                     raw_data = res.json().get("data", {})
                     items = raw_data.get("jobs", []) if isinstance(raw_data, dict) else (raw_data if isinstance(raw_data, list) else [])
                     for item in items:
-                        title = item.get("job_title", "")
-                        company = item.get("employer_name", "")
-                        job_city = item.get("job_city") or ""
-                        job_country = item.get("job_country") or ""
-                        loc = f"{job_city}, {job_country}".strip(", ")
-                        if not loc or loc.lower() in ["none, none", "none", "null, null"]:
-                            loc = location or "Remote"
-                        fingerprint = generate_job_fingerprint(title, company, loc)
-                        jobs.append({
-                            "title": title,
-                            "company": company,
-                            "location": loc or "Remote",
-                            "employment_type": item.get("job_employment_type", "Full-Time"),
-                            "salary_min": item.get("job_min_salary"),
-                            "salary_max": item.get("job_max_salary"),
-                            "description": item.get("job_description", ""),
-                            "required_skills": item.get("job_required_skills") or [],
-                            "application_url": item.get("job_apply_link") or item.get("job_google_link", ""),
-                            "source_platform": "foundit",
-                            "posted_date": item.get("job_posted_at_datetime_utc", ""),
-                            "fingerprint": fingerprint
-                        })
+                        jobs.append(self._parse_jsearch_item(item, source_override="foundit"))
                 elif res.status_code == 429:
                     print("[INFO] RapidAPI JSearch monthly quota exceeded (HTTP 429). Rotate or upgrade RapidAPI key in Settings to fetch live Foundit postings.")
         except Exception as e:
@@ -284,6 +348,8 @@ class JobDiscoveryEngine:
                             continue
 
                         fingerprint = generate_job_fingerprint(title, company, location)
+                        desc = item.get("jobDescription", "")
+                        min_exp, max_exp = self._extract_experience(desc, title)
                         jobs.append({
                             "title": title,
                             "company": company,
@@ -291,11 +357,14 @@ class JobDiscoveryEngine:
                             "employment_type": item.get("jobType", ["Full-Time"])[0] if isinstance(item.get("jobType"), list) else "Full-Time",
                             "salary_min": item.get("annualSalaryMin"),
                             "salary_max": item.get("annualSalaryMax"),
-                            "description": item.get("jobDescription", ""),
+                            "description": desc,
                             "required_skills": [],
                             "application_url": item.get("url", ""),
                             "source_platform": "jobicy",
-                            "posted_date": item.get("pubDate", ""),
+                            "posted_date": item.get("pubDate") or None,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": "remote",
                             "fingerprint": fingerprint
                         })
         except Exception as e:
@@ -338,7 +407,10 @@ class JobDiscoveryEngine:
                             c = companies[i].strip() if i < len(companies) else "Company"
                             l = locations[i].strip() if i < len(locations) and locations[i].strip() else "Not Specified"
                             link = links[i].split("?")[0] if i < len(links) else f"https://www.linkedin.com/jobs/search?keywords={encoded_query}"
-                            d = dates[i] if i < len(dates) else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                            d = dates[i].strip() if i < len(dates) and dates[i].strip() else None
+
+                            min_exp, max_exp = self._extract_experience("", t)
+                            work_mode = "remote" if "remote" in l.lower() else ("hybrid" if "hybrid" in l.lower() else "onsite")
 
                             fingerprint = generate_job_fingerprint(t, c, l)
                             jobs.append({
@@ -353,6 +425,9 @@ class JobDiscoveryEngine:
                                 "application_url": link,
                                 "source_platform": "linkedin",
                                 "posted_date": d,
+                                "min_experience": min_exp,
+                                "max_experience": max_exp,
+                                "work_mode": work_mode,
                                 "fingerprint": fingerprint
                             })
                 except Exception as e:
@@ -422,6 +497,12 @@ class JobDiscoveryEngine:
                         else:
                             job_loc = "Not Specified"
 
+                        work_mode = "remote" if is_virtual or "remote" in job_loc.lower() else "onsite"
+                        eligibility = str(item.get("eligibility") or "")
+                        min_exp, max_exp = self._extract_experience(f"{eligibility} {item.get('description', '')}", title)
+                        raw_date = item.get("start_date") or item.get("created_at") or item.get("start_datetime")
+                        posted_date = str(raw_date) if raw_date else None
+
                         fingerprint = generate_job_fingerprint(title, company, job_loc)
                         jobs.append({
                             "title": title,
@@ -434,7 +515,10 @@ class JobDiscoveryEngine:
                             "required_skills": [search_query] if search_query else [],
                             "application_url": app_url,
                             "source_platform": "unstop",
-                            "posted_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            "posted_date": posted_date,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": work_mode,
                             "fingerprint": fingerprint
                         })
         except Exception as e:
@@ -498,6 +582,19 @@ class JobDiscoveryEngine:
                         desc_parts.append("Direct application via Instahyre.")
                         description = " ".join(desc_parts)
 
+                        # Extract structured min/max experience from Instahyre API
+                        raw_min = item.get("min_exp")
+                        raw_max = item.get("max_exp")
+                        min_exp = int(raw_min) if raw_min is not None and str(raw_min).isdigit() else None
+                        max_exp = int(raw_max) if raw_max is not None and str(raw_max).isdigit() else None
+                        if min_exp is None:
+                            min_exp, max_exp = self._extract_experience(description, title)
+
+                        is_remote = "remote" in loc_str.lower() or "work from home" in str(item.get("locations", "")).lower()
+                        work_mode = "remote" if is_remote else "onsite"
+                        raw_date = item.get("created_at") or item.get("reviewed_at")
+                        posted_date = str(raw_date) if raw_date else None
+
                         fingerprint = generate_job_fingerprint(title, company, loc_str)
                         jobs.append({
                             "title": title,
@@ -510,7 +607,10 @@ class JobDiscoveryEngine:
                             "required_skills": skills,
                             "application_url": app_url,
                             "source_platform": "instahyre",
-                            "posted_date": item.get("reviewed_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                            "posted_date": posted_date,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": work_mode,
                             "fingerprint": fingerprint
                         })
         except Exception as e:
@@ -641,16 +741,20 @@ class JobDiscoveryEngine:
                                         elif len(loc_clean) >= 2 and not any(k in loc_clean.lower() for k in ["equity", "salary", "stage", "employees", "series", "ago", "recruiter", "day", "month", "year", "full-time", "part-time"]):
                                             job_location = loc_clean or loc_cand
 
-                                # 4. Location Fallback: If no explicit location span was found on card, fallback to query location
+                                # 4. Determine work mode and clean location
+                                work_mode = "onsite"
+                                if any("remote only" in s.lower() or "remote" in s.lower() for s in clean_spans) or "remote" in job_location.lower():
+                                    work_mode = "remote"
+                                elif any("hybrid" in s.lower() or "onsite or remote" in s.lower() for s in clean_spans):
+                                    work_mode = "hybrid"
+
                                 if job_location == "Not Specified":
-                                    if loc_slug in ["bangalore", "delhi-ncr"]:
-                                        job_location = f"{location.title()}, India"
-                                    elif loc_lower and loc_lower not in ["remote", "fully remote", "worldwide", "anywhere"]:
-                                        job_location = location.title()
+                                    if work_mode == "remote":
+                                        job_location = "Remote"
                                     elif salary_str and '$' in salary_str:
                                         job_location = "Not Specified (USD Salary)"
                                     else:
-                                        job_location = "Remote"
+                                        job_location = "Not Specified"
 
                                 # 5. Build enriched description with real experience and salary
                                 desc_parts = [f"{title} startup position at {company} in {job_location}."]
@@ -660,6 +764,11 @@ class JobDiscoveryEngine:
                                     desc_parts.append(f"Compensation: {salary_str}.")
                                 desc_parts.append("Direct link on Wellfound.")
                                 description = " ".join(desc_parts)
+
+                                min_exp = years_exp
+                                max_exp = None
+                                if min_exp is None:
+                                    min_exp, max_exp = self._extract_experience(description, title)
 
                                 fingerprint = generate_job_fingerprint(title, company, job_location)
                                 jobs.append({
@@ -673,7 +782,10 @@ class JobDiscoveryEngine:
                                     "required_skills": [search_query] if search_query else ["Startups", "Software Engineering"],
                                     "application_url": app_url,
                                     "source_platform": "wellfound",
-                                    "posted_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                                    "posted_date": None,
+                                    "min_experience": min_exp,
+                                    "max_experience": max_exp,
+                                    "work_mode": work_mode,
                                     "fingerprint": fingerprint
                                 })
                     except Exception:
@@ -703,6 +815,8 @@ class JobDiscoveryEngine:
                         if search_query and search_query.lower() not in title.lower() and search_query.lower() not in item.get("description", "").lower():
                             continue
 
+                        desc = item.get("description", "")
+                        min_exp, max_exp = self._extract_experience(desc, title)
                         fingerprint = generate_job_fingerprint(title, company, location)
                         jobs.append({
                             "title": title,
@@ -711,11 +825,14 @@ class JobDiscoveryEngine:
                             "employment_type": "Full-Time",
                             "salary_min": item.get("salary_min"),
                             "salary_max": item.get("salary_max"),
-                            "description": item.get("description", ""),
+                            "description": desc,
                             "required_skills": item.get("tags", []),
                             "application_url": item.get("url", ""),
                             "source_platform": "remoteok",
-                            "posted_date": str(item.get("date", "")),
+                            "posted_date": str(item.get("date")) if item.get("date") else None,
+                            "min_experience": min_exp,
+                            "max_experience": max_exp,
+                            "work_mode": "remote",
                             "fingerprint": fingerprint
                         })
         except Exception as e:

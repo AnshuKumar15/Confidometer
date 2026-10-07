@@ -1,11 +1,43 @@
 "use client";
 
 import MatchScoreBadge from "./MatchScoreBadge";
-import { Building2, MapPin, ExternalLink, CheckCircle2, AlertCircle } from "lucide-react";
+import { Building2, MapPin, ExternalLink, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+
+function formatJobDate(postedDate, createdAt) {
+  if (!postedDate && !createdAt) return null;
+  try {
+    let dateObj = null;
+    if (postedDate) {
+      const s = String(postedDate).trim();
+      if (/^\d{10}$/.test(s)) {
+        dateObj = new Date(parseInt(s, 10) * 1000);
+      } else {
+        dateObj = new Date(s);
+      }
+    }
+    if ((!dateObj || isNaN(dateObj.getTime())) && createdAt) {
+      dateObj = new Date(createdAt);
+    }
+    if (!dateObj || isNaN(dateObj.getTime())) {
+      return postedDate;
+    }
+    const diffMs = Date.now() - dateObj.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHours >= 0 && diffHours < 1) return "Just now";
+    if (diffHours >= 1 && diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays >= 1 && diffDays < 7) return `${diffDays}d ago`;
+    if (diffDays >= 7 && diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+    return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  } catch (e) {
+    return postedDate;
+  }
+}
 
 export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied }) {
   const { id, job, overall_score, missing_skills, strengths, status, skip_reason } = matchItem;
   const isApplied = status === "applied";
+  const formattedDate = formatJobDate(job?.posted_date, job?.created_at);
 
   return (
     <div className="aa-card" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", border: isApplied ? "1px solid rgba(45, 212, 191, 0.4)" : "1px solid var(--line)" }}>
@@ -34,7 +66,26 @@ export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied })
               </span>
               <span>•</span>
               <span className="aa-badge-tag">{job.source_platform.toUpperCase()}</span>
-              {matchItem.match_reasons?.some((r) => r.toLowerCase().includes("open experience")) ? (
+              {job.work_mode && (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag" style={{ fontSize: "0.74rem", textTransform: "capitalize" }}>
+                    {job.work_mode === "onsite" ? "On-site" : job.work_mode}
+                  </span>
+                </>
+              )}
+              {job.min_experience !== null && job.min_experience !== undefined ? (
+                <>
+                  <span>•</span>
+                  <span className="aa-badge-tag matched" style={{ fontSize: "0.74rem" }}>
+                    {job.max_experience !== null && job.max_experience !== undefined
+                      ? `${job.min_experience}-${job.max_experience} ${job.max_experience === 1 ? "Yr" : "Yrs"}`
+                      : job.min_experience === 0
+                      ? "0-1 Yr"
+                      : `${job.min_experience}+ Yrs`}
+                  </span>
+                </>
+              ) : matchItem.match_reasons?.some((r) => r.toLowerCase().includes("open experience")) ? (
                 <>
                   <span>•</span>
                   <span className="aa-badge-tag" style={{ border: "1px solid rgba(45, 212, 191, 0.4)", color: "var(--teal)" }}>
@@ -63,11 +114,12 @@ export default function JobCard({ matchItem, onApply, onSkip, onToggleApplied })
                   </span>
                 </>
               ) : null}
-              {job.posted_date && (
+              {formattedDate && (
                 <>
                   <span>•</span>
-                  <span style={{ fontSize: "0.78rem", color: "var(--muted)", fontStyle: "italic" }}>
-                    {job.posted_date.length > 16 ? job.posted_date.substring(0, 10) : job.posted_date}
+                  <span style={{ fontSize: "0.78rem", color: "var(--muted)", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                    <Clock size={11} color="var(--cyan)" />
+                    {formattedDate}
                   </span>
                 </>
               )}
