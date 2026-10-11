@@ -51,8 +51,11 @@ def _gesture_from_motion(video_path: str) -> float:
             break
 
         frame_idx += 1
-        if frame_idx % 2 != 0:  # Skip every other frame for performance
+        if frame_idx % 6 != 0:  # Sample ~5 fps
             continue
+
+        if analyzed_frames >= 75:
+            break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         face = _largest_face(gray, face_cascade)
@@ -91,6 +94,8 @@ def _gesture_from_motion(video_path: str) -> float:
         previous_roi = roi
 
     cap.release()
+    import gc
+    gc.collect()
 
     if analyzed_frames == 0:
         return 0.0
@@ -122,12 +127,14 @@ def _gesture_from_mediapipe(video_path: str) -> float:
     frames_with_detections = 0
     frame_idx = 0
 
-    # Dynamically cap total sampled frames to ~100 to keep memory under control on Render (512MB)
+    # Dynamically cap total sampled frames to ~60-75 to keep memory and CPU low on Render (512MB)
     total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     if total_video_frames > 0:
-        sample_stride = max(6, total_video_frames // 100)
+        sample_stride = max(8, total_video_frames // 60)
     else:
-        sample_stride = 6
+        sample_stride = 15
+
+    MAX_POSE_FRAMES = 75
 
     if not os.path.exists(MODEL_PATH):
         try:
@@ -156,6 +163,8 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                 continue
 
             total_frames += 1
+            if total_frames >= MAX_POSE_FRAMES or frames_with_detections >= 50:
+                break
 
             # Resize frame to 240px width to minimize memory on Render (512MB)
             h, w = frame.shape[:2]
@@ -197,6 +206,8 @@ def _gesture_from_mediapipe(video_path: str) -> float:
                 per_frame_movements.append(frame_movement / visible_count)
 
     cap.release()
+    import gc
+    gc.collect()
 
     if frames_with_detections == 0 or len(per_frame_movements) == 0:
         return 0.0

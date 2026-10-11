@@ -95,6 +95,29 @@ def get_analysis(
     if not speech:
         return {"message": "Speech not found"}
 
+    # Zombie / Interrupted speech detection:
+    # If the speech is still in "processing" and was created > 3 minutes ago,
+    # the background task was killed by a previous server restart / OOM kill.
+    if speech.status == "processing" and speech.created_at:
+        import os
+        from datetime import datetime, timezone
+        created_utc = speech.created_at if speech.created_at.tzinfo else speech.created_at.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - created_utc).total_seconds()
+        if age_seconds > 180:
+            video_path = str(speech.video_path or "")
+            if os.path.exists(video_path) and os.path.getsize(video_path) > 100:
+                print(f"[RECOVERY] Detected interrupted speech ID {speech_id} (age: {age_seconds:.0f}s). Restarting processor...")
+                from app.services.processor import process_speech
+                import threading
+                speech.progress = max(speech.progress or 0, 10)
+                speech.created_at = datetime.now(timezone.utc)
+                db.commit()
+                threading.Thread(target=process_speech, args=(speech.id,), daemon=True).start()
+            else:
+                print(f"[RECOVERY] Interrupted speech ID {speech_id} video missing or empty. Marking as failed.")
+                speech.status = "failed"
+                db.commit()
+
     return {
         "status": speech.status,
         "progress": speech.progress or 0,

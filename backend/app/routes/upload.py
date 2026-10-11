@@ -28,10 +28,10 @@ async def upload_video(
 ):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
 
-    contents = await file.read()
-
+    # Stream video file in 1MB chunks to prevent memory spikes on Render (512MB RAM)
     with open(file_path, "wb") as f:
-        f.write(contents)
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
 
     speech = Speech(
         user_id=current_user.id,

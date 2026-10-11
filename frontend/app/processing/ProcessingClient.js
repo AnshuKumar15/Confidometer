@@ -43,20 +43,23 @@ export default function ProcessingClient() {
     }
   }, [displayProgress, progress]);
 
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
   useEffect(() => {
     if (!speechId) return;
 
     let cancelled = false;
     let errorCount = 0;
-    const MAX_RETRIES = 5;
+    const MAX_RETRIES = 15;
 
     const poll = async () => {
       try {
         const data = await getAnalysis(speechId);
         if (cancelled) return;
 
-        // Reset error count on successful fetch
         errorCount = 0;
+        setIsRetrying(false);
 
         // Update progress
         const serverProgress = data.progress || 0;
@@ -79,7 +82,6 @@ export default function ProcessingClient() {
           } catch {
             // Ignore local history write issues.
           }
-          // Brief delay so user sees 100%
           setTimeout(() => {
             if (!cancelled) router.replace(`/dashboard?speechId=${speechId}`);
           }, 800);
@@ -87,7 +89,7 @@ export default function ProcessingClient() {
         }
 
         if (data.status === "failed") {
-          setError("Processing failed. Please upload another recording.");
+          setError("Processing encountered an issue. Please try running analysis again or upload another recording.");
           return;
         }
 
@@ -96,10 +98,11 @@ export default function ProcessingClient() {
         if (cancelled) return;
         errorCount++;
         if (errorCount >= MAX_RETRIES) {
-          setError(err.message || "Unable to fetch progress");
+          setError(err.message || "Unable to reach the server. The backend may be restarting.");
         } else {
-          // Retry with increasing delay (2s, 4s, 6s, 8s, 10s)
-          setTimeout(poll, 2000 * errorCount);
+          // Retry with delay capped at 4s
+          const delay = Math.min(2000 * errorCount, 4000);
+          setTimeout(poll, delay);
         }
       }
     };
@@ -109,7 +112,7 @@ export default function ProcessingClient() {
     return () => {
       cancelled = true;
     };
-  }, [router, speechId]);
+  }, [router, speechId, retryTrigger]);
 
   if (!speechId) {
     return <p className="error-text centered">Missing speech id.</p>;
@@ -160,7 +163,22 @@ export default function ProcessingClient() {
           <span className="progress-bar-percent">{displayProgress}%</span>
         </div>
 
-        {error ? <p className="error-text centered">{error}</p> : null}
+        {error ? (
+          <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
+            <p className="error-text centered" style={{ margin: 0 }}>{error}</p>
+            <button
+              type="button"
+              className="button primary"
+              style={{ padding: "6px 16px", fontSize: "0.85rem" }}
+              onClick={() => {
+                setError("");
+                setRetryTrigger((prev) => prev + 1);
+              }}
+            >
+              🔄 Check Again
+            </button>
+          </div>
+        ) : null}
       </section>
     </div>
   );

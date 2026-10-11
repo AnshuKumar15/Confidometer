@@ -188,15 +188,9 @@ async def lifespan(app: FastAPI):
     except Exception as dl_err:
         print(f"[WARN] Failed to pre-download models: {dl_err}")
 
-    # Only pre-load local Whisper models if Groq API is NOT configured
-    # When Groq is available, STT is handled via API calls — no need to load ~2GB of PyTorch models into RAM
-    if not os.environ.get("GROQ_API_KEY"):
-        from app.utils.audio import get_model_batch, get_model_stt
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, get_model_batch)
-        loop.run_in_executor(None, get_model_stt)
-    else:
-        print("[INFO] GROQ_API_KEY detected — skipping local Whisper model loading to save RAM.")
+    # Whisper local pre-loading removed:
+    # On 512MB RAM servers (Render free tier), preloading PyTorch Whisper models on boot
+    # triggers Out-of-Memory (SIGKILL 137). STT uses Groq API / Gemini API, or loads on-demand.
 
     # Start AutoApply background scheduler
     start_scheduler()

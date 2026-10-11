@@ -1422,6 +1422,26 @@ export default function UploadPage() {
     }, 1500);
   }
 
+  // ── Retry Upload Helper if first attempt fails or network blips ──
+  async function retryUploadInterview() {
+    setLoading(true);
+    setError("");
+    try {
+      if (!recordedChunks.current || recordedChunks.current.length === 0) {
+        throw new Error("No recorded video data found to retry.");
+      }
+      const videoBlob = new Blob(recordedChunks.current, { type: "video/webm" });
+      const interviewFile = new File([videoBlob], `live_interview_${Date.now()}.webm`, {
+        type: "video/webm"
+      });
+      const data = await uploadVideo(interviewFile, sessionIdRef.current);
+      router.push(`/processing?speechId=${data.speech_id}`);
+    } catch (err) {
+      setError("Failed to upload interview recording for analysis: " + err.message);
+      setLoading(false);
+    }
+  }
+
 
 
   // ── Language change handler ──
@@ -1461,7 +1481,22 @@ export default function UploadPage() {
         </section>
       )}
 
-      {error && <p className="error-text centered">{error}</p>}
+      {error && (
+        <div className="error-banner centered" style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: "10px 16px", borderRadius: "8px", margin: "12px auto", maxWidth: "800px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <p className="error-text" style={{ margin: 0 }}>{error}</p>
+          {recordedChunks.current && recordedChunks.current.length > 0 && (
+            <button
+              type="button"
+              className="button primary"
+              style={{ padding: "6px 14px", fontSize: "0.82rem", whiteSpace: "nowrap" }}
+              onClick={retryUploadInterview}
+              disabled={loading}
+            >
+              {loading ? "Retrying..." : "🔄 Retry Upload"}
+            </button>
+          )}
+        </div>
+      )}
 
       {!isInterviewing ? (
         /* ═══════════════ SETUP MODE ═══════════════ */
@@ -2708,9 +2743,20 @@ export default function UploadPage() {
                   )}
 
                   {error && (
-                    <div className="chat-bubble system-error">
+                    <div className="chat-bubble system-error" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                       <span className="role-tag" style={{ color: "var(--danger)", fontWeight: "bold" }}>System Error</span>
-                      <p style={{ color: "var(--danger)" }}>{error}</p>
+                      <p style={{ color: "var(--danger)", margin: 0 }}>{error}</p>
+                      {recordedChunks.current && recordedChunks.current.length > 0 && (
+                        <button
+                          type="button"
+                          className="button primary"
+                          style={{ alignSelf: "flex-start", padding: "6px 14px", fontSize: "0.85rem", marginTop: "4px" }}
+                          onClick={retryUploadInterview}
+                          disabled={loading}
+                        >
+                          {loading ? "Retrying Upload..." : "🔄 Retry Upload Video"}
+                        </button>
+                      )}
                     </div>
                   )}
                   <div ref={messagesEndRef} />

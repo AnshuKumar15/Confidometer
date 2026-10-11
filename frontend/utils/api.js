@@ -159,11 +159,12 @@ export function uploadVideo(file, sessionId = null) {
   formData.append("file", file);
   if (sessionId) formData.append("session_id", sessionId);
 
+  // 6 retries with exponential backoff (~40s total window) to survive Render wake-ups/reboots
   return request("/upload/", {
     method: "POST",
     body: formData,
     auth: true
-  });
+  }, 6);
 }
 
 export function getAnalysis(speechId) {

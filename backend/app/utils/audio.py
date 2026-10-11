@@ -37,23 +37,16 @@ def get_model_batch():
     if _model_batch is None:
         try:
             _ensure_whisper_imported()
-            print("[INFO] Loading Whisper 'small' model for batch processing...")
-            _model_batch = whisper.load_model("small", device="cpu")
-            print("[INFO] Whisper 'small' model loaded successfully for batch processing.")
+            print("[INFO] Loading Whisper 'tiny' model (low-RAM mode)...")
+            _model_batch = whisper.load_model("tiny", device="cpu")
+            print("[INFO] Whisper 'tiny' model loaded successfully.")
         except Exception as e:
-            print(f"[WARN] Failed to load Whisper 'small' model ({e}). Falling back to 'tiny'...")
-            try:
-                _ensure_whisper_imported()
-                _model_batch = whisper.load_model("tiny", device="cpu")
-                print("[INFO] Whisper 'tiny' model loaded successfully for batch processing.")
-            except Exception as e_tiny:
-                print(f"[ERROR] Failed to load any model for batch processing: {e_tiny}")
+            print(f"[ERROR] Failed to load local Whisper model: {e}")
     return _model_batch
 
 def get_model_stt():
     global _model_stt
     if _model_stt is None:
-        print("[INFO] Using 'small' model for real-time STT (reusing batch model).")
         _model_stt = get_model_batch()
     return _model_stt
 
@@ -138,11 +131,34 @@ def transcribe_audio(audio_path: str) -> str:
                     language="en",
                     temperature=0.0
                 )
-                return transcription.text or ""
+                if transcription and transcription.text:
+                    return transcription.text.strip()
         except Exception as groq_err:
-            print(f"[WARN] Groq API transcription failed: {groq_err}. Falling back...")
+            print(f"[WARN] Groq API transcription failed: {groq_err}. Trying Gemini API fallback...")
 
-    # 2. Fallback to local Whisper if available
+    # 2. Try Gemini API fallback (zero local RAM overhead)
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API")
+    if gemini_key:
+        try:
+            print("[INFO] Transcribing audio via Gemini API...")
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            audio_file = genai.upload_file(path=audio_path)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            resp = model.generate_content([
+                audio_file,
+                "Transcribe this interview audio word-for-word into English text. Include verbal fillers such as 'um', 'uh', 'like' if present. Return ONLY the transcription text, nothing else."
+            ])
+            try:
+                audio_file.delete()
+            except Exception:
+                pass
+            if resp and resp.text:
+                return resp.text.strip()
+        except Exception as gemini_err:
+            print(f"[WARN] Gemini audio transcription fallback failed: {gemini_err}. Trying local model...")
+
+    # 3. Fallback to local Whisper ('tiny' model) if available
     try:
         active_model = get_model_batch()
         if active_model is None:
@@ -154,7 +170,7 @@ def transcribe_audio(audio_path: str) -> str:
                     initial_prompt="Um, uh, erm, like, so, basically, you know, at the end of the day.",
                     beam_size=1,
                     temperature=0.0,
-                    condition_on_previous_text=True,
+                    condition_on_previous_text=False,
                     language="en",
                 )
             return result.get("text", "")

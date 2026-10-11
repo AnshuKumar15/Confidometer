@@ -139,10 +139,13 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
     frame_idx = 0
 
     total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    # Target analyzing ~60-80 frames uniformly across the video to cap peak RAM and latency
     if total_video_frames > 0:
-        frame_skip = max(4, total_video_frames // 120)
+        frame_skip = max(6, total_video_frames // 80)
     else:
-        frame_skip = 5
+        frame_skip = 15  # Browser WebM containers often report 0 frames; skip ~15 (~2 fps)
+
+    MAX_ANALYZED_FRAMES = 80
 
     if not os.path.exists(MODEL_PATH):
         try:
@@ -177,6 +180,8 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
                 continue
 
             total_frames += 1
+            if total_frames >= MAX_ANALYZED_FRAMES:
+                break
 
             # Resize frame to 240px width to minimize memory on constrained servers
             h, w = frame.shape[:2]
@@ -241,6 +246,8 @@ def _analyze_eye_contact_mediapipe(video_path: str) -> float:
                 looking_score_accum += 0.70
 
     cap.release()
+    import gc
+    gc.collect()
     if is_temp and os.path.exists(working_path):
         try:
             os.remove(working_path)
@@ -285,10 +292,12 @@ def _analyze_eye_contact_opencv_cascade(video_path: str) -> float:
             break
 
         frame_idx += 1
-        if frame_idx % 5 != 0:
+        if frame_idx % 8 != 0:
             continue
 
         total_frames += 1
+        if total_frames >= 80:
+            break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(50, 50))

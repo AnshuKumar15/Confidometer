@@ -73,24 +73,41 @@ def _safe_commit(db: Session, speech_id: int):
         raise  # Re-raise so caller knows commit failed
 
 
-def _audio_pipeline(video_path: str, audio_path: str) -> dict[str, Any]:
+def _audio_pipeline(video_path: str, audio_path: str, db: Session | None = None, speech: Speech | None = None) -> dict[str, Any]:
     """
     Audio pipeline: extract audio → transcribe → count fillers → voice analysis.
-    Runs in its own thread. Returns all audio-derived results.
+    Updates progress incrementally to prevent UI from appearing stuck at 5%.
     """
-    print(f"[INFO] [Thread-Audio] Extracting audio...")
+    print(f"[INFO] [Audio-Pipeline] Extracting audio...")
     extract_audio(video_path, audio_path)
+    if db and speech:
+        _update_progress(db, speech, 15)
 
-    print(f"[INFO] [Thread-Audio] Transcribing audio...")
-    transcript_result = transcribe_audio(audio_path)
-    transcript: str = transcript_result if isinstance(transcript_result, str) else ""
-    print(f"[INFO] [Thread-Audio] Transcript: {transcript}")
+    print(f"[INFO] [Audio-Pipeline] Transcribing audio...")
+    transcript: str = ""
+    try:
+        transcript_result = transcribe_audio(audio_path)
+        transcript = transcript_result if isinstance(transcript_result, str) else ""
+    except Exception as t_err:
+        print(f"[WARN] Transcription encountered error: {t_err}")
+    print(f"[INFO] [Audio-Pipeline] Transcript length: {len(transcript)} chars")
+    if db and speech:
+        _update_progress(db, speech, 25)
 
-    filler_count = count_fillers(transcript)
-    print(f"[INFO] [Thread-Audio] Filler count: {filler_count}")
+    filler_count = count_fillers(transcript) if transcript else 0
+    print(f"[INFO] [Audio-Pipeline] Filler count: {filler_count}")
 
-    print(f"[INFO] [Thread-Audio] Running voice analysis...")
-    voice_metrics = analyze_voice(audio_path, transcript=transcript)
+    print(f"[INFO] [Audio-Pipeline] Running voice analysis...")
+    try:
+        voice_metrics = analyze_voice(audio_path, transcript=transcript)
+    except Exception as v_err:
+        print(f"[WARN] analyze_voice failed: {v_err}")
+        voice_metrics = {
+            "duration_sec": 1.0,
+            "silence_ratio": 0.25,
+            "pitch_std": 35.0,
+            "speaking_rate_score": 75.0,
+        }
 
     return {
         "transcript": transcript,
@@ -170,7 +187,7 @@ def process_speech(speech_id: int):
         print("[INFO] Running audio pipeline...")
         t0 = time.time()
         try:
-            audio_result = _audio_pipeline(video_path, audio_path)
+            audio_result = _audio_pipeline(video_path, audio_path, db=db, speech=speech)
         except Exception as audio_err:
             print(f"[WARN] Audio pipeline encountered error: {audio_err}. Using fallback audio metrics.")
             audio_result = {
