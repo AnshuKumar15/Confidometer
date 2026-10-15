@@ -800,7 +800,7 @@ MOCK_DSA_QUESTIONS = {
 def _call_gemini_with_fallback(models: list, prompt: str, system_instruction: str = None, timeout: float = 30.0) -> str:
     """
     Attempts generation across a prioritized list of models.
-    Automatically catches 429 quota exhaustion (e.g. 20 requests/day on 3.7-flash free tier)
+    Automatically catches quota exhaustion or transient errors
     and fails over seamlessly to the next model in the list.
     """
     last_exc = None
@@ -881,7 +881,7 @@ IMPORTANT RULES:
 4. Return ONLY valid JSON. No markdown fences, no explanation, no extra text."""
 
         raw = _call_gemini_with_fallback(
-            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            models=["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
             prompt=prompt,
             timeout=30.0
         )
@@ -946,7 +946,7 @@ IMPORTANT:
 2. Return ONLY valid JSON, no surrounding text."""
 
         raw = _call_gemini_with_fallback(
-            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            models=["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
             prompt=prompt,
             timeout=30.0
         )
@@ -1221,7 +1221,7 @@ TASK: Produce a comprehensive analysis in **valid JSON** format with exactly the
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."""
 
         raw = _call_gemini_with_fallback(
-            models=["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            models=["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
             prompt=prompt,
             timeout=30.0
         )

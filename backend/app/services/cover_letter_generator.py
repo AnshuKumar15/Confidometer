@@ -65,7 +65,7 @@ Description Snippet: {job_description[:1500] if job_description else 'N/A'}
 Write the tailored cover letter now:
 """
 
-        models_to_try = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)

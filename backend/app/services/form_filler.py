@@ -82,7 +82,7 @@ Question: "{q}"
 Answer the question succinctly and accurately on behalf of the candidate. If the answer cannot be determined with confidence, reply with "UNANSWERABLE".
 Answer:"""
                 ai_ans = None
-                models_to_try = ["gemini-3.7-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
+                models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"]
                 for model_name in models_to_try:
                     try:
                         model = genai.GenerativeModel(model_name)
