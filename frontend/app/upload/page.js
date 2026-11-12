@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
@@ -14,7 +14,7 @@ import {
   Users, Terminal, Send, Timer, AlertTriangle, DollarSign, Zap,
   Volume2, Bot, User, Activity, Sparkles, X, CornerDownLeft,
   Eye, EyeOff, Maximize2, Minimize2, GripVertical, Database,
-  CheckCircle2, XCircle, Table, Copy, Check, Sun, Moon, MicOff
+  CheckCircle2, XCircle, Table, Copy, Check, Sun, Moon, MicOff, Info
 } from "lucide-react";
 
 // Dynamically import Monaco Editor (SSR-incompatible)
@@ -136,8 +136,92 @@ function renderSqlTokens(sql, isDark = true) {
   return parts;
 }
 
+function renderInlineSqlTokens(text, keyPrefix = "sql") {
+  if (!text) return null;
+  const tokenRegex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const segments = text.split(tokenRegex);
+  return segments.map((seg, i) => {
+    if (!seg) return null;
+    if (seg.startsWith("**") && seg.endsWith("**") && seg.length > 4) {
+      return (
+        <strong key={`${keyPrefix}-b-${i}`} className="sql-desc-bold">
+          {seg.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (seg.startsWith("`") && seg.endsWith("`") && seg.length > 2) {
+      return (
+        <code key={`${keyPrefix}-c-${i}`} className="sql-inline-code">
+          {seg.slice(1, -1)}
+        </code>
+      );
+    }
+    return <Fragment key={`${keyPrefix}-t-${i}`}>{seg}</Fragment>;
+  });
+}
+
+function renderFormattedSqlDescription(description) {
+  if (!description || typeof description !== "string") return null;
+  const lines = description.split(/\r?\n/);
+  const blocks = [];
+  let listItems = [];
+
+  function flushList(idxKey) {
+    if (listItems.length > 0) {
+      blocks.push(
+        <ul key={`ul-${idxKey}`} className="sql-desc-list">
+          {listItems}
+        </ul>
+      );
+      listItems = [];
+    }
+  }
+
+  lines.forEach((rawLine, idx) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      flushList(idx);
+      return;
+    }
+
+    const nestedMatch = rawLine.match(/^\s{2,}[-•]\s+(.*)$/);
+    const topMatch = !nestedMatch ? rawLine.match(/^\s*[-•]\s+(.*)$/) : null;
+
+    if (nestedMatch) {
+      listItems.push(
+        <li key={`li-${idx}`} className="sql-desc-item sql-desc-subitem">
+          {renderInlineSqlTokens(nestedMatch[1], `sub-${idx}`)}
+        </li>
+      );
+      return;
+    }
+    if (topMatch) {
+      listItems.push(
+        <li key={`li-${idx}`} className="sql-desc-item">
+          {renderInlineSqlTokens(topMatch[1], `li-${idx}`)}
+        </li>
+      );
+      return;
+    }
+
+    flushList(idx);
+    const isSectionLine = /^\*\*(Goal|Requirements|Output Columns):\*\*/i.test(trimmed);
+    blocks.push(
+      <p
+        key={`p-${idx}`}
+        className={isSectionLine ? "sql-desc-section-line" : "sql-desc-paragraph"}
+      >
+        {renderInlineSqlTokens(trimmed, `p-${idx}`)}
+      </p>
+    );
+  });
+
+  flushList("end");
+  return <div className="sql-description-rich">{blocks}</div>;
+}
+
 export default function UploadPage() {
-  const { theme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const toast = useToast();
 
@@ -172,6 +256,7 @@ export default function UploadPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [stressMode, setStressMode] = useState(false);
+  const [showStressInfo, setShowStressInfo] = useState(false);
 
   // Interview States
   const [isInterviewing, setIsInterviewing] = useState(false);
@@ -187,6 +272,10 @@ export default function UploadPage() {
   const [isRecordingResponse, setIsRecordingResponse] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
+  const interimTranscriptRef = useRef("");
+  useEffect(() => {
+    interimTranscriptRef.current = interimTranscript;
+  }, [interimTranscript]);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [hideCamera, setHideCamera] = useState(false);
@@ -619,7 +708,52 @@ export default function UploadPage() {
         responseInputRef.current.style.overflowY = "hidden";
       }
     }
-  }, [interimTranscript]);
+  }, [interimTranscript, isSpeaking, isAiThinking, isInterviewing]);
+
+  // Allow pressing Enter during active interview to submit spoken/typed answers without clicking
+  useEffect(() => {
+    if (!isInterviewing) return;
+
+    function handleGlobalEnterSubmit(e) {
+      if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) {
+        return;
+      }
+      if (showFinishConfirm || isSpeaking || isAiThinking || isComplete || loading) {
+        return;
+      }
+
+      const target = e.target;
+      if (target && target instanceof Element) {
+        if (target.closest(".monaco-editor")) return;
+        const tag = target.tagName;
+        if (
+          tag === "TEXTAREA" ||
+          tag === "INPUT" ||
+          tag === "SELECT" ||
+          tag === "BUTTON" ||
+          tag === "A" ||
+          target.getAttribute("contenteditable") === "true" ||
+          target.closest("button, a, [role='button'], [role='switch']")
+        ) {
+          return;
+        }
+      }
+
+      const bufferedText = (interimTranscriptRef.current || lastTranscribedTextRef.current || "").trim();
+      const hasPendingSpeech = hasSpokenRef.current && sttChunksRef.current.length > 0;
+      if (bufferedText.length >= 2 || hasPendingSpeech) {
+        e.preventDefault();
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
+        finalizeAndSubmitGroqSTT(interimTranscriptRef.current);
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalEnterSubmit);
+    return () => window.removeEventListener("keydown", handleGlobalEnterSubmit);
+  }, [isInterviewing, showFinishConfirm, isSpeaking, isAiThinking, isComplete, loading]);
 
   // 1. Request permissions and show preview
   async function requestPermissions() {
@@ -951,11 +1085,20 @@ export default function UploadPage() {
       typingTimeoutRef.current = null;
     }
 
-    let textToSubmit = (explicitText !== null ? explicitText : (interimTranscript || lastTranscribedTextRef.current || "")).trim();
+    const fallbackText =
+      explicitText !== null
+        ? explicitText
+        : (interimTranscriptRef.current || interimTranscript || lastTranscribedTextRef.current || "");
+    let textToSubmit = fallbackText.trim();
 
     const chunks = [...sttChunksRef.current];
     const candidateHasSpoken = hasSpokenRef.current;
     const userWasEditing = isUserEditingRef.current;
+
+    if (textToSubmit.length < 2 && (!candidateHasSpoken || chunks.length === 0)) {
+      return;
+    }
+
     stopGroqSTT();
 
     // If candidate spoke and we recorded chunks, and user was not typing manual edits:
@@ -1623,21 +1766,55 @@ export default function UploadPage() {
               )}
 
               {interviewType !== "dsa" && interviewType !== "sql" && (
-                <button
-                  type="button"
-                  className={`stress-mode-toggle ${stressMode ? "active" : ""}`}
-                  onClick={() => setStressMode(!stressMode)}
-                  disabled={loading}
-                >
-                  <Zap size={18} className={stressMode ? "stress-icon-active" : ""} />
-                  <div className="stress-toggle-info">
-                    <strong>Stress Mode {stressMode ? "ON" : "OFF"}</strong>
-                    <span>{stressMode ? "Liza will interrupt & challenge you under pressure" : "Enable to simulate high-pressure interview conditions"}</span>
+                <div className="stress-mode-container">
+                  <div className={`stress-mode-toggle ${stressMode ? "active" : ""}`}>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={stressMode}
+                      className="stress-toggle-main-btn"
+                      onClick={() => setStressMode(!stressMode)}
+                      disabled={loading}
+                    >
+                      <Zap size={18} className={stressMode ? "stress-icon-active" : ""} />
+                      <div className="stress-toggle-info">
+                        <strong>Stress Mode {stressMode ? "ON" : "OFF"}</strong>
+                        <span>{stressMode ? "Liza will interrupt & challenge you under pressure" : "Enable to simulate high-pressure interview conditions"}</span>
+                      </div>
+                      <div className={`stress-toggle-switch ${stressMode ? "on" : ""}`}>
+                        <div className="stress-toggle-knob" />
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      className={`stress-info-btn ${showStressInfo ? "open" : ""}`}
+                      onClick={() => setShowStressInfo((prev) => !prev)}
+                      aria-label="About Stress Mode"
+                      aria-expanded={showStressInfo}
+                      title="What is Stress Mode?"
+                    >
+                      <Info size={15} />
+                    </button>
                   </div>
-                  <div className={`stress-toggle-switch ${stressMode ? "on" : ""}`}>
-                    <div className="stress-toggle-knob" />
-                  </div>
-                </button>
+                  {showStressInfo && (
+                    <div className="stress-info-tooltip" role="region" aria-label="Stress Mode explanation">
+                      <div className="stress-info-tooltip-header">
+                        <strong>About Stress Mode</strong>
+                        <button
+                          type="button"
+                          className="stress-info-close-btn"
+                          onClick={() => setShowStressInfo(false)}
+                          aria-label="Close Stress Mode explanation"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <p>
+                        Simulates a high-pressure interview panel. Liza challenges your assumptions mid-explanation on roughly 1 in 5 turns, introduces sharper follow-up counter-scenarios, and evaluates how steadily you maintain composure, pacing, and clarity under pressure.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1861,8 +2038,25 @@ export default function UploadPage() {
 
               <button
                 type="button"
+                className="hud-theme-toggle-btn"
+                onClick={(e) => {
+                  toggleTheme();
+                  e.currentTarget.blur();
+                }}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                aria-pressed={theme === "dark"}
+              >
+                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+
+              <button
+                type="button"
                 className={`hud-cam-toggle-btn ${hideCamera ? "cam-off" : "cam-on"}`}
-                onClick={() => setHideCamera((prev) => !prev)}
+                onClick={(e) => {
+                  setHideCamera((prev) => !prev);
+                  e.currentTarget.blur();
+                }}
                 title={hideCamera ? "Show video preview" : "Hide video preview"}
               >
                 {hideCamera ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -1925,27 +2119,47 @@ export default function UploadPage() {
 
                   {!isSpeaking && !isAiThinking && !isComplete && (
                     <div className="live-input-area">
-                      <input
-                        type="text"
-                        className="response-text-input"
-                        value={interimTranscript}
-                        onChange={(e) => {
-                          setInterimTranscript(e.target.value);
-                          lastTranscribedTextRef.current = e.target.value;
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            finalizeAndSubmitGroqSTT(interimTranscript);
-                          }
-                        }}
-                        placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : (isSqlRound || isDsaRound ? "Mic is off. Tap 'Speak' to answer, or type here..." : "Listening paused. Click 'Speak' or type here...")}
-                      />
+                      <div className="input-field-wrapper">
+                        <textarea
+                          ref={responseInputRef}
+                          className="response-text-input"
+                          value={interimTranscript}
+                          onFocus={() => {
+                            isUserEditingRef.current = true;
+                            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                          }}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            isUserEditingRef.current = true;
+                            setInterimTranscript(val);
+                            lastTranscribedTextRef.current = val;
+                            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                            if (val.trim().length >= 2) {
+                              typingTimeoutRef.current = setTimeout(() => {
+                                finalizeAndSubmitGroqSTT(val);
+                              }, 3000);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                              finalizeAndSubmitGroqSTT(interimTranscriptRef.current);
+                            }
+                          }}
+                          placeholder={isRecordingResponse ? "Listening... Speak or type solution discussion..." : (isSqlRound || isDsaRound ? "Mic is off. Tap 'Speak' to answer, or type here..." : "Listening paused. Click 'Speak' or type here...")}
+                          rows={2}
+                        />
+                        <div className="input-hint-row">
+                          <span>Press <strong>Enter ↵</strong> to submit answer</span>
+                        </div>
+                      </div>
                     </div>
                   )}
 
                   <div className="controls-row">
                     <button
+                      type="button"
                       className="button subtle finish-btn"
                       onClick={requestFinishInterview}
                       disabled={loading}
@@ -1959,7 +2173,10 @@ export default function UploadPage() {
                       <button
                         type="button"
                         className="button primary start-listening-btn pulse-shimmer"
-                        onClick={startListening}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          startListening();
+                        }}
                         disabled={loading}
                         style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                       >
@@ -1973,7 +2190,10 @@ export default function UploadPage() {
                         <button
                           type="button"
                           className="button subtle"
-                          onClick={stopListening}
+                          onClick={(e) => {
+                            e.currentTarget.blur();
+                            stopListening();
+                          }}
                           title="Turn off microphone"
                           style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: "4px" }}
                         >
@@ -1984,7 +2204,7 @@ export default function UploadPage() {
                           type="button"
                           className="button primary submit-btn pulse-shimmer"
                           onClick={() => {
-                            finalizeAndSubmitGroqSTT(interimTranscript);
+                            finalizeAndSubmitGroqSTT(interimTranscriptRef.current);
                           }}
                           disabled={loading || !interimTranscript.trim()}
                           style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
@@ -2153,9 +2373,7 @@ export default function UploadPage() {
                           </div>
                           <div className="dsa-description-panel-content">
                             <div style={{ marginBottom: "16px", lineHeight: "1.6", color: "var(--text)" }}>
-                              <p style={{ margin: "0 0 12px 0", fontSize: "0.95rem" }}>
-                                {activeSqlQuestion.description}
-                              </p>
+                              {renderFormattedSqlDescription(activeSqlQuestion.description)}
                             </div>
 
                             {/* Schema Tables Box */}
@@ -2792,7 +3010,7 @@ export default function UploadPage() {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
                             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                            finalizeAndSubmitGroqSTT(interimTranscript);
+                            finalizeAndSubmitGroqSTT(interimTranscriptRef.current);
                           }
                         }}
                         placeholder={
@@ -2825,7 +3043,10 @@ export default function UploadPage() {
                     <button
                       type="button"
                       className="button primary start-listening-btn pulse-shimmer"
-                      onClick={startListening}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        startListening();
+                      }}
                       disabled={loading}
                       style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
                     >
@@ -2839,7 +3060,10 @@ export default function UploadPage() {
                       <button
                         type="button"
                         className="button subtle"
-                        onClick={stopListening}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          stopListening();
+                        }}
                         title="Turn off microphone"
                         style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: "4px" }}
                       >
@@ -2850,7 +3074,7 @@ export default function UploadPage() {
                         type="button"
                         className="button primary submit-btn pulse-shimmer"
                         onClick={() => {
-                          finalizeAndSubmitGroqSTT(interimTranscript);
+                          finalizeAndSubmitGroqSTT(interimTranscriptRef.current);
                         }}
                         disabled={loading || !interimTranscript.trim()}
                         style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}

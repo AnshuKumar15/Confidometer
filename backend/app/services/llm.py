@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 import google.generativeai as genai
 from dotenv import load_dotenv
 from app.utils.circuit_breaker import gemini_circuit_breaker
@@ -16,31 +17,44 @@ if gemini_key:
 # A comprehensive list of mock interview questions to use as a fallback if no API key is provided
 MOCK_QUESTIONS = {
     "software engineer": [
-        "Welcome to your interview. To start off, could you tell me about the primary programming languages and frameworks listed on your resume, and why you chose them for your recent work?",
-        "That's great. Looking at your skills section, how deeply have you worked with backend concurrency and asynchronous processing?",
+        "Looking at the programming languages and frameworks listed on your resume, which core runtime trade-offs did you consider when choosing your main stack?",
+        "How deeply have you worked with backend concurrency and asynchronous processing, and what bottlenecks did you have to solve?",
         "Could you explain the difference between a SQL and NoSQL database, and when you would choose one over the other in your architecture?",
         "In one of the projects or internships on your resume, what was the most difficult bug or technical bottleneck you personally diagnosed and resolved?",
-        "How do you approach database indexing and query optimization to ensure low latency under load?",
-        "Could you walk me through your experience with RESTful API design, error handling, and data validation standards?",
+        "How do you approach database indexing and query optimization to ensure low latency under heavy read/write load?",
+        "Could you walk me through your experience with RESTful API design, error handling, idempotency, and data validation standards?",
         "If you noticed a sudden memory leak or CPU spike in a production service, what step-by-step diagnostic workflow would you follow?",
-        "Looking at your education and achievements, what technical concept or coursework has had the biggest impact on how you write code today?",
-        "How do you handle writing automated tests, CI/CD pipelines, and ensuring software reliability before deploying?",
-        "Can you describe a scenario where you had to learn a new technology or programming language quickly to deliver a critical feature?",
-        "How do you approach designing a system for scalability and fault tolerance when traffic increases by 10x?",
-        "Thank you for sharing your experience. That concludes our technical questions. Do you have any questions for me?"
+        "Looking at your education and coursework, which CS fundamental has had the biggest practical impact on how you write production code?",
+        "How do you structure automated tests and CI/CD checks to prevent regressions before deploying changes?",
+        "Can you describe a scenario where you had to pick up an unfamiliar tool or codebase quickly to deliver a critical feature?",
+        "How do you approach designing a system for scalability and fault tolerance when traffic spikes by 10x?",
+        "Walk me through how caching strategies (like TTLs and invalidation policies) fit into systems you've built."
+    ],
+    "ai_ml": [
+        "When building an LLM application on proprietary data, how do you systematically decide between RAG, prompt engineering, and fine-tuning?",
+        "How do you evaluate a generative AI or ML pipeline offline before deployment, especially for subtle regressions or hallucinations?",
+        "Walk me through how chunking strategy, embedding selection, and hybrid reranking affect retrieval quality in a RAG pipeline.",
+        "In a project on your resume, what was the trickiest data leakage, class imbalance, or distribution shift issue you ran into, and how did you catch it?",
+        "Can you explain how self-attention scales with sequence length and what techniques (like KV caching or FlashAttention) mitigate inference bottlenecks?",
+        "How do you enforce structured outputs and safety guardrails when integrating LLM agents with external tools or databases?",
+        "Suppose an LLM-backed service's p95 latency suddenly doubles in production — how would you profile and bring latency down without tanking accuracy?",
+        "What trade-offs separate parameter-efficient fine-tuning methods like LoRA/QLoRA from full fine-tuning for domain adaptation?",
+        "How do you design human-in-the-loop feedback or online monitoring to catch model drift after shipping a model to production?",
+        "If two models have similar offline F1 or BLEU scores, what criteria would you use to decide which one actually wins in production?",
+        "How do you mitigate prompt injection and sensitive PII leakage when users interact freely with an AI workflow?",
+        "Tell me about a time you simplified an over-engineered ML or AI pipeline and got comparable or better reliability."
     ],
     "default": [
-        "Welcome to your interview. Can you please give me a brief overview of your background and the core skills highlighted on your resume?",
-        "Looking at the technical skills and tools you've listed, which ones are you most confident in and why?",
-        "Can you walk me through a major project from your resume that you are particularly proud of, detailing your specific contributions?",
-        "What motivated you to apply for this specific role, and how do your past experiences align with what we do here?",
-        "Could you describe a challenging achievement, award, or milestone mentioned on your resume and the effort it took to accomplish?",
-        "How do you handle conflict, differing technical opinions, or communication roadblocks within a team setting?",
-        "Describe a time when you had to meet a tight deadline under stress. How did you prioritize your tasks to deliver quality results?",
-        "How do you approach continuous learning and keeping your technical skills up to date in a rapidly changing industry?",
-        "Can you share an example of a mistake or setback you experienced on a project, and what you learned from it?",
-        "Where do you see yourself growing technically over the next 2 to 3 years?",
-        "Thank you for sharing. That covers my questions for today. Do you have any questions for the interviewer?"
+        "Looking at the technical skills and tools highlighted on your resume, which ones are you most confident applying in production and why?",
+        "Can you walk me through a major project from your resume, focusing on a tricky engineering or design decision you owned?",
+        "What motivated you to apply for this specific role, and which experiences best prepare you for its day-to-day challenges?",
+        "Could you describe a challenging achievement, hackathon project, or milestone from your resume and what trade-offs it involved?",
+        "How do you handle conflicting technical opinions or ambiguity when collaborating across team members?",
+        "Describe a time when you had to deliver under a tight deadline. How did you scope and prioritize tasks cleanly?",
+        "How do you approach debugging an unfamiliar issue when logs are sparse or symptoms are intermittent?",
+        "How do you evaluate reliability, edge cases, and failure modes before calling a feature complete?",
+        "Can you share an example of a technical mistake or setback you ran into, and what concrete practice you changed afterward?",
+        "Which emerging skill or engineering domain are you actively deepening right now, and how have you practiced it?"
     ]
 }
 
@@ -153,15 +167,109 @@ STRESS_MODE_APPENDIX = (
 )
 
 
+AI_ML_ROLE_KEYWORDS = (
+    "ai", "ml", "machine learning", "deep learning", "nlp", "llm",
+    "genai", "generative ai", "data scientist", "computer vision", "neural", "mlops"
+)
+
+_AI_ML_FOCUS_LENSES = [
+    "LLM Grounding, RAG Retrieval & Chunking/Reranking Trade-offs",
+    "Offline & Online Evaluation Metrics, Hallucinations & Benchmarks",
+    "Deep Learning & Transformer Architecture Fundamentals (Attention, Embeddings, Tokenization)",
+    "Inference Latency, Throughput, Batching, KV Caching & Cost Optimization",
+    "Data Pipelines, Label Quality, Feature Leakage & Training/Fine-Tuning (LoRA/PEFT)",
+    "AI Safety, Guardrails, Prompt Injection & Tool-Use Reliability",
+    "Debugging Degraded Models, Drift Monitoring & Failure Analysis Scenarios",
+]
+
+_SWE_FOCUS_LENSES = [
+    "Language Internals, Memory Model & Runtime Concurrency",
+    "Database Modeling, Indexing, Execution Plans & Query Bottlenecks",
+    "API Design, Validation, Idempotency & Asynchronous Processing",
+    "Production Debugging, Observability, Latency & Memory Leak Diagnostics",
+    "Testing Strategy, Edge Cases, CI/CD & Safe Deployments",
+    "System Architecture Trade-offs, Caching & Fault Tolerance",
+    "Specific Under-Discussed Resume Tools, Libraries & Secondary Projects",
+]
+
+_OPENING_QUESTION_ANGLES = [
+    "Begin substantive technical questioning with a fresh core conceptual or internals question tied to a DIFFERENT skill/library on their resume than their headline project.",
+    "Begin substantive technical questioning with a realistic debugging, failure-mode, or production bottleneck scenario tailored to this role and their tech stack.",
+    "Begin substantive technical questioning with an architectural or design trade-off comparison between two tools or approaches listed on their resume.",
+    "Begin substantive technical questioning by drilling into a lesser-highlighted project, certification, achievement, or pipeline step from the middle/lower half of their resume.",
+]
+
+
+def _is_ai_ml_role(role: str = "") -> bool:
+    role_lower = (role or "").lower()
+    padded = f" {re.sub(r'[^a-z0-9]+', ' ', role_lower)} "
+    return any(f" {kw} " in padded or kw in ("machine learning", "deep learning", "generative ai", "data scientist", "computer vision", "mlops") and kw in role_lower for kw in AI_ML_ROLE_KEYWORDS)
+
+
+def build_session_diversity_config(
+    role: str = "",
+    interview_type: str = "technical",
+    previous_questions: list = None,
+) -> dict:
+    """Create a per-session randomized lens permutation, opening hook, and recent-question blocklist."""
+    seed = random.randint(100000, 999999)
+    rng = random.Random(seed)
+    pool = list(_AI_ML_FOCUS_LENSES if _is_ai_ml_role(role) else _SWE_FOCUS_LENSES)
+    rng.shuffle(pool)
+    cleaned_prev = []
+    seen = set()
+    for q in (previous_questions or []):
+        q_clean = re.sub(r"\s+", " ", (q or "")).strip()
+        if len(q_clean) >= 20 and q_clean.lower() not in seen:
+            seen.add(q_clean.lower())
+            cleaned_prev.append(q_clean[:180])
+        if len(cleaned_prev) >= 12:
+            break
+    return {
+        "seed": seed,
+        "focus_lenses": pool,
+        "opening_angle": rng.choice(_OPENING_QUESTION_ANGLES),
+        "greeting_variant": rng.randint(0, 3),
+        "recent_questions": cleaned_prev,
+        "interview_type": interview_type,
+    }
+
+
+def _format_diversity_prompt_block(diversity_config: dict) -> str:
+    if not diversity_config:
+        return ""
+    lenses = diversity_config.get("focus_lenses") or []
+    opening_angle = diversity_config.get("opening_angle") or ""
+    recent = diversity_config.get("recent_questions") or []
+    seed = diversity_config.get("seed", "")
+    lines = [
+        f"SESSION RANDOMIZATION & ANTI-REPETITION SEED (#{seed}):",
+        "- The candidate practices regularly with the same resume. Keep every session unpredictable and engaging!",
+    ]
+    if lenses:
+        lines.append("- Rotated Topic Order for THIS Session (explore different lenses in this shuffled priority rather than asking the same standard first-line resume questions):")
+        for idx, lens in enumerate(lenses, 1):
+            lines.append(f"  {idx}. {lens}")
+    if opening_angle:
+        lines.append(f"- Opening Technical Pivot: {opening_angle}")
+    if recent:
+        lines.append("- PREVIOUSLY ASKED QUESTIONS FROM RECENT SESSIONS (STRICTLY DO NOT REPEAT, PARAPHRASE, OR OPEN WITH THE SAME TOPIC/FRAMING AS ANY OF THESE):")
+        for q in recent:
+            lines.append(f"  * \"{q}\"")
+    return "\n".join(lines)
+
+
 def _build_system_prompt_technical(
     user_name, role, company_name, experience_level, resume_text, job_description,
-    duration_minutes=10, elapsed_minutes=0, questions_asked=0, stress_mode=False
+    duration_minutes=10, elapsed_minutes=0, questions_asked=0, stress_mode=False,
+    diversity_config=None,
 ):
     company_context = f"The target company is '{company_name}'.\n" if company_name else ""
     experience_context = f"The candidate has {experience_level} of experience.\n" if experience_level else ""
     jd_context = f"\nJob Description provided by the candidate:\n{job_description}\n" if job_description else ""
     exp_guidance = _get_experience_level_guidance(experience_level)
     pacing_guidance = _get_pacing_guidance(duration_minutes, elapsed_minutes, questions_asked)
+    diversity_block = _format_diversity_prompt_block(diversity_config)
 
     prompt = (
         f"You are a professional, polite, and concise technical interviewer named 'Liza' interviewing a candidate named '{user_name}' for the position of '{role}'.\n"
@@ -171,13 +279,14 @@ def _build_system_prompt_technical(
         f"{jd_context}\n"
         f"{exp_guidance}\n\n"
         f"{RESUME_DIVERSITY_INSTRUCTIONS}\n\n"
+        f"{diversity_block + chr(10) + chr(10) if diversity_block else ''}"
         f"{pacing_guidance}\n\n"
         "INSTRUCTIONS & FLOW:\n"
         "1. You must guide the candidate through the interview starting from the greeting. Do not skip any steps.\n"
         "2. In your very first turn, introduce yourself as Liza, the interview agent, and ask how the candidate is and how they are feeling today.\n"
         "3. Once the candidate responds, acknowledge/respond to their feelings politely and ask them if they are ready/if we can start the interview.\n"
         "4. Once they agree to start, ask them to introduce themselves or tell you about themselves.\n"
-        "5. After they introduce themselves, proceed to ask technical questions based on their resume, the target role, the candidate's experience level, and the job description (if provided).\n"
+        "5. After they introduce themselves, jump into diverse technical questions sampled from DIFFERENT areas of their resume, the target role, experience level, and job description — do NOT default to reading the top project bullet first every session.\n"
         "6. Ask exactly ONE question at a time.\n"
         "7. Keep your questions relevant, clear, and concise (no more than 2-3 sentences).\n"
         "8. Reference their resume skills, languages, achievements, and experiences naturally when asking questions.\n"
@@ -420,20 +529,28 @@ def generate_interview_question(
     is_peer: bool = False,
     duration_minutes: int = 10,
     elapsed_minutes: int = 0,
-    questions_asked: int = 0
+    questions_asked: int = 0,
+    diversity_config: dict = None,
 ) -> str:
     """
     Generate the next interview question based on interview type, conversation history,
     selected duration pacing, resume diversity, and experience level.
     """
     role_lower = role.lower() if role else ""
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API")
+    if diversity_config is None:
+        diversity_config = build_session_diversity_config(role=role, interview_type=interview_type)
 
     # ── Peer-to-Peer Question 1 (Turn 1): Initial opening question for human interviewer ──
     if is_peer and not conversation_history:
         greeting_company = f" at {company_name}" if company_name else ""
         role_part = f" for the {role} position" if role else ""
-        return f"Hi {user_name}, could you tell me a bit about yourself, your background, and walk me through some of the key projects you've worked on recently{role_part}{greeting_company}?"
+        peer_openers = [
+            f"Hi {user_name}, could you tell me a bit about yourself, your background, and walk me through some of the key projects you've worked on recently{role_part}{greeting_company}?",
+            f"Welcome {user_name}! To kick things off{role_part}{greeting_company}, could you share a brief overview of your experience and one technical problem you really enjoyed solving?",
+            f"Hi {user_name}, great to meet you today. Before we dive deep{role_part}{greeting_company}, could you walk me through your background and the core stack you've focused on lately?",
+        ]
+        return random.choice(peer_openers)
 
     # Short-circuit AI Liza greeting (Turn 1 for solo AI interview mode)
     if not conversation_history and interview_type != "dsa" and interview_type != "sql" and not is_peer:
@@ -445,9 +562,16 @@ def generate_interview_question(
             "behavioural": "behavioural interview",
             "negotiation": "salary negotiation simulation",
         }.get(interview_type, "interview")
-        return f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?"
+        greet_idx = diversity_config.get("greeting_variant", 0) % 4
+        greetings = [
+            f"Hello {user_name}! I'm Liza, your interview agent. I will be conducting your {round_label} today for the {greeting_role} position{company_part}. How are you and how are you feeling today?",
+            f"Hi {user_name}, welcome! I'm Liza, and I'll be guiding your {round_label} for the {greeting_role} role{company_part} today. How is your day going so far?",
+            f"Good to have you here, {user_name}! I'm Liza, and today we'll run through a fresh {round_label} tailored to the {greeting_role} position{company_part}. How are you feeling before we jump in?",
+            f"Welcome {user_name}! I'm Liza, your interviewer for today's {greeting_role} {round_label}{company_part}. First off, how are you doing today?",
+        ]
+        return greetings[greet_idx]
 
-    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False, interview_type="technical", sql_context=None, dsa_context=None):
+    def get_mock_response(history, key_role_lower, name, current_role, is_time_up=False, is_peer=False, interview_type="technical", sql_context=None, dsa_context=None, div_cfg=None):
         if is_peer:
             peer_questions = [
                 f"Hi {name}, could you tell me about yourself, your background, and the key projects you have worked on?",
@@ -516,8 +640,20 @@ def generate_interview_question(
                     answered_turns += 1
 
         # Check if time limit is reached or if questions are exhausted
-        mock_key = "software engineer" if "engineer" in key_role_lower or "developer" in key_role_lower else "default"
-        q_list = MOCK_QUESTIONS[mock_key]
+        if _is_ai_ml_role(current_role):
+            mock_key = "ai_ml"
+        elif "engineer" in key_role_lower or "developer" in key_role_lower:
+            mock_key = "software engineer"
+        else:
+            mock_key = "default"
+        q_list = list(MOCK_QUESTIONS[mock_key])
+        if div_cfg and div_cfg.get("seed"):
+            random.Random(div_cfg["seed"]).shuffle(q_list)
+        recent_lower = {rq.lower()[:45] for rq in (div_cfg or {}).get("recent_questions", []) if rq}
+        if recent_lower:
+            fresh_q = [q for q in q_list if q.lower()[:45] not in recent_lower]
+            if fresh_q:
+                q_list = fresh_q + [q for q in q_list if q not in fresh_q]
         mock_index = answered_turns - 3
 
         if is_time_up or mock_index >= len(q_list):
@@ -613,7 +749,7 @@ def generate_interview_question(
     # 1. Fallback to mock if API key is not present
     if not api_key:
         print("[LLM INFO] No GEMINI_API_KEY found. Falling back to rule-based questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context, div_cfg=diversity_config)
 
     # 2. Use Gemini API
     try:
@@ -652,7 +788,8 @@ def generate_interview_question(
             system_instruction = _build_system_prompt_technical(
                 user_name, role, company_name, experience_level, resume_text, job_description,
                 duration_minutes=duration_minutes, elapsed_minutes=elapsed_minutes,
-                questions_asked=questions_asked, stress_mode=stress_mode
+                questions_asked=questions_asked, stress_mode=stress_mode,
+                diversity_config=diversity_config,
             )
 
         # Dynamic adjustments to system instructions based on elapsed time
@@ -684,11 +821,6 @@ def generate_interview_question(
             "on screen. The text-to-speech engine will automatically convert these numbers to natural spoken words."
         )
 
-        model = genai.GenerativeModel(
-            model_name="gemini-3.5-flash-lite",
-            system_instruction=system_instruction
-        )
-        
         # Build contents structure
         contents = []
         
@@ -726,8 +858,17 @@ def generate_interview_question(
                 "parts": [text]
             })
 
-        response = gemini_circuit_breaker.call_sync(model.generate_content, contents, timeout=30.0)
-        result_text = response.text.strip()
+        gen_config = genai.types.GenerationConfig(
+            temperature=0.6 if is_time_up else 0.92,
+            top_p=0.95,
+        )
+        result_text = _call_gemini_with_fallback(
+            models=["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"],
+            prompt=contents,
+            system_instruction=system_instruction,
+            generation_config=gen_config,
+            timeout=30.0,
+        )
         # Clean any accidental quotes or Liza references in peer mode
         if is_peer:
             result_text = re.sub(r"^(Hello|Hi|Hey),?\s*I am Liza[^.]*\.\s*", "", result_text, flags=re.IGNORECASE)
@@ -736,7 +877,7 @@ def generate_interview_question(
         return result_text
     except Exception as e:
         print(f"[LLM ERROR] Gemini API call failed: {e}. Falling back to mock questions.")
-        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context)
+        return get_mock_response(conversation_history, role_lower, user_name, role, is_time_up, is_peer=is_peer, interview_type=interview_type, sql_context=sql_context, dsa_context=dsa_context, div_cfg=diversity_config)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -797,7 +938,13 @@ MOCK_DSA_QUESTIONS = {
 }
 
 
-def _call_gemini_with_fallback(models: list, prompt: str, system_instruction: str = None, timeout: float = 30.0) -> str:
+def _call_gemini_with_fallback(
+    models: list,
+    prompt,
+    system_instruction: str = None,
+    timeout: float = 30.0,
+    generation_config=None,
+) -> str:
     """
     Attempts generation across a prioritized list of models.
     Automatically catches quota exhaustion or transient errors
@@ -810,12 +957,17 @@ def _call_gemini_with_fallback(models: list, prompt: str, system_instruction: st
             if system_instruction:
                 kwargs["system_instruction"] = system_instruction
             model = genai.GenerativeModel(**kwargs)
-            response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=timeout)
+            call_kwargs = {}
+            if generation_config is not None:
+                call_kwargs["generation_config"] = generation_config
+            response = gemini_circuit_breaker.call_sync(model.generate_content, prompt, timeout=timeout, **call_kwargs)
             if response and response.text:
                 return response.text.strip()
         except Exception as e:
             last_exc = e
             err_str = str(e)
+            if "circuit breaker" in err_str.lower() or "is OPEN" in err_str:
+                break
             if "429" in err_str or "quota" in err_str.lower() or "ResourceExhausted" in err_str:
                 print(f"[LLM FALLBACK] Quota exceeded on {model_name}, failing over to next model...")
                 continue
@@ -913,8 +1065,9 @@ def generate_dynamic_sql_question(
     Generate a fresh, unique SQL assessment question using Gemini with schema, sample data,
     and reference solution, with fallback to curated bank.
     """
+    import sqlite3
     from app.services.sql_questions import get_sql_questions
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API")
 
     topics_list = [topic] if topic else []
     fallback_q = get_sql_questions(difficulty=difficulty, topics=topics_list, count=1)
@@ -934,16 +1087,22 @@ Return ONLY valid JSON with exactly these keys:
 - "topic": one of "SELECT", "WHERE", "JOIN", "GROUP BY", "HAVING", "Subqueries", "CTEs", "Window Functions", "Aggregates", "ORDER BY / LIMIT"
 - "difficulty": "{difficulty}"
 - "title": a clear problem title (string)
-- "description": full scenario & problem statement in Markdown (string)
+- "description": clean, structured problem prompt in Markdown WITHOUT revealing ANY SQL code or solution clauses (string)
 - "schema_sql": valid SQLite-compatible CREATE TABLE and INSERT statements to seed 1-2 small tables with 3-5 rows each
 - "expected_query": the reference correct SQL query solution
 - "expected_columns": list of column name strings expected from the query
 - "expected_rows": list of row lists matching the expected query output
 - "hints": list of 1-2 conceptual hints
 
-IMPORTANT:
-1. Ensure the schema_sql and expected_query are 100% valid SQLite syntax.
-2. Return ONLY valid JSON, no surrounding text."""
+IMPORTANT RULES FOR "description":
+1. Structure "description" cleanly using EXACTLY these bold headings:
+   **Goal:** <1 concise sentence explaining the business/data objective>
+   **Requirements:**
+   - <bullet points explaining filters, joins/aggregations, rounding, tie-breakers, and sort order in plain English>
+   **Output Columns:** `col1`, `col2`, ...
+2. NEVER put SQL solution queries, syntax, functions, or clauses in "description" (do NOT write SELECT, FROM, JOIN, GROUP BY, HAVING, ORDER BY, LIMIT, OVER, PARTITION BY, CASE WHEN, ROW_NUMBER, COALESCE, SUM(, COUNT(, AVG(, etc.). Only reference table/column identifiers in backticks.
+3. Ensure "schema_sql" and "expected_query" are 100% valid SQLite syntax.
+4. Return ONLY valid JSON, no surrounding text."""
 
         raw = _call_gemini_with_fallback(
             models=["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
@@ -952,9 +1111,31 @@ IMPORTANT:
         )
         result = _extract_json_from_text(raw)
         required = {"id", "topic", "difficulty", "title", "description", "schema_sql", "expected_query"}
-        if required.issubset(result.keys()):
-            return result
-        return fallback
+        if not required.issubset(result.keys()):
+            return fallback
+
+        desc_text = result.get("description") or ""
+        sql_leak_re = re.compile(
+            r"\b(SELECT|INNER\s+JOIN|LEFT\s+JOIN|GROUP\s+BY|ORDER\s+BY|HAVING|CASE\s+WHEN|ROW_NUMBER|DENSE_RANK|PARTITION\s+BY)\b"
+        )
+        if sql_leak_re.search(desc_text):
+            print("[SQL DYN GEN] Rejected generated SQL description due to SQL keyword leakage. Using curated fallback.")
+            return fallback
+
+        # Verify SQLite execution & normalize expected_columns / expected_rows deterministically
+        conn = sqlite3.connect(":memory:")
+        try:
+            cur = conn.cursor()
+            cur.executescript(result["schema_sql"])
+            cur.execute(result["expected_query"])
+            result["expected_columns"] = [d[0] for d in (cur.description or [])]
+            result["expected_rows"] = [list(r) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+        if not result.get("expected_columns"):
+            return fallback
+        return result
     except Exception as e:
         print(f"[SQL DYN GEN ERROR] {e}. Falling back to curated bank.")
         return fallback

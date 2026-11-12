@@ -1,7 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query, Request
 from typing import Optional
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, get_db
+from app.models.speech import Speech
 from app.utils.resume import extract_text_from_resume
-from app.services.llm import generate_interview_question, generate_dsa_question, generate_dynamic_sql_question
+from app.services.llm import generate_interview_question, generate_dsa_question, generate_dynamic_sql_question, build_session_diversity_config
 from app.services.sql_questions import get_sql_questions
 from app.utils.security import get_current_user
 from app.utils.audio import transcribe_chunk, groq_client
@@ -25,6 +28,60 @@ router = APIRouter()
 #            "job_description": str, "history": [...],
 #            "dsa_state": { "current_q": int, "questions": [...], "code_submissions": [...] } } }
 active_sessions = {}
+
+# Per-user bounded recent-question memory across rapid consecutive sessions
+_user_recent_questions = collections.defaultdict(lambda: collections.deque(maxlen=15))
+
+
+def _sanitize_sql_questions_for_client(questions: list) -> list:
+    """Strip reference SQL solutions and hints before sending questions to client while retaining grader outputs."""
+    return [
+        {k: v for k, v in q.items() if k not in ("expected_query", "hints")}
+        for q in (questions or [])
+    ]
+
+
+def _collect_recent_questions(user_id: Optional[int], db: Optional[Session] = None) -> list:
+    """Collect recently asked model questions for a user from memory and recent saved Speech sessions.
+    Uses short-lived SessionLocal if no db session is provided so no connection is held across LLM calls.
+    """
+    collected = []
+    if user_id is None:
+        return collected
+    collected.extend(list(_user_recent_questions.get(user_id, [])))
+
+    def _extract_from_db(session: Session):
+        recent_rows = (
+            session.query(Speech)
+            .filter(Speech.user_id == user_id)
+            .order_by(Speech.id.desc())
+            .limit(3)
+            .all()
+        )
+        for row in recent_rows:
+            if not row.conversation_history:
+                continue
+            try:
+                hist = json.loads(row.conversation_history)
+            except Exception:
+                continue
+            for idx, msg in enumerate(hist):
+                if isinstance(msg, dict) and msg.get("role") == "model":
+                    txt = (msg.get("text") or "").strip()
+                    # Skip initial small-talk greeting (usually idx == 0)
+                    if idx > 0 and "?" in txt and len(txt) >= 25:
+                        collected.append(txt)
+
+    try:
+        if db is not None:
+            _extract_from_db(db)
+        else:
+            with SessionLocal() as short_db:
+                _extract_from_db(short_db)
+    except Exception as e:
+        print(f"[DIVERSITY DB WARN] Could not load previous questions for user {user_id}: {e}")
+
+    return collected
 
 
 
@@ -159,7 +216,7 @@ async def initiate_interview(
     stress_mode: bool = Form(False),
     sql_difficulty: str = Form("Intermediate"),
     sql_topics: str = Form(""),
-    current_user = Depends(get_current_user)
+    current_user = Depends(get_current_user),
 ):
     try:
         resume_text = ""
@@ -187,18 +244,27 @@ async def initiate_interview(
         if interview_type in ("dsa", "sql"):
             stress_mode = False
 
-        # Create session
+        # Create session with per-session diversity seed and cross-session question history
         session_id = str(uuid.uuid4())
+        user_id = getattr(current_user, "id", None)
+        recent_questions = _collect_recent_questions(user_id) if interview_type not in ("dsa", "sql") else []
+        diversity_config = build_session_diversity_config(
+            role=role,
+            interview_type=interview_type,
+            previous_questions=recent_questions,
+        )
         active_sessions[session_id] = {
             "resume_text": resume_text,
             "role": role,
             "user_name": user_name,
+            "user_id": user_id,
             "company_name": company_name,
             "experience_level": experience_level,
             "job_description": job_description,
             "interview_type": interview_type,
             "duration": duration,
             "stress_mode": stress_mode,
+            "diversity_config": diversity_config,
             "history": [],
             "dsa_state": None,
             "sql_state": None,
@@ -292,7 +358,7 @@ async def initiate_interview(
             })
 
             response_payload["first_question"] = first_question
-            response_payload["sql_questions"] = questions_selected
+            response_payload["sql_questions"] = _sanitize_sql_questions_for_client(questions_selected)
 
         else:
             # ── Non-DSA / Non-SQL rounds: standard greeting ──
@@ -307,6 +373,7 @@ async def initiate_interview(
                 duration_minutes=duration,
                 elapsed_minutes=0,
                 questions_asked=0,
+                diversity_config=diversity_config,
             )
             active_sessions[session_id]["history"].append({
                 "role": "model",
@@ -459,9 +526,17 @@ async def respond_to_agent(
             duration_minutes=duration,
             elapsed_minutes=elapsed_minutes,
             questions_asked=questions_asked,
+            diversity_config=session.get("diversity_config"),
         )
 
         session["history"].append({"role": "model", "text": next_question})
+        if (
+            not is_time_up
+            and session.get("user_id") is not None
+            and len(session["history"]) >= 4
+            and "?" in next_question
+        ):
+            _user_recent_questions[session["user_id"]].append(next_question.strip())
         response_payload["next_question"] = next_question
         
         is_complete = is_time_up

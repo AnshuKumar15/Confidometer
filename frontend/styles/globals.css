@@ -1973,8 +1973,18 @@ body.interview-active .upload-page::before {
   border-radius: 12px;
   padding: 12px 14px;
   max-width: 90%;
+  min-width: 0;
   animation: float-in 0.25s ease-out;
   position: relative;
+}
+
+.chat-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.5;
 }
 
 .chat-bubble-header {
@@ -2073,6 +2083,7 @@ body.interview-active .upload-page::before {
 
 .response-text-input {
   width: 100%;
+  min-height: 52px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(45, 212, 191, 0.2);
   border-radius: 10px;
@@ -2080,6 +2091,10 @@ body.interview-active .upload-page::before {
   color: var(--text);
   font-size: 0.92rem;
   font-family: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   resize: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -3815,22 +3830,43 @@ body.interview-active .upload-page::before {
 }
 
 /* ── Stress Mode Toggle ── */
+.stress-mode-container {
+  width: 100%;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .stress-mode-toggle {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 6px;
   width: 100%;
-  margin-top: 14px;
-  padding: 14px 18px;
+  padding-right: 12px;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  cursor: pointer;
   transition: all 0.3s ease;
-  text-align: left;
   color: var(--muted);
   font-family: inherit;
   font-size: 0.85rem;
+}
+
+.stress-toggle-main-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 10px 14px 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .stress-mode-toggle:hover {
@@ -3844,13 +3880,13 @@ body.interview-active .upload-page::before {
   color: #ffa500;
 }
 
-.stress-mode-toggle svg {
+.stress-toggle-main-btn svg {
   flex-shrink: 0;
   color: var(--muted);
   transition: all 0.3s ease;
 }
 
-.stress-mode-toggle.active svg,
+.stress-mode-toggle.active .stress-toggle-main-btn svg,
 .stress-icon-active {
   color: #ffa500 !important;
   filter: drop-shadow(0 0 6px rgba(255, 165, 0, 0.5));
@@ -10665,22 +10701,263 @@ body.dark-theme-bg .mobile-nav-link.active {
   background: rgba(0, 206, 201, 0.4);
 }
 
+/* ── Stress Mode Info Button & Tooltip ── */
+.stress-info-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
 
+.stress-info-btn:hover,
+.stress-info-btn.open {
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.45);
+  color: var(--teal);
+}
 
+.stress-info-tooltip {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text);
+  animation: float-in 0.2s ease-out;
+}
 
+.stress-info-tooltip p {
+  margin: 6px 0 0 0;
+  color: var(--muted);
+}
 
+.stress-info-tooltip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 
+.stress-info-tooltip-header strong {
+  color: var(--teal);
+  font-size: 0.84rem;
+}
 
+.stress-info-close-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
 
+.stress-info-close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+}
 
+body.light-theme-bg .stress-info-btn {
+  border-color: rgba(26, 61, 52, 0.22);
+  background: rgba(26, 61, 52, 0.06);
+  color: #1a3d34;
+}
 
+body.light-theme-bg .stress-info-btn:hover,
+body.light-theme-bg .stress-info-btn.open {
+  background: rgba(22, 160, 133, 0.14);
+  border-color: #16a085;
+  color: #0d7a64;
+}
 
+body.light-theme-bg .stress-info-tooltip {
+  background: #f4f9f7;
+  border-color: rgba(22, 160, 133, 0.35);
+  color: #1a3d34;
+}
 
+body.light-theme-bg .stress-info-tooltip p {
+  color: #3c5b52;
+}
 
+body.light-theme-bg .stress-info-tooltip-header strong {
+  color: #0d7a64;
+}
 
+body.light-theme-bg .stress-info-close-btn {
+  background: rgba(26, 61, 52, 0.08);
+  color: #1a3d34;
+}
 
+/* ── Structured SQL Question Description ── */
+.sql-description-rich {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
 
+.sql-desc-section-line,
+.sql-desc-paragraph {
+  margin: 0;
+}
 
+.sql-desc-bold {
+  font-weight: 700;
+  color: var(--teal);
+}
 
+.sql-desc-list {
+  margin: 2px 0 4px 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
 
+.sql-desc-item {
+  line-height: 1.55;
+}
 
+.sql-desc-subitem {
+  margin-left: 16px;
+  list-style-type: circle;
+}
+
+.sql-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.86em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.22);
+  color: #67e8f9;
+}
+
+body.light-theme-bg .sql-desc-bold {
+  color: #0f766e;
+}
+
+body.light-theme-bg .sql-inline-code {
+  background: rgba(15, 118, 110, 0.09);
+  border-color: rgba(15, 118, 110, 0.22);
+  color: #134e4a;
+}
+
+/* ── Split-Screen Chat Input Wrapping ── */
+.split-chat-box .response-text-input {
+  min-height: 52px;
+  max-height: 120px;
+}
+
+body.light-theme-bg .response-text-input {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(26, 61, 52, 0.22);
+  color: #1a3d34;
+}
+
+/* ── Active Interview HUD Theme Toggle ── */
+.hud-theme-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.hud-theme-toggle-btn:hover {
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.4);
+  color: var(--teal);
+}
+
+body.light-theme-bg .hud-theme-toggle-btn {
+  background: rgba(26, 61, 52, 0.06);
+  border-color: rgba(26, 61, 52, 0.2);
+  color: #1a3d34;
+}
+
+body.light-theme-bg .hud-theme-toggle-btn:hover {
+  background: rgba(22, 160, 133, 0.14);
+  border-color: #16a085;
+  color: #0d7a64;
+}
+
+/* ── Persistent Floating Half-Moon Dark Mode Toggle ── */
+.floating-theme-toggle {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  z-index: 990;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.floating-theme-toggle.is-light {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1.5px solid rgba(26, 61, 52, 0.22);
+  color: #1a3d34;
+  box-shadow: 0 6px 20px rgba(26, 61, 52, 0.16);
+}
+
+.floating-theme-toggle.is-light:hover {
+  transform: translateY(-2px) scale(1.04);
+  border-color: #16a085;
+  box-shadow: 0 10px 24px rgba(22, 160, 133, 0.25);
+}
+
+.floating-theme-toggle.is-dark {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid rgba(45, 212, 191, 0.35);
+  color: #facc15;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.floating-theme-toggle.is-dark:hover {
+  transform: translateY(-2px) scale(1.04);
+  border-color: rgba(45, 212, 191, 0.65);
+  box-shadow: 0 10px 24px rgba(45, 212, 191, 0.24);
+}
+
+/* Hidden during active AI interview because the HUD bar renders .hud-theme-toggle-btn */
+body.interview-active .floating-theme-toggle {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .floating-theme-toggle {
+    bottom: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+  }
+}

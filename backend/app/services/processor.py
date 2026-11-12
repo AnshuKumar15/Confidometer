@@ -13,75 +13,72 @@ import traceback
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from typing import cast, Any
+from typing import cast, Any, Optional
 from app.services.gesture import analyze_gesture
 from app.utils.scoring_utils import bell_curve_score
 
 
-def _update_progress(db: Session, speech: Speech, progress: int):
-    """Persist progress percentage to database so the frontend can poll it."""
+import gc
+import sys
+
+def _force_gc():
+    """Aggressively free memory between pipeline stages and return pages to Linux OS."""
+    gc.collect(generation=2)
+    gc.collect(generation=1)
+    gc.collect(generation=0)
+    # On Linux (Render), release freed memory pages back to OS
+    if sys.platform == "linux":
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
+
+
+def _update_progress(speech_or_id: Any, progress_or_speech: Any = None, progress: Optional[int] = None):
+    """Persist progress percentage to database using a short-lived scoped session.
+    Never holds a connection open across pipeline operations.
+    """
+    actual_id = None
+    actual_prog = None
+
+    if progress is not None:
+        # Called as _update_progress(db, speech, 50)
+        actual_id = getattr(progress_or_speech, "id", None)
+        actual_prog = progress
+    elif isinstance(speech_or_id, int):
+        # Called as _update_progress(speech_id, 50)
+        actual_id = speech_or_id
+        actual_prog = progress_or_speech
+    elif hasattr(speech_or_id, "id"):
+        # Called as _update_progress(speech, 50)
+        actual_id = getattr(speech_or_id, "id", None)
+        actual_prog = progress_or_speech
+
+    if actual_id is None or actual_prog is None:
+        return
+
     try:
-        speech.progress = progress  # type: ignore
-        db.commit()
-        print(f"[PROGRESS] Updated to {progress}%")
+        with SessionLocal() as db:
+            s = db.query(Speech).filter(Speech.id == actual_id).first()
+            if s:
+                s.progress = int(actual_prog)  # type: ignore
+                db.commit()
+                print(f"[PROGRESS] Speech {actual_id} updated to {actual_prog}%")
     except Exception as e:
-        print(f"[WARN] Progress update failed ({progress}%), retrying with fresh connection: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        # Retry with a fresh session to handle stale/dropped connections (Neon free tier)
-        try:
-            fresh_db = SessionLocal()
-            fresh_speech = fresh_db.query(Speech).filter(Speech.id == speech.id).first()
-            if fresh_speech:
-                fresh_speech.progress = progress  # type: ignore
-                fresh_db.commit()
-                # Refresh the original objects to stay in sync
-                try:
-                    db.close()
-                except Exception:
-                    pass
-                print(f"[PROGRESS] Retry succeeded — updated to {progress}%")
-            fresh_db.close()
-        except Exception as retry_err:
-            print(f"[ERROR] Progress retry also failed: {retry_err}")
+        print(f"[WARN] Progress update failed ({actual_prog}%): {e}")
 
 
-def _safe_commit(db: Session, speech_id: int):
-    """Commit with automatic retry using a fresh session if the connection is stale."""
-    try:
-        db.commit()
-    except Exception as e:
-        print(f"[WARN] Commit failed, retrying with fresh session: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        # Reconnect: close the old session and replace with a fresh one
-        try:
-            db.close()
-        except Exception:
-            pass
-        # Create fresh session and merge all pending changes
-        fresh_db = SessionLocal()
-        try:
-            fresh_db.commit()
-        except Exception:
-            pass
-        fresh_db.close()
-        raise  # Re-raise so caller knows commit failed
-
-
-def _audio_pipeline(video_path: str, audio_path: str, db: Session | None = None, speech: Speech | None = None) -> dict[str, Any]:
+def _audio_pipeline(video_path: str, audio_path: str, speech_id: int | None = None, **kwargs) -> dict[str, Any]:
     """
     Audio pipeline: extract audio → transcribe → count fillers → voice analysis.
     Updates progress incrementally to prevent UI from appearing stuck at 5%.
     """
     print(f"[INFO] [Audio-Pipeline] Extracting audio...")
     extract_audio(video_path, audio_path)
-    if db and speech:
-        _update_progress(db, speech, 15)
+    if speech_id:
+        _update_progress(speech_id, 15)
 
     print(f"[INFO] [Audio-Pipeline] Transcribing audio...")
     transcript: str = ""
@@ -91,8 +88,8 @@ def _audio_pipeline(video_path: str, audio_path: str, db: Session | None = None,
     except Exception as t_err:
         print(f"[WARN] Transcription encountered error: {t_err}")
     print(f"[INFO] [Audio-Pipeline] Transcript length: {len(transcript)} chars")
-    if db and speech:
-        _update_progress(db, speech, 25)
+    if speech_id:
+        _update_progress(speech_id, 25)
 
     filler_count = count_fillers(transcript) if transcript else 0
     print(f"[INFO] [Audio-Pipeline] Filler count: {filler_count}")
@@ -133,20 +130,31 @@ def _gesture_pipeline(video_path: str) -> float:
 
 
 def process_speech(speech_id: int):
-
-    db: Session = SessionLocal()
-    speech = None
+    # Fetch speech metadata upfront in a short-lived session, then immediately release connection back to pool.
+    # Holding a DB session across the long video/audio/LLM analysis chokes connection pools on hosted servers.
+    speech_data = None
+    try:
+        with SessionLocal() as db:
+            s = db.query(Speech).filter(Speech.id == speech_id).first()
+            if not s:
+                print(f"[WARN] Speech ID {speech_id} not found in database.")
+                return
+            speech_data = {
+                "video_path": str(s.video_path or ""),
+                "stress_mode": bool(s.stress_mode) if s.stress_mode is not None else False,
+                "role": str(s.role or ""),
+                "company_name": str(s.company_name or ""),
+                "interview_type": str(s.interview_type or "technical"),
+                "dsa_code": str(s.dsa_code or ""),
+                "dsa_question_details": str(s.dsa_question_details or ""),
+                "conversation_history": str(s.conversation_history or "[]"),
+            }
+    except Exception as fetch_err:
+        print(f"[ERROR] Failed to fetch speech {speech_id}: {fetch_err}")
+        return
 
     try:
-        speech = db.query(Speech).filter(Speech.id == speech_id).first()
-
-        if not speech:
-            return
-
-        # Extract string value from SQLAlchemy Column
-        video_path: str = str(speech.video_path)
-
-        # Handle different formats safely
+        video_path = speech_data["video_path"]
         base, _ = os.path.splitext(video_path)
         audio_path = base + ".wav"
 
@@ -155,7 +163,7 @@ def process_speech(speech_id: int):
         print(f"[INFO] Video file exists: {os.path.exists(video_path)}")
         if os.path.exists(video_path):
             print(f"[INFO] Video file size: {os.path.getsize(video_path)} bytes")
-        _update_progress(db, speech, 5)
+        _update_progress(speech_id, 5)
 
         # ──────────────────────────────────────────────────────────
         # SEQUENTIAL PHASE: Run audio, eye contact, and gesture
@@ -164,30 +172,13 @@ def process_speech(speech_id: int):
         # (causing Render Exit status 137). Sequential execution
         # keeps peak RAM under 200MB while finishing in ~15s.
         # ──────────────────────────────────────────────────────────
-        import gc
-        import sys
-
-        def _force_gc():
-            """Aggressively free memory between pipeline stages."""
-            gc.collect(generation=2)
-            gc.collect(generation=1)
-            gc.collect(generation=0)
-            # On Linux (Render), release freed memory pages back to OS
-            if sys.platform == "linux":
-                try:
-                    import ctypes
-                    libc = ctypes.CDLL("libc.so.6")
-                    libc.malloc_trim(0)
-                except Exception:
-                    pass
-
         print("[INFO] Starting sequential analysis (audio -> eye -> gesture)...")
 
         # 1. Audio pipeline
         print("[INFO] Running audio pipeline...")
         t0 = time.time()
         try:
-            audio_result = _audio_pipeline(video_path, audio_path, db=db, speech=speech)
+            audio_result = _audio_pipeline(video_path, audio_path, speech_id=speech_id)
         except Exception as audio_err:
             print(f"[WARN] Audio pipeline encountered error: {audio_err}. Using fallback audio metrics.")
             audio_result = {
@@ -201,7 +192,7 @@ def process_speech(speech_id: int):
                 },
             }
         print(f"[INFO] Audio pipeline completed in {time.time()-t0:.1f}s")
-        _update_progress(db, speech, 30)
+        _update_progress(speech_id, 30)
         # Clean up the extracted audio file to free disk I/O buffers
         try:
             if os.path.exists(audio_path):
@@ -222,7 +213,7 @@ def process_speech(speech_id: int):
             print(f"[WARN] Eye contact pipeline error: {eye_err}. Using baseline 75.0.")
             eye_contact_percentage = 75.0
         print(f"[INFO] Eye contact pipeline completed in {time.time()-t0:.1f}s")
-        _update_progress(db, speech, 55)
+        _update_progress(speech_id, 55)
         _force_gc()
 
         # 3. Gesture pipeline
@@ -237,7 +228,7 @@ def process_speech(speech_id: int):
             print(f"[WARN] Gesture pipeline error: {gesture_err}. Using baseline 50.0.")
             gesture_frequency = 50.0
         print(f"[INFO] Gesture pipeline completed in {time.time()-t0:.1f}s")
-        _update_progress(db, speech, 70)
+        _update_progress(speech_id, 70)
         _force_gc()
 
         print("[INFO] Sequential analysis complete.")
@@ -284,7 +275,7 @@ def process_speech(speech_id: int):
         print(f"[DEBUG] Silence ratio: {silence_ratio:.2%} => silence_score: {silence_score:.1f}")
         print(f"[DEBUG] Speaking rate score: {speaking_rate_score:.1f}")
         print(f"[INFO] Voice stability: {voice_stability_score:.1f}")
-        _update_progress(db, speech, 75)
+        _update_progress(speech_id, 75)
 
         # 7️⃣ Final Confidence Score
         confidence_score = calculate_confidence_score(
@@ -295,65 +286,54 @@ def process_speech(speech_id: int):
             speaking_rate=speaking_rate_score
         )
 
-        # 8️⃣ Save raw results
-        speech.filler_count = int(filler_count)  # type: ignore
-        speech.eye_contact_percentage = float(eye_contact_percentage)  # type: ignore
-        speech.gesture_frequency = float(gesture_frequency)  # type: ignore
-        speech.voice_stability_score = float(voice_stability_score)  # type: ignore
-        speech.confidence_score = float(confidence_score)  # type: ignore
-
-        # 8.5 Compute fidgeting index & speech rate variance for stress metric logging
+        # 8️⃣ Compute fidgeting index & speech rate variance for stress metric logging
         fidgeting = min(100.0, max(0.0, gesture_frequency * 1.25))
         speech_var = min(100.0, max(0.0, pitch_std * 0.75))
-        speech.fidgeting_index = fidgeting  # type: ignore
-        speech.speech_rate_variance = speech_var  # type: ignore
 
-        # If stress mode was active, calculate stress tolerance score
-        if speech.stress_mode:
+        stress_tolerance_score = None
+        if speech_data["stress_mode"]:
             from app.services.scoring import calculate_stress_tolerance_score
-            speech.stress_tolerance_score = calculate_stress_tolerance_score(
+            stress_tolerance_score = calculate_stress_tolerance_score(
                 fidgeting_index=fidgeting,
                 speech_rate_variance=speech_var,
                 filler_count=filler_count,
                 eye_contact=eye_contact_percentage
-            )  # type: ignore
+            )
 
+        # Save raw results via short-lived scoped DB session (closed immediately)
         try:
-            db.commit()
+            with SessionLocal() as db:
+                s = db.query(Speech).filter(Speech.id == speech_id).first()
+                if s:
+                    s.filler_count = int(filler_count)  # type: ignore
+                    s.eye_contact_percentage = float(eye_contact_percentage)  # type: ignore
+                    s.gesture_frequency = float(gesture_frequency)  # type: ignore
+                    s.voice_stability_score = float(voice_stability_score)  # type: ignore
+                    s.confidence_score = float(confidence_score)  # type: ignore
+                    s.fidgeting_index = fidgeting  # type: ignore
+                    s.speech_rate_variance = speech_var  # type: ignore
+                    if stress_tolerance_score is not None:
+                        s.stress_tolerance_score = stress_tolerance_score  # type: ignore
+                    db.commit()
         except Exception as commit_err:
-            print(f"[WARN] Raw results commit failed, using fresh session: {commit_err}")
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            db.close()
-            db = SessionLocal()
-            speech = db.query(Speech).filter(Speech.id == speech_id).first()
-            if speech:
-                speech.filler_count = filler_count  # type: ignore
-                speech.eye_contact_percentage = eye_contact_percentage  # type: ignore
-                speech.gesture_frequency = gesture_frequency  # type: ignore
-                speech.voice_stability_score = voice_stability_score  # type: ignore
-                speech.confidence_score = confidence_score  # type: ignore
-                speech.fidgeting_index = fidgeting  # type: ignore
-                speech.speech_rate_variance = speech_var  # type: ignore
-                db.commit()
-        _update_progress(db, speech, 80)
+            print(f"[WARN] Raw results commit failed: {commit_err}")
 
-        # 9️⃣ LLM-based detailed analysis (reports + sub-scores)
+        _update_progress(speech_id, 80)
+
+        # 9️⃣ LLM-based detailed analysis (reports + sub-scores) - Zero DB connection held during API call
         print("[INFO] Running LLM interview analysis...")
         conversation_history = []
-        if speech.conversation_history:
+        if speech_data["conversation_history"]:
             try:
-                conversation_history = json.loads(str(speech.conversation_history))
+                conversation_history = json.loads(str(speech_data["conversation_history"]))
             except Exception:
                 pass
 
-        role_str = str(speech.role) if speech.role else ""
-        company_str = str(speech.company_name) if speech.company_name else ""
-        interview_type_str = str(speech.interview_type) if speech.interview_type else "technical"
-        dsa_code_str = str(speech.dsa_code) if speech.dsa_code else ""
-        dsa_question_str = str(speech.dsa_question_details) if speech.dsa_question_details else ""
+        role_str = speech_data["role"]
+        company_str = speech_data["company_name"]
+        interview_type_str = speech_data["interview_type"]
+        dsa_code_str = speech_data["dsa_code"]
+        dsa_question_str = speech_data["dsa_question_details"]
 
         analysis = analyze_interview_with_llm(
             role=role_str,
@@ -367,29 +347,12 @@ def process_speech(speech_id: int):
             dsa_code=dsa_code_str,
             dsa_question_details=dsa_question_str,
         )
-        _update_progress(db, speech, 90)
+        _update_progress(speech_id, 90)
 
-        # 🔟 Save LLM analysis results
+        # 🔟 Process LLM analysis results
         sub_scores = analysis.get("sub_scores", {})
         raw_eye_sub = float(sub_scores.get("eye_contact_score", eye_contact_percentage))
         final_eye_score = raw_eye_sub if raw_eye_sub > 0 else float(eye_contact_percentage if eye_contact_percentage > 0 else 72.5)
-        speech.eye_contact_score = final_eye_score  # type: ignore
-        speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))  # type: ignore
-        speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))  # type: ignore
-        speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))  # type: ignore
-        speech.filler_words_score = float(sub_scores.get("filler_words_score", max(0, 100 - filler_count * 3)))  # type: ignore
-        speech.explanation_quality_score = float(sub_scores.get("explanation_quality_score", 50.0))  # type: ignore
-
-        # Negotiation simulation specific scoring
-        if interview_type_str == "negotiation":
-            speech.negotiation_score = float(sub_scores.get("negotiation_score", 60.0))  # type: ignore
-
-        # Coding-specific scores (DSA / Technical rounds with code)
-        if interview_type_str in ("dsa", "technical") and dsa_code_str:
-            speech.code_quality_score = float(sub_scores.get("code_quality_score", 50.0))  # type: ignore
-            speech.optimization_score = float(sub_scores.get("optimization_score", 50.0))  # type: ignore
-            speech.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))  # type: ignore
-            speech.communication_score = float(sub_scores.get("communication_score", 50.0))  # type: ignore
 
         # 🔟.5 Calculate unified blended score (combining content depth & delivery poise)
         tech_score = float(sub_scores.get("technical_knowledge_score", 50.0))
@@ -417,89 +380,71 @@ def process_speech(speech_id: int):
             thinking_process=tp_score,
             communication=comm_score,
         )
-        speech.confidence_score = float(blended_confidence_score)  # type: ignore
 
-        speech.technical_feedback = json.dumps(analysis.get("technical_feedback", []))  # type: ignore
-        speech.non_technical_feedback = json.dumps(analysis.get("non_technical_feedback", {}))  # type: ignore
-        # Include coding_feedback inside non_technical_feedback if present
+        final_non_technical = analysis.get("non_technical_feedback", {})
         if analysis.get("coding_feedback"):
-            try:
-                nt = json.loads(speech.non_technical_feedback) if speech.non_technical_feedback else {}
-                nt["coding_feedback"] = analysis["coding_feedback"]
-                speech.non_technical_feedback = json.dumps(nt)  # type: ignore
-            except Exception:
-                pass
-        speech.short_summary_feedback = analysis.get("short_summary_feedback", "")  # type: ignore
+            final_non_technical["coding_feedback"] = analysis["coding_feedback"]
+
+        short_summary = analysis.get("short_summary_feedback", "")
 
         # ── Prefetch TTS audio for the short summary feedback ──
         try:
             from app.routes.agent import prefetch_tts
-            if speech.short_summary_feedback:
-                print(f"[INFO] Prefetching TTS audio for speech ID {speech.id} short summary feedback...")
-                prefetch_tts(speech.short_summary_feedback)
+            if short_summary:
+                print(f"[INFO] Prefetching TTS audio for speech ID {speech_id} short summary feedback...")
+                prefetch_tts(short_summary)
         except Exception as prefetch_err:
             print(f"[WARN] Failed to prefetch TTS: {prefetch_err}")
 
-
-
-
-        # Final save: use a guaranteed-fresh session for the completion commit
+        # Final save: short-lived session, committed and closed immediately
         try:
-            db.close()
-        except Exception:
-            pass
-        db = SessionLocal()
-        speech = db.query(Speech).filter(Speech.id == speech_id).first()
-        if speech:
-            # Re-apply all LLM analysis results and blended score on the fresh session object
-            speech.eye_contact_score = final_eye_score
-            speech.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))
-            speech.fluency_score = float(sub_scores.get("fluency_score", 50.0))
-            speech.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))
-            speech.filler_words_score = float(sub_scores.get("filler_words_score", max(0, 100 - filler_count * 3)))
-            speech.explanation_quality_score = float(sub_scores.get("explanation_quality_score", 50.0))
-            if interview_type_str == "negotiation":
-                speech.negotiation_score = float(sub_scores.get("negotiation_score", 60.0))
-            if interview_type_str in ("dsa", "technical") and dsa_code_str:
-                speech.code_quality_score = float(sub_scores.get("code_quality_score", 50.0))
-                speech.optimization_score = float(sub_scores.get("optimization_score", 50.0))
-                speech.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))
-                speech.communication_score = float(sub_scores.get("communication_score", 50.0))
-            speech.confidence_score = float(blended_confidence_score)
-            speech.technical_feedback = json.dumps(analysis.get("technical_feedback", []))
-            speech.non_technical_feedback = json.dumps(analysis.get("non_technical_feedback", {}))
-            if analysis.get("coding_feedback"):
-                try:
-                    nt = json.loads(speech.non_technical_feedback) if speech.non_technical_feedback else {}
-                    nt["coding_feedback"] = analysis["coding_feedback"]
-                    speech.non_technical_feedback = json.dumps(nt)
-                except Exception:
-                    pass
-            speech.short_summary_feedback = analysis.get("short_summary_feedback", "")
-            speech.status = "completed"
-            speech.progress = 100
-            db.commit()
-
-        print(f"[SUCCESS] Processing complete for speech ID: {speech_id}")
+            with SessionLocal() as db:
+                s = db.query(Speech).filter(Speech.id == speech_id).first()
+                if s:
+                    s.eye_contact_score = final_eye_score
+                    s.technical_knowledge_score = float(sub_scores.get("technical_knowledge_score", 50.0))
+                    s.fluency_score = float(sub_scores.get("fluency_score", 50.0))
+                    s.use_of_words_score = float(sub_scores.get("use_of_words_score", 50.0))
+                    s.filler_words_score = float(sub_scores.get("filler_words_score", max(0, 100 - filler_count * 3)))
+                    s.explanation_quality_score = float(sub_scores.get("explanation_quality_score", 50.0))
+                    if interview_type_str == "negotiation":
+                        s.negotiation_score = float(sub_scores.get("negotiation_score", 60.0))
+                    if interview_type_str in ("dsa", "technical") and dsa_code_str:
+                        s.code_quality_score = float(sub_scores.get("code_quality_score", 50.0))
+                        s.optimization_score = float(sub_scores.get("optimization_score", 50.0))
+                        s.thinking_process_score = float(sub_scores.get("thinking_process_score", 50.0))
+                        s.communication_score = float(sub_scores.get("communication_score", 50.0))
+                    s.confidence_score = float(blended_confidence_score)
+                    s.technical_feedback = json.dumps(analysis.get("technical_feedback", []))
+                    s.non_technical_feedback = json.dumps(final_non_technical)
+                    s.short_summary_feedback = short_summary
+                    s.status = "completed"
+                    s.progress = 100
+                    db.commit()
+                    print(f"[SUCCESS] Processing complete for speech ID: {speech_id}")
+        except Exception as save_err:
+            print(f"[ERROR] Failed to save final speech results: {save_err}")
+            raise
 
     except Exception as e:
         print(f"[ERROR] Processing failed: {str(e)}")
         print(traceback.format_exc())
 
-        # Use a fresh DB session to mark as failed — the original session may be stale
+        # Use a fresh short-lived DB session to mark as failed
         try:
-            fail_db = SessionLocal()
-            fail_speech = fail_db.query(Speech).filter(Speech.id == speech_id).first()
-            if fail_speech:
-                fail_speech.status = "failed"  # type: ignore
-                fail_db.commit()
-                print(f"[INFO] Marked speech {speech_id} as failed")
-            fail_db.close()
+            with SessionLocal() as fail_db:
+                fail_speech = fail_db.query(Speech).filter(Speech.id == speech_id).first()
+                if fail_speech:
+                    fail_speech.status = "failed"  # type: ignore
+                    fail_db.commit()
+                    print(f"[INFO] Marked speech {speech_id} as failed")
         except Exception as db_error:
             print(f"[ERROR] Failed to persist failed status: {db_error}")
 
     finally:
         try:
-            db.close()
-        except Exception:
+            if 'audio_path' in locals() and os.path.exists(audio_path):
+                os.remove(audio_path)
+        except OSError:
             pass
+        _force_gc()

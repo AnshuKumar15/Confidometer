@@ -53,7 +53,11 @@ async def run_autoapply_cycle_for_user(db: Session, config: AutoApplyConfig):
         "min_match_score": 0.0
     }
 
-    # 1. Job Discovery
+    # 1. Job Discovery (Release transaction before external network calls)
+    try:
+        db.commit()
+    except Exception:
+        pass
     engine = JobDiscoveryEngine(user_api_keys=prefs_model.api_keys or {})
     discovered_jobs = await engine.discover_jobs(prefs_dict["job_titles"], prefs_dict["locations"])
 

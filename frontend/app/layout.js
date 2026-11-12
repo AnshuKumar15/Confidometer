@@ -2,6 +2,7 @@ import { Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
 import "@/styles/globals.css";
 import "@/styles/landing-page.css";
 import Navbar from "@/components/Navbar";
+import FloatingThemeToggle from "@/components/FloatingThemeToggle";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";
 
@@ -64,6 +65,7 @@ export default function RootLayout({ children }) {
             <div className="page-bg" />
             <Navbar />
             <main className="app-shell">{children}</main>
+            <FloatingThemeToggle />
           </ToastProvider>
         </ThemeProvider>
       </body>

@@ -20,6 +20,24 @@ if GROQ_API_KEY:
     except Exception as e:
         print(f"[WARN] Failed to initialize Groq client ({e}). Will use local Whisper fallback.")
 
+import sys
+import gc
+
+def _release_memory():
+    """Aggressively free memory and return virtual memory pages to Linux OS."""
+    gc.collect()
+    if sys.platform == "linux":
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
+
+def is_low_memory_environment() -> bool:
+    """Return True if running on Render (512MB RAM free/starter tier) or configured low-RAM mode."""
+    return bool(os.getenv("RENDER") or os.getenv("DISABLE_LOCAL_WHISPER", "").lower() in ("true", "1"))
+
 # Lazy local whisper models fallback
 whisper = None
 _whisper_lock = threading.Lock()
@@ -34,6 +52,13 @@ def _ensure_whisper_imported():
 
 def get_model_batch():
     global _model_batch, _model_stt
+    # On Render (512MB RAM tier) or low-memory hosts, loading PyTorch + Whisper model
+    # consumes 300MB+ RAM and triggers Linux kernel OOM killer (exit status 137).
+    # We strictly avoid loading PyTorch into memory on these environments.
+    if is_low_memory_environment():
+        print("[WARN] Local Whisper model loading skipped on Render/low-memory host to prevent OOM restart.")
+        return None
+
     if _model_batch is None:
         try:
             _ensure_whisper_imported()
@@ -158,7 +183,11 @@ def transcribe_audio(audio_path: str) -> str:
         except Exception as gemini_err:
             print(f"[WARN] Gemini audio transcription fallback failed: {gemini_err}. Trying local model...")
 
-    # 3. Fallback to local Whisper ('tiny' model) if available
+    # 3. Fallback to local Whisper ('tiny' model) only if memory permits
+    if is_low_memory_environment():
+        print("[WARN] Cloud transcription (Groq/Gemini) unavailable; skipped local Whisper on Render (512MB RAM) to prevent OOM restart.")
+        return ""
+
     try:
         active_model = get_model_batch()
         if active_model is None:
@@ -176,6 +205,8 @@ def transcribe_audio(audio_path: str) -> str:
             return result.get("text", "")
     except Exception as local_whisper_err:
         print(f"[WARN] Local Whisper transcription failed: {local_whisper_err}")
+    finally:
+        _release_memory()
 
     # Return empty string if transcription couldn't be performed
     return ""
@@ -276,12 +307,16 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
             except Exception as groq_err:
                 print(f"[WARN] Groq chunk transcription failed ({groq_err}), falling back to local Whisper...")
 
-        # Fallback to local Whisper
+        # Fallback to local Whisper only on non-constrained environments
+        if is_low_memory_environment():
+            # Never load PyTorch in the middle of live streaming chunk processing on Render
+            return {"text": "", "segments": [], "language": "en"}
+
         active_model = get_model_stt()
         if active_model is None:
             active_model = get_model_batch()
         if active_model is None:
-            raise RuntimeError("No Whisper model is loaded")
+            return {"text": "", "segments": [], "language": "en"}
         with _whisper_lock:
             result = active_model.transcribe(
                 tmp_wav.name,
@@ -321,3 +356,4 @@ def transcribe_chunk(audio_bytes: bytes) -> dict:
                     os.remove(f.name)
                 except OSError:
                     pass
+        _release_memory()
