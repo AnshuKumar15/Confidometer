@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import AutocompleteInput, { COMPANY_SUGGESTIONS, ROLE_SUGGESTIONS } from "@/components/AutocompleteInput";
 import { initiateInterview, respondToAgent, uploadVideo, fetchTTSAudio, runCode, transcribeSpeech } from "@/utils/api";
+import { startInterviewUpload } from "@/utils/pendingInterview";
 import { isAuthed } from "@/utils/auth";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/components/Toast";
@@ -257,6 +258,29 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false);
   const [stressMode, setStressMode] = useState(false);
   const [showStressInfo, setShowStressInfo] = useState(false);
+
+  // Form Validation Refs & States
+  const roleSectionRef = useRef(null);
+  const roleInputRef = useRef(null);
+  const resumeSectionRef = useRef(null);
+  const permissionsSectionRef = useRef(null);
+  const [formErrors, setFormErrors] = useState({
+    role: "",
+    resume: "",
+    permissions: ""
+  });
+  const [fieldShake, setFieldShake] = useState({
+    role: false,
+    resume: false,
+    permissions: false
+  });
+
+  function triggerShake(field) {
+    setFieldShake((prev) => ({ ...prev, [field]: true }));
+    setTimeout(() => {
+      setFieldShake((prev) => ({ ...prev, [field]: false }));
+    }, 500);
+  }
 
   // Interview States
   const [isInterviewing, setIsInterviewing] = useState(false);
@@ -769,10 +793,15 @@ export default function UploadPage() {
       });
       setMediaStream(stream);
       setPermissionGranted(true);
+      setFormErrors((prev) => ({ ...prev, permissions: "" }));
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
     } catch (err) {
+      setFormErrors((prev) => ({
+        ...prev,
+        permissions: "Camera & microphone access was denied or unavailable."
+      }));
       setError("Please grant camera and microphone permissions to start the live interview.");
     }
   }
@@ -1149,12 +1178,45 @@ export default function UploadPage() {
   // 4. Start the Interview Session
   async function handleStartInterview() {
     const requiresResume = interviewType !== "dsa" && interviewType !== "sql";
-    if (requiresResume && !resumeFile) {
-      setError("Please upload your resume to start.");
-      return;
-    }
+    const errors = { role: "", resume: "", permissions: "" };
+    let firstMissing = null;
+
     if (!role.trim()) {
-      setError("Please specify the role you are interviewing for.");
+      errors.role = "Please specify the role you are interviewing for.";
+      if (!firstMissing) firstMissing = "role";
+    }
+
+    if (requiresResume && !resumeFile) {
+      errors.resume = "Please upload your resume (PDF or TXT) to start this interview.";
+      if (!firstMissing) firstMissing = "resume";
+    }
+
+    if (!permissionGranted || !mediaStream) {
+      errors.permissions = "Please grant camera and microphone permissions first.";
+      if (!firstMissing) firstMissing = "permissions";
+    }
+
+    if (firstMissing) {
+      setFormErrors(errors);
+      triggerShake(firstMissing);
+      setError("");
+
+      if (firstMissing === "role") {
+        if (roleSectionRef.current) {
+          roleSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        if (roleInputRef.current) {
+          roleInputRef.current.focus();
+        }
+      } else if (firstMissing === "resume") {
+        if (resumeSectionRef.current) {
+          resumeSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      } else if (firstMissing === "permissions") {
+        if (permissionsSectionRef.current) {
+          permissionsSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
       return;
     }
 
@@ -1164,11 +1226,7 @@ export default function UploadPage() {
       return;
     }
 
-    if (!permissionGranted || !mediaStream) {
-      setError("Please grant camera/microphone permissions first.");
-      return;
-    }
-
+    setFormErrors({ role: "", resume: "", permissions: "" });
     speechCancelledRef.current = false;
     isSubmittingResponseRef.current = false;
     setLoading(true);
@@ -1209,6 +1267,7 @@ export default function UploadPage() {
       setCurrentQuestion(data.first_question);
       setMessages([{ role: "model", text: data.first_question, timestamp: getElapsedTimestamp() }]);
       setIsInterviewing(true);
+      setHideCamera(false);
 
       // DSA: load both questions and pre-populate draft codes
       if (interviewType === "dsa" && data.dsa_questions) {
@@ -1504,7 +1563,7 @@ export default function UploadPage() {
     }
   }
 
-  // 6. Complete Interview & Upload video for analysis
+  // 6. Complete Interview & Navigate directly to existing /processing page
   async function handleFinishInterview() {
     // Stop DSA timer
     if (dsaTimerRef.current) {
@@ -1522,7 +1581,7 @@ export default function UploadPage() {
 
     // Stop Edge TTS audio playback (primary TTS)
     if (audioRef.current) {
-      audioRef.current.onended = null;  // prevent triggering startListening
+      audioRef.current.onended = null; // prevent triggering startListening
       audioRef.current.onerror = null;
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -1534,54 +1593,36 @@ export default function UploadPage() {
     }
     setIsSpeaking(false);
     stopListening();
-    
     setLoading(true);
-    setError("");
 
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
-      mediaRecorder.stop();
-    }
-
-    // Stop camera streams
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((track) => track.stop());
-    }
-
-    // Delay briefly to compile chunks
-    setTimeout(async () => {
+    function proceedToProcessing() {
       try {
         const videoBlob = new Blob(recordedChunks.current, { type: "video/webm" });
         const interviewFile = new File([videoBlob], `live_interview_${Date.now()}.webm`, {
           type: "video/webm"
         });
-
-        // Upload compiled interview video
-        const data = await uploadVideo(interviewFile, sessionIdRef.current);
-        router.push(`/processing?speechId=${data.speech_id}`);
+        // Initiate video upload immediately before route transition!
+        startInterviewUpload(interviewFile, sessionIdRef.current);
       } catch (err) {
-        setError("Failed to upload interview recording for analysis: " + err.message);
-        setLoading(false);
+        console.error("Failed to package recording:", err);
       }
-    }, 1500);
-  }
 
-  // ── Retry Upload Helper if first attempt fails or network blips ──
-  async function retryUploadInterview() {
-    setLoading(true);
-    setError("");
-    try {
-      if (!recordedChunks.current || recordedChunks.current.length === 0) {
-        throw new Error("No recorded video data found to retry.");
+      // Stop camera streams
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => track.stop());
       }
-      const videoBlob = new Blob(recordedChunks.current, { type: "video/webm" });
-      const interviewFile = new File([videoBlob], `live_interview_${Date.now()}.webm`, {
-        type: "video/webm"
-      });
-      const data = await uploadVideo(interviewFile, sessionIdRef.current);
-      router.push(`/processing?speechId=${data.speech_id}`);
-    } catch (err) {
-      setError("Failed to upload interview recording for analysis: " + err.message);
-      setLoading(false);
+
+      // Take candidate directly to the existing /processing page!
+      router.push("/processing");
+    }
+
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.onstop = () => {
+        proceedToProcessing();
+      };
+      mediaRecorder.stop();
+    } else {
+      proceedToProcessing();
     }
   }
 
@@ -1627,17 +1668,6 @@ export default function UploadPage() {
       {error && (
         <div className="error-banner centered" style={{ background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)", padding: "10px 16px", borderRadius: "8px", margin: "12px auto", maxWidth: "800px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
           <p className="error-text" style={{ margin: 0 }}>{error}</p>
-          {recordedChunks.current && recordedChunks.current.length > 0 && (
-            <button
-              type="button"
-              className="button primary"
-              style={{ padding: "6px 14px", fontSize: "0.82rem", whiteSpace: "nowrap" }}
-              onClick={retryUploadInterview}
-              disabled={loading}
-            >
-              {loading ? "Retrying..." : "🔄 Retry Upload"}
-            </button>
-          )}
         </div>
       )}
 
@@ -1820,15 +1850,24 @@ export default function UploadPage() {
 
             <div className="setup-grid">
               <div className="form-fields">
-                <AutocompleteInput
-                  label="Target Role"
-                  value={role}
-                  onChange={setRole}
-                  suggestions={ROLE_SUGGESTIONS}
-                  placeholder="e.g. Software Engineer, Data Engineer"
-                  disabled={loading}
-                  icon={<Briefcase size={16} />}
-                />
+                <div className={fieldShake.role ? "field-shake" : ""}>
+                  <AutocompleteInput
+                    label="Target Role"
+                    value={role}
+                    onChange={(val) => {
+                      setRole(val);
+                      if (formErrors.role) setFormErrors((prev) => ({ ...prev, role: "" }));
+                    }}
+                    suggestions={ROLE_SUGGESTIONS}
+                    placeholder="e.g. Software Engineer, Data Engineer"
+                    disabled={loading}
+                    icon={<Briefcase size={16} />}
+                    required={true}
+                    error={formErrors.role}
+                    containerRef={roleSectionRef}
+                    inputRefProp={roleInputRef}
+                  />
+                </div>
 
                 <AutocompleteInput
                   label="Company Name"
@@ -1885,34 +1924,66 @@ export default function UploadPage() {
                 )}
 
                 {interviewType !== "dsa" && interviewType !== "sql" && (
-                  <div className="resume-selector-zone">
-                    <span className="label-text">Upload Resume (PDF/TXT)</span>
-                    <label className="resume-drag-box">
+                  <div
+                    className={`resume-selector-zone ${fieldShake.resume ? "field-shake" : ""}`}
+                    ref={resumeSectionRef}
+                  >
+                    <span className="label-text">
+                      Upload Resume (PDF/TXT) <span className="required-asterisk" aria-hidden="true">*</span>
+                    </span>
+                    <label className={`resume-drag-box ${formErrors.resume ? "zone-field-error" : ""}`}>
                       <input
                         type="file"
                         accept=".pdf,.txt"
                         className="hidden-input"
-                        onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+                        onChange={(e) => {
+                          setResumeFile(e.target.files?.[0] || null);
+                          if (formErrors.resume) setFormErrors((prev) => ({ ...prev, resume: "" }));
+                        }}
                         disabled={loading}
                       />
                       <FileText size={24} />
                       <span>{resumeFile ? resumeFile.name : "Choose resume file"}</span>
                       {resumeFile && <CheckCircle size={16} className="valid-icon" />}
                     </label>
+                    {formErrors.resume && (
+                      <span className="field-error-text">
+                        <AlertTriangle size={13} /> {formErrors.resume}
+                      </span>
+                    )}
                   </div>
                 )}
 
-                <div className="media-permit-row">
+                <div
+                  className={`media-permit-row ${fieldShake.permissions ? "field-shake" : ""}`}
+                  ref={permissionsSectionRef}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <span className="label-text" style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                      Device Access <span className="required-asterisk" aria-hidden="true">*</span>
+                    </span>
+                    {permissionGranted && (
+                      <span style={{ fontSize: "0.78rem", color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <CheckCircle size={13} /> Connected
+                      </span>
+                    )}
+                  </div>
                   <button
                     type="button"
-                    className={`button ${permissionGranted ? "primary" : "subtle"}`}
+                    className={`button ${permissionGranted ? "primary" : "subtle"} ${formErrors.permissions ? "zone-field-error" : ""}`}
                     onClick={requestPermissions}
                     disabled={loading}
+                    style={{ width: "100%" }}
                   >
                     <Camera size={16} />
                     <Mic size={16} />
                     {permissionGranted ? "Camera & Mic Active" : "Grant Device Permissions"}
                   </button>
+                  {formErrors.permissions && (
+                    <span className="field-error-text">
+                      <AlertTriangle size={13} /> {formErrors.permissions}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1955,7 +2026,7 @@ export default function UploadPage() {
               type="button"
               className="button primary start-btn"
               onClick={handleStartInterview}
-              disabled={loading || !permissionGranted || (!["dsa", "sql"].includes(interviewType) && !resumeFile) || !role.trim()}
+              disabled={loading}
             >
               <Play size={16} />
               {loading ? "Initializing..." : `Start ${INTERVIEW_TYPES.find(t => t.id === interviewType)?.label || ""} Interview`}
@@ -2050,18 +2121,20 @@ export default function UploadPage() {
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
               </button>
 
-              <button
-                type="button"
-                className={`hud-cam-toggle-btn ${hideCamera ? "cam-off" : "cam-on"}`}
-                onClick={(e) => {
-                  setHideCamera((prev) => !prev);
-                  e.currentTarget.blur();
-                }}
-                title={hideCamera ? "Show video preview" : "Hide video preview"}
-              >
-                {hideCamera ? <EyeOff size={13} /> : <Eye size={13} />}
-                <span>{hideCamera ? "Show Video" : "Hide Video"}</span>
-              </button>
+              {showSplitScreen && (
+                <button
+                  type="button"
+                  className={`hud-cam-toggle-btn ${hideCamera ? "cam-off" : "cam-on"}`}
+                  onClick={(e) => {
+                    setHideCamera((prev) => !prev);
+                    e.currentTarget.blur();
+                  }}
+                  title={hideCamera ? "Show video preview" : "Hide video preview"}
+                >
+                  {hideCamera ? <EyeOff size={13} /> : <Eye size={13} />}
+                  <span>{hideCamera ? "Show Video" : "Hide Video"}</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -2864,57 +2937,16 @@ export default function UploadPage() {
             </div>
           ) : (
             /* ═══════════════ STANDARD INTERVIEW MODE (no editor) ═══════════════ */
-            <div className={`interview-live-container ${hideCamera ? "cam-hidden" : ""}`}>
-              {hideCamera ? (
-                <div className="cam-collapsed-bar standard glass">
-                  <div className="cam-collapsed-left">
-                    <span className="cam-rec-dot" />
-                    <span className="cam-collapsed-label">Camera Tracking Active (Preview Hidden)</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="cam-toggle-btn"
-                    onClick={() => setHideCamera(false)}
-                    title="Show live video preview"
-                  >
-                    <Eye size={13} />
-                    <span>Show Video</span>
-                  </button>
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    style={{ display: "none" }}
-                  />
-                </div>
-              ) : (
-                <div className="live-stream-box glass">
-                  <div className="cam-overlay-top">
-                    <div className="cam-feed-badge">
-                      <span className="cam-rec-dot" />
-                      <span>Live Feed</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="cam-hide-btn"
-                      onClick={() => setHideCamera(true)}
-                      title="Hide video preview"
-                    >
-                      <EyeOff size={12} />
-                      <span>Hide Video</span>
-                    </button>
-                  </div>
-
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="live-interview-webcam"
-                  />
-                </div>
-              )}
+            <div className="interview-live-container">
+              <div className="live-stream-box glass">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="live-interview-webcam"
+                />
+              </div>
 
               <div className="interview-chat-aside glass">
                 <div className="chat-aside-header">

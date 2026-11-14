@@ -173,6 +173,10 @@ export default function AutocompleteInput({
   disabled = false,
   label = "",
   icon = null,
+  required = false,
+  error = "",
+  containerRef = null,
+  inputRefProp = null,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
@@ -303,12 +307,32 @@ export default function AutocompleteInput({
   }
 
   return (
-    <div className="autocomplete-wrapper" ref={wrapperRef}>
-      {label && <span className="autocomplete-label">{label}</span>}
-      <div className="autocomplete-input-row">
+    <div
+      className={`autocomplete-wrapper ${error ? "has-field-error" : ""}`}
+      ref={(node) => {
+        wrapperRef.current = node;
+        if (containerRef) {
+          if (typeof containerRef === "function") containerRef(node);
+          else containerRef.current = node;
+        }
+      }}
+    >
+      {label && (
+        <span className="autocomplete-label">
+          {label}
+          {required && <span className="required-asterisk" aria-hidden="true">*</span>}
+        </span>
+      )}
+      <div className={`autocomplete-input-row ${error ? "input-field-error" : ""}`}>
         {icon && <span className="autocomplete-icon">{icon}</span>}
         <input
-          ref={inputRef}
+          ref={(node) => {
+            inputRef.current = node;
+            if (inputRefProp) {
+              if (typeof inputRefProp === "function") inputRefProp(node);
+              else inputRefProp.current = node;
+            }
+          }}
           type="text"
           value={value}
           onChange={(e) => {
@@ -337,6 +361,8 @@ export default function AutocompleteInput({
           autoComplete="off"
         />
       </div>
+
+      {error && <span className="field-error-text">{error}</span>}
 
       {isOpen && filteredSuggestions.length > 0 && (
         <ul className="autocomplete-dropdown" ref={listRef}>

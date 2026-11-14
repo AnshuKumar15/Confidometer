@@ -10,7 +10,7 @@ import {
   Activity, Timer, Code2, Shield, BookOpen, Box,
   Bot, User, CheckCircle2, XCircle, Play, Check,
   ChevronDown, Video, FileText, Compass,
-  ArrowUpRight, HelpCircle, Lock, Gauge
+  ArrowUpRight, HelpCircle, Lock, Gauge, Database
 } from "lucide-react";
 import BrandLogo from "@/components/BrandLogo";
 
@@ -60,6 +60,15 @@ const INTERVIEW_TYPES = [
     description: "Practice counteroffering base pay, stock grants, and benefits against an AI recruiter trained on tech market rates.",
     color: "#b45309",
     tag: "High ROI"
+  },
+  {
+    id: "sql",
+    label: "SQL Assessment",
+    badge: "Database & Queries",
+    icon: <Database size={24} />,
+    description: "In-browser SQLite challenges across joins, aggregations, and window functions with live AI feedback.",
+    color: "#00cec9",
+    tag: "In-Browser DB"
   },
 ];
 
@@ -183,7 +192,7 @@ const MOCK_POOL = [
 const FAQS = [
   {
     q: "Is Confidometer really free to practice?",
-    a: "Yes! You can take full AI mock interviews, practice 60-second impromptu drills in Get Set Speak, and run peer-to-peer sessions completely free without entering a credit card."
+    a: "Yes! You can take full AI mock interviews, practice 60-second impromptu drills in Get Set Speak, and run peer-to-peer sessions completely free—no payment details or subscriptions required."
   },
   {
     q: "How does the real-time AI scoring analyze my video & voice?",
@@ -372,12 +381,6 @@ export default function LandingPage() {
                 <span>See How It Works</span>
               </a>
             </motion.div>
-
-            <div className="lp-hero-reassurance">
-              <span>⚡ 100% Free mock practice</span>
-              <span className="lp-reassure-dot">•</span>
-              <span>Zero mentor scheduling</span>
-            </div>
           </div>
 
         </section>
@@ -393,9 +396,9 @@ export default function LandingPage() {
               <span className="lp-impact-sub">From eye contact to vocal pitch stability</span>
             </div>
             <div className="lp-impact-stat">
-              <span className="lp-impact-number">5</span>
+              <span className="lp-impact-number">6</span>
               <span className="lp-impact-label">Interview Formats</span>
-              <span className="lp-impact-sub">Tech, HR, LeetCode DSA, STAR & Salary</span>
+              <span className="lp-impact-sub">Tech, HR, DSA, SQL, STAR & Salary</span>
             </div>
             <div className="lp-impact-stat">
               <span className="lp-impact-number">∞</span>
@@ -791,12 +794,12 @@ export default function LandingPage() {
 
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            SECTION 8: 5 SPECIALIZED INTERVIEW FORMATS
+            SECTION 8: 6 SPECIALIZED INTERVIEW FORMATS
            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
         <section className="lp-section lp-types-section">
           <ScrollReveal className="lp-section-header">
             <div className="lp-pill-badge lp-badge-teal">Comprehensive Coverage</div>
-            <h2>Five ways to practice. One powerful platform.</h2>
+            <h2>Six ways to practice. One powerful platform.</h2>
             <p>Every stage of the modern hiring loop requires a distinct skill set. Master them all.</p>
           </ScrollReveal>
 
@@ -995,12 +998,6 @@ export default function LandingPage() {
               <Link href="/speak" className="lp-btn-cta-secondary">
                 <span>Try Get Set Speak Drills</span>
               </Link>
-            </div>
-
-            <div className="lp-final-micro-trust">
-              <span>✓ 100% Free mock practice</span>
-              <span className="lp-reassure-dot">•</span>
-              <span>✓ Ready in under 60 seconds</span>
             </div>
           </ScrollReveal>
         </section>
