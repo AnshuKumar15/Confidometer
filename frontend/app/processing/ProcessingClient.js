@@ -3,47 +3,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getAnalysis } from "@/utils/api";
-import { getActiveInterviewUpload, clearActiveInterviewUpload } from "@/utils/pendingInterview";
 import { motion, AnimatePresence } from "framer-motion";
 
 const STAGE_LABELS = [
-  { threshold: 0, label: "Saving your session..." },
-  { threshold: 8, label: "Packaging video recording & telemetry..." },
-  { threshold: 15, label: "Initializing analysis..." },
-  { threshold: 25, label: "Extracting audio track..." },
-  { threshold: 35, label: "Transcribing speech with AI..." },
-  { threshold: 45, label: "Detecting filler words..." },
-  { threshold: 55, label: "Analyzing voice stability..." },
+  { threshold: 5, label: "Initializing analysis..." },
+  { threshold: 15, label: "Extracting audio track..." },
+  { threshold: 30, label: "Transcribing speech with AI..." },
+  { threshold: 35, label: "Detecting filler words..." },
+  { threshold: 50, label: "Analyzing voice stability..." },
   { threshold: 65, label: "Tracking eye contact patterns..." },
-  { threshold: 72, label: "Evaluating gestures & posture..." },
-  { threshold: 80, label: "Consulting AI evaluator & analyzing answers..." },
+  { threshold: 75, label: "Evaluating gestures & posture..." },
+  { threshold: 80, label: "Computing confidence score..." },
   { threshold: 90, label: "Generating detailed AI feedback..." },
-  { threshold: 96, label: "Finalizing reports..." },
+  { threshold: 100, label: "Finalizing reports..." },
 ];
 
 function getStageLabel(progress) {
   for (let i = STAGE_LABELS.length - 1; i >= 0; i--) {
     if (progress >= STAGE_LABELS[i].threshold) return STAGE_LABELS[i].label;
   }
-  return "Saving your session...";
+  return "Starting analysis...";
 }
 
 export default function ProcessingClient() {
   const params = useSearchParams();
   const router = useRouter();
-  const speechIdParam = useMemo(() => params.get("speechId"), [params]);
-  const [activeSpeechId, setActiveSpeechId] = useState(speechIdParam || "");
+  const speechId = useMemo(() => params.get("speechId"), [params]);
   const [error, setError] = useState("");
-  const [progress, setProgress] = useState(speechIdParam ? 15 : 5);
-  const [displayProgress, setDisplayProgress] = useState(speechIdParam ? 15 : 5);
-  const [retryTrigger, setRetryTrigger] = useState(0);
-
-  // Sync if speechIdParam arrives from URL
-  useEffect(() => {
-    if (speechIdParam && speechIdParam !== activeSpeechId) {
-      setActiveSpeechId(speechIdParam);
-    }
-  }, [speechIdParam, activeSpeechId]);
+  const [progress, setProgress] = useState(0);
+  const [displayProgress, setDisplayProgress] = useState(0);
 
   // Smooth animation of displayed progress toward actual progress
   useEffect(() => {
@@ -55,50 +43,11 @@ export default function ProcessingClient() {
     }
   }, [displayProgress, progress]);
 
-  // Smooth micro-ticking (80% -> 89%) while awaiting LLM analysis response
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
   useEffect(() => {
-    if (progress >= 80 && progress < 89 && !error) {
-      const interval = setInterval(() => {
-        setProgress((prev) => (prev >= 80 && prev < 89 ? prev + 1 : prev));
-      }, 700);
-      return () => clearInterval(interval);
-    }
-  }, [progress, error]);
-
-  // Await background upload started during finish interview
-  useEffect(() => {
-    if (activeSpeechId) return;
-
-    const uploadPromise = getActiveInterviewUpload();
-    if (!uploadPromise) return;
-
-    // Smoothly increment initial progress while upload completes
-    const uploadTimer = setInterval(() => {
-      setProgress((prev) => (prev < 14 ? prev + 1 : prev));
-    }, 200);
-
-    uploadPromise
-      .then((data) => {
-        clearInterval(uploadTimer);
-        clearActiveInterviewUpload();
-        setActiveSpeechId(data.speech_id);
-        setProgress((prev) => Math.max(prev, 15));
-        router.replace(`/processing?speechId=${data.speech_id}`);
-      })
-      .catch((err) => {
-        clearInterval(uploadTimer);
-        clearActiveInterviewUpload();
-        setError("Failed to upload interview recording: " + (err.message || "Unknown error"));
-      });
-
-    return () => {
-      clearInterval(uploadTimer);
-    };
-  }, [activeSpeechId, router, retryTrigger]);
-
-  // Poll analysis once activeSpeechId is available
-  useEffect(() => {
-    if (!activeSpeechId) return;
+    if (!speechId) return;
 
     let cancelled = false;
     let errorCount = 0;
@@ -106,12 +55,13 @@ export default function ProcessingClient() {
 
     const poll = async () => {
       try {
-        const data = await getAnalysis(activeSpeechId);
+        const data = await getAnalysis(speechId);
         if (cancelled) return;
 
         errorCount = 0;
+        setIsRetrying(false);
 
-        // Update progress from backend analysis
+        // Update progress
         const serverProgress = data.progress || 0;
         setProgress((prev) => Math.max(prev, serverProgress));
 
@@ -123,17 +73,17 @@ export default function ProcessingClient() {
             const existing = raw ? JSON.parse(raw) : [];
             const next = [
               {
-                speechId: activeSpeechId,
+                speechId,
                 createdAt: new Date().toLocaleString()
               },
-              ...existing.filter((item) => String(item.speechId) !== String(activeSpeechId))
+              ...existing.filter((item) => String(item.speechId) !== String(speechId))
             ].slice(0, 15);
             localStorage.setItem(key, JSON.stringify(next));
           } catch {
             // Ignore local history write issues.
           }
           setTimeout(() => {
-            if (!cancelled) router.replace(`/dashboard?speechId=${activeSpeechId}`);
+            if (!cancelled) router.replace(`/dashboard?speechId=${speechId}`);
           }, 800);
           return;
         }
@@ -150,7 +100,7 @@ export default function ProcessingClient() {
         if (errorCount >= MAX_RETRIES) {
           setError(err.message || "Unable to reach the server. The backend may be restarting.");
         } else {
-          // Retry with backoff capped at 4s
+          // Retry with delay capped at 4s
           const delay = Math.min(2000 * errorCount, 4000);
           setTimeout(poll, delay);
         }
@@ -162,10 +112,9 @@ export default function ProcessingClient() {
     return () => {
       cancelled = true;
     };
-  }, [router, activeSpeechId, retryTrigger]);
+  }, [router, speechId, retryTrigger]);
 
-  const hasPending = typeof window !== "undefined" && getActiveInterviewUpload();
-  if (!activeSpeechId && !hasPending && !error) {
+  if (!speechId) {
     return <p className="error-text centered">Missing speech id.</p>;
   }
 
@@ -226,7 +175,7 @@ export default function ProcessingClient() {
                 setRetryTrigger((prev) => prev + 1);
               }}
             >
-              🔄 Retry
+              🔄 Check Again
             </button>
           </div>
         ) : null}

@@ -174,16 +174,16 @@ export default function AutocompleteInput({
   label = "",
   icon = null,
   required = false,
-  error = "",
-  containerRef = null,
-  inputRefProp = null,
+  hasError = false,
+  inputRef: externalInputRef = null,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const wrapperRef = useRef(null);
   const listRef = useRef(null);
-  const inputRef = useRef(null);
+  const internalInputRef = useRef(null);
+  const inputRef = externalInputRef || internalInputRef;
   const justSelectedRef = useRef(false);
   const isTypingRef = useRef(false);
 
@@ -307,32 +307,17 @@ export default function AutocompleteInput({
   }
 
   return (
-    <div
-      className={`autocomplete-wrapper ${error ? "has-field-error" : ""}`}
-      ref={(node) => {
-        wrapperRef.current = node;
-        if (containerRef) {
-          if (typeof containerRef === "function") containerRef(node);
-          else containerRef.current = node;
-        }
-      }}
-    >
+    <div className={`autocomplete-wrapper ${hasError ? "input-has-error" : ""}`} ref={wrapperRef}>
       {label && (
         <span className="autocomplete-label">
           {label}
-          {required && <span className="required-asterisk" aria-hidden="true">*</span>}
+          {required && <span className="required-star" aria-hidden="true">*</span>}
         </span>
       )}
-      <div className={`autocomplete-input-row ${error ? "input-field-error" : ""}`}>
+      <div className={`autocomplete-input-row ${hasError ? "field-error-pulse" : ""}`}>
         {icon && <span className="autocomplete-icon">{icon}</span>}
         <input
-          ref={(node) => {
-            inputRef.current = node;
-            if (inputRefProp) {
-              if (typeof inputRefProp === "function") inputRefProp(node);
-              else inputRefProp.current = node;
-            }
-          }}
+          ref={inputRef}
           type="text"
           value={value}
           onChange={(e) => {
@@ -361,8 +346,6 @@ export default function AutocompleteInput({
           autoComplete="off"
         />
       </div>
-
-      {error && <span className="field-error-text">{error}</span>}
 
       {isOpen && filteredSuggestions.length > 0 && (
         <ul className="autocomplete-dropdown" ref={listRef}>
