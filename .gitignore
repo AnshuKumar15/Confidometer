@@ -1,3 +1,7 @@
+# Personal / Local files
+resume_qna.txt
+resume_qna.txt*
+
 # OS / Editor
 .vscode/
 .DS_Store
