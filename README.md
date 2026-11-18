@@ -1,92 +1,95 @@
-# Confidometer
+# Confidometer 📊🤖
 
-An end-to-end, multimodal AI career acceleration platform that combines real-time interview simulation, automated computer vision and speech analytics, WebRTC peer practice, and an autonomous job application agent.
+> **Multimodal AI Career Acceleration & Interview Intelligence Platform**  
+> Simulating realistic interviews, scoring verbal & non-verbal poise in real-time, and automating your job hunt.
 
-Built with Next.js 14, FastAPI (Python 3.13), PostgreSQL, Docker, Google Gemini, MediaPipe, Whisper, and Playwright.
-
----
-
-## Overview
-
-Preparing for modern technical and behavioral interviews requires mastering both subject-matter depth and non-verbal delivery (eye contact, pacing, posture, and poise). Confidometer solves this by providing:
-
-1. An AI Interviewer (Liza) capable of conducting realistic technical, behavioral, live coding, SQL, and salary negotiation rounds.
-2. A Multimodal Diagnostic Engine that evaluates recorded interview video for gaze tracking, posture, speech fluency, pitch stability, and filler words.
-3. An Autonomous Job Application Agent (AutoApply) that aggregates listings, scores resume alignment, crafts tailored cover letters, and automates form submissions.
-4. Peer-to-Peer Mock Interviews with WebRTC video, live speech transcription, and AI-guided question prompts.
-
-For comprehensive architectural specifications, mathematical scoring models, and API definitions, see [documentation.md](documentation.md).
+Built with **Next.js 14**, **FastAPI**, **PostgreSQL**, **Google Gemini**, **MediaPipe**, **Groq / Whisper**, **WebRTC**, and **Playwright**.
 
 ---
 
-## Core Capabilities
+## 📌 Overview
 
-### 1. AI-Driven Mock Interviews (Liza)
-- Multiple Round Formats: Technical, HR Culture Fit, Behavioural (STAR method), DSA Live Coding (Monaco Editor with dynamic Easy + Medium challenges), SQL Assessment (interactive database queries), and Salary Negotiation.
-- Adaptive Questioning: Dynamic Gemini-powered follow-ups informed by candidate resume content, target role, and past session history to prevent question repetition.
-- Stress Interview Mode: Simulates high-pressure hiring environments with mid-response interruptions, measuring emotional composure and fidgeting.
-- Natural Voice Delivery: Responsive speech synthesis using Microsoft Edge TTS with localized numerical normalization.
+Mastering technical and behavioral interviews requires two critical pillars: **domain depth** and **delivery poise** (eye contact, pacing, posture, and composure). **Confidometer** bridges this gap by unifying:
 
-### 2. Multimodal Diagnostic Engine
-- Gaze & Eye Contact Tracking: MediaPipe Face Landmarker (478-point mesh) iris boundary analysis combined with solvePnP 3D head pose estimation (yaw and pitch).
-- Posture & Movement Scoring: MediaPipe Pose Landmarker tracking 8 upper-body keypoints to compute movement velocity, scored on a Gaussian bell curve to detect nervous fidgeting or unnatural stillness.
-- Voice & Speech Dynamics: Ultra-low-memory PCM audio analysis measuring fundamental pitch variation (Hz), pause/silence ratio, speaking rate, and a three-tier filler word detector (definite, contextual, and phrase fillers).
-- Hybrid Fast STT: Sub-second Groq Cloud LPU transcription with local Whisper fallback, supported by a self-correcting transcription buffer using phonetic similarity matching.
-- Composite Scoring: Generates overall confidence ratings (0-100) and granular sub-scores alongside actionable Gemini-generated qualitative feedback.
+- **AI Mock Interviewer (Liza)**: Adaptive technical, behavioral, live coding, SQL, and salary negotiation rounds.
+- **Multimodal Diagnostic Engine**: Automated computer vision and speech pipelines measuring gaze accuracy, fidgeting, speech cadence, and filler words.
+- **AutoApply (Autonomous Job Agent)**: Smart multi-board job discovery, semantic resume-to-job matching, tailored cover letters, and automated submissions.
+- **Peer-to-Peer Mock Network**: Real-time WebRTC video rooms with live speech transcription and AI-guided prompts.
 
-### 3. AutoApply (Autonomous Job Application Agent)
-- Tiered Job Discovery: Aggregates listings across free developer APIs (Remotive, Arbeitnow, Adzuna), user API keys (JSearch), and fallback web scrapers with SHA-256 deduplication.
-- Semantic Resume Matching: Multi-criteria weighted matching (Skills 35%, Location 20%, Industry 20%, Experience 15%, Employment Type 10%) with automated level filtering.
-- Adaptive Feedback Learning: Learns from user skip behavior (experience mismatch, location preference) to dynamically tighten matching criteria over time.
-- Automated Application Submission: Tailored cover letter synthesis and Playwright browser automation with human-like delays, anti-bot safeguards, and configurable daily limits.
-
-### 4. Peer-to-Peer WebRTC Practice
-- Real-Time Video Rooms: Low-latency peer-to-peer interviews with STUN/ICE connectivity and buffered candidate negotiation.
-- Role-Based Tooling: Dynamic role assignment (Interviewer vs. Interviewee) with synchronized resume viewers and AI-generated follow-up recommendations.
-- Live Transcription & Diagnostics: Real-time speech-to-text broadcast via WebSockets, with automated post-interview video diagnostics.
+📖 *Looking for deep architectural specs, scoring formulas, and API definitions? Check out [documentation.md](documentation.md).*
 
 ---
 
-## Tech Stack
+## 🌟 Core Highlights
 
-| Layer | Technologies |
+### 🎯 1. AI-Driven Mock Interviews (Liza)
+- **Multi-Format Rounds**: Technical, HR Culture Fit, **Behavioural (STAR Method)**, **DSA Live Coding** (side-by-side Monaco Editor with Easy + Medium challenges), **SQL Assessment** (200+ curated schema challenges), and **Salary & Offer Negotiation**.
+- **Dynamic Context-Aware Probing**: Gemini-powered questions adapt in real-time to your **resume**, target **company**, and past session history to eliminate repetitive questions.
+- **⚡ Stress Interview Mode**: Simulates intense hiring environments with mid-response interruptions (~20% frequency) to assess composure, vocal steadiness, and fidgeting under pressure.
+- **Natural Speech Synthesis**: Responsive, crystal-clear voice feedback powered by **Microsoft Edge TTS** with localized numerical formatting.
+
+### 👁️ 2. Multimodal Diagnostic Engine
+- **Gaze & Eye Contact Tracking**: **Google MediaPipe Face Landmarker** (478-point iris mesh) combined with `solvePnP` 3D head pose estimation (yaw & pitch) and OpenCV fallbacks.
+- **Posture & Gesture Analysis**: **MediaPipe Pose Landmarker** tracking 8 upper-body landmarks to compute movement velocity, scored on a **Gaussian bell curve** to detect nervous fidgeting or unnatural stiffness.
+- **Acoustic & Voice Stability**: Ultra-low-memory PCM audio processing computing pitch variance (Hz), conversational pause ratio, and speech pacing.
+- **Tiered Filler Word Parser**: Three-tier lexical filter detecting definite (*um, uh*), contextual (*basically, literally*), and phrase-level fillers (*you know what I mean*).
+- **Hybrid Cloud STT**: Ultra-fast **Groq Cloud LPUs** (sub-second transcription) with local **OpenAI Whisper** fallback and smart phonetic self-correction.
+- **Composite Confidence Score**: Normalizes non-verbal poise and technical depth into an animated **0–100 Confidence Score** paired with executive verbal summaries.
+
+### 🚀 3. AutoApply (Autonomous Job Application Agent)
+- **Tiered Multi-Board Scraping**: Aggregates live listings from free developer APIs (Remotive, Arbeitnow, Adzuna), user-configured keys (JSearch), and fallback scrapers with **SHA-256 fingerprint deduplication**.
+- **AI Semantic Match Engine**: Multi-criteria weighted scoring (**Skills 35%**, **Location 20%**, **Industry 20%**, **Experience 15%**, **Employment Type 10%**) with automated level filtering.
+- **Adaptive Feedback Learning**: Dynamically learns from candidate skip behavior to penalize mismatched locations or experience levels over a 30-day sliding window.
+- **Headless Form Submission**: Generates tailored cover letters and automates application submission via **Playwright** with human-like delays, anti-bot safeguards, and configurable daily limits.
+
+### 👥 4. Peer-to-Peer WebRTC Practice
+- **Real-Time Video Rooms**: Peer-to-peer interviews using **WebRTC** with buffered ICE candidate negotiation and dynamic camera/microphone track hotplugging.
+- **Role-Based Tooling**: Dedicated **Interviewer** vs. **Interviewee** workspaces with synchronized resume views and real-time AI follow-up suggestions.
+- **Live STT & Auto-Diagnostics**: Speech-to-text broadcast in real-time via **WebSockets**, with automatic webcam recording upload for background diagnostics at session end.
+
+---
+
+## 🛠️ Technology Stack
+
+| Domain | Technologies & Libraries |
 |---|---|
-| Frontend | Next.js 14 (App Router), React, Monaco Editor, Recharts, Framer Motion, Vanilla CSS (Glassmorphism) |
-| Backend | FastAPI (Python 3.13), Uvicorn, SQLAlchemy, Pydantic, SlowAPI Rate Limiting |
-| AI & LLMs | Google Gemini API (gemini-1.5-pro / flash), Circuit Breaker fault tolerance |
-| Vision & Audio | Google MediaPipe (Face & Pose Tasks), OpenCV, Groq Cloud API, OpenAI Whisper, Microsoft Edge TTS |
-| Database & Infra | PostgreSQL (Neon Serverless / Docker), Playwright, Nginx, Docker Compose |
+| **Frontend** | **Next.js 14** (App Router), **React**, **Monaco Editor**, **Framer Motion**, **Recharts**, Vanilla CSS (Glassmorphism & High-Density Dark Mode) |
+| **Backend** | **FastAPI** (Python 3.13), **Uvicorn**, **SQLAlchemy ORM**, **Pydantic**, **SlowAPI** Rate Limiting |
+| **AI & LLM Core** | **Google Gemini API** (gemini-1.5-pro / flash), Circuit Breaker fault tolerance |
+| **Computer Vision** | **Google MediaPipe** (Face Landmarker & Pose Landmarker Tasks), **OpenCV** |
+| **Speech & Audio** | **Groq Cloud API** (Whisper on LPUs), **OpenAI Whisper**, **Microsoft Edge TTS**, Web Audio API |
+| **Automation & Database** | **Playwright**, **PostgreSQL** (Neon Serverless / Docker), **Nginx**, **Docker Compose** |
 
 ---
 
-## Architecture Summary
+## 🏗️ System Architecture
 
 ```
-[Browser / Client]
+[Client / Browser]
   Next.js 14 (Monaco Editor, WebRTC Video, Audio Waveform Visualizer)
          |
          v (HTTPS / WSS via Nginx)
 [FastAPI Backend Engine]
-  +-- /agent       : Dynamic LLM dialogue, DSA sandbox, TTS audio, WebSocket STT
+  +-- /agent       : Dynamic LLM dialogue, DSA sandbox, Edge TTS, WebSocket STT
   +-- /upload      : Video ingestion & asynchronous diagnostic dispatch
   +-- /analysis    : Scoring computation, metric retrieval, performance history
   +-- /meeting     : Peer-to-peer WebRTC signaling & live transcript broadcast
   +-- /autoapply   : Tiered job discovery, resume matching & Playwright automation
-  +-- /trends      : Streak tracking, milestone achievements & analytics
+  +-- /trends      : Daily streak tracking, milestone badges & historical charts
          |
          +--> [Diagnostic Pipeline] Sequential GC execution (Audio -> Eye -> Pose -> LLM)
-         +--> [PostgreSQL Database] Candidate profiles, speeches, jobs & application records
+         +--> [PostgreSQL Database] Candidate profiles, speeches, jobs & application funnel
 ```
 
 ---
 
-## Quickstart
+## ⚡ Quickstart
 
 ### Prerequisites
-- Python 3.13+
-- Node.js 18+
-- PostgreSQL or Neon Serverless connection string
-- Google Gemini API Key (Groq API Key recommended for accelerated STT)
+- **Python 3.13+**
+- **Node.js 18+**
+- **PostgreSQL** (or Neon Serverless URL)
+- **Google Gemini API Key** (*Groq API Key recommended for accelerated STT*)
 
 ### 1. Backend Setup
 
@@ -100,7 +103,7 @@ python -m venv venv
 # Linux/macOS:
 source venv/bin/activate
 
-# Install dependencies and download vision models
+# Install dependencies & pre-download vision models
 pip install -r requirements.txt
 python -m app.utils.download_models
 
@@ -128,7 +131,7 @@ npm install
 npm run dev
 ```
 
-Visit `http://localhost:3000` in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### 3. Docker Deployment
 
@@ -138,12 +141,12 @@ docker-compose up --build -d
 
 ---
 
-## Documentation
+## 📖 In-Depth Documentation
 
-For full details on the diagnostic algorithms, mathematical formulas (Gaussian bell curve scoring, stress tolerance, blended evaluation), database schemas, and background scheduler architecture, please review [documentation.md](documentation.md).
+For full mathematical derivations (Gaussian bell curve scoring, stress tolerance formulas, blended evaluation weights), database entity relationships, and background worker lifecycle, see [documentation.md](documentation.md).
 
 ---
 
-## License
+## 📄 License
 
 This project is open source and available under the MIT License.
